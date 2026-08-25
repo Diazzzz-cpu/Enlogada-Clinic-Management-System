@@ -623,6 +623,49 @@ body.printing-receipt {
   page: receipt;
 }
 
+/* ── The clinical result report ──────────────────────────────────────────────────────────────
+ *
+ * Two problems the receipt did not have, both of which only appear once a report is the thing
+ * being printed.
+ *
+ * FIRST: two `.print-area` elements mounted at once print stacked on top of each other. The rule
+ * above positions every `.print-area` absolutely at the page origin, which is correct when
+ * exactly one exists — and the diagnostic dashboard can hold a result viewer, an entry dialog and
+ * a document preview simultaneously. Today they are usually mutually exclusive by luck of which
+ * dialog is open; `justReleased` plus an open viewer is not. Scoping to the report that asked to
+ * be printed makes the collision impossible rather than unlikely.
+ *
+ * Deliberately additive: it only narrows anything while `printing-report` is set, so the receipt
+ * and every other existing print button behave exactly as before, and the documented "must carry
+ * .print-area" contract is unchanged.
+ *
+ * SECOND: nothing in this file has ever controlled page breaks, because nothing printed a table
+ * before. A measurement grid, several prose paragraphs, an impression and a signatory block will
+ * cross a page boundary — and a signed clinical document whose signature is orphaned on page two,
+ * or whose measurement row is split in half, is a real defect rather than a cosmetic one. */
+@media print {
+  body.printing-report .print-area:not(.print-active),
+  body.printing-report .print-area:not(.print-active) * {
+    visibility: hidden;
+  }
+  .print-area table,
+  .print-area tr,
+  .print-area [data-signatory] {
+    break-inside: avoid;
+  }
+  .print-area h2,
+  .print-area h4 {
+    break-after: avoid;
+  }
+}
+@page report {
+  size: A4;
+  margin: 12mm;
+}
+body.printing-report {
+  page: report;
+}
+
 /* ── A table that becomes a list of cards on a phone ─────────────────────────────────────────
  *
  * Opt in with <Table stack> and give each <TableCell> a `label`. Below `sm` the header is hidden,

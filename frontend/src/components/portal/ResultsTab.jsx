@@ -17,7 +17,8 @@ import { SearchInput } from '../ui/search-input';
 import { Dialog, DialogContent, DialogTrigger } from '../ui/dialog';
 import { StatusBadge } from '../ui/status-badge';
 import { TabsContent } from '../ui/tabs';
-import { formatDateTime } from '../../lib/date';
+import ResultReport from '../ResultReport';
+import { printReport } from '../../lib/printReport';
 import { isSafeResultUrl, downloadResultFile } from '../../lib/resultFile';
 
 /**
@@ -111,60 +112,16 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                         </DialogTrigger>
                         <DialogContent className="max-w-2xl">
 
-                        <div className="print-area space-y-4">
-                          {/* Official Lab Report Simulation Header */}
-                          <div className="border-b border-gray-200 pb-4 text-center space-y-1">
-                            <h2 className="text-base font-extrabold text-slate-900 uppercase tracking-wide m-0">ENLOGADA ULTRASOUND & DIAGNOSTIC CLINIC</h2>
-                            <p className="text-fine text-gray-500 font-semibold m-0">Official Diagnostic Examination Report</p>
-                            <span className="text-meta text-brand-600 font-bold block">CONFIDENTIAL MEDICAL DOCUMENT</span>
-                          </div>
-
-                          {/* Patient Info Summary Block */}
-                          <div className="bg-gray-50 border border-[#e6ebf1] rounded-xl p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                            <div>
-                              <span className="text-gray-400 font-bold text-meta uppercase block">Patient Name</span>
-                              <span className="font-bold text-slate-900">{profiles.selected?.first_name} {profiles.selected?.last_name}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400 font-bold text-meta uppercase block">Examination</span>
-                              <span className="font-bold text-slate-900">{item.test_name}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400 font-bold text-meta uppercase block">Category</span>
-                              <span className="font-bold text-slate-900">{item.category_name}</span>
-                            </div>
-                            {/* Only when there is one. A "Referred by: —" line on a self-pay
-                                walk-in's report is noise: nobody referred them, and an empty
-                                field invites the reader to wonder what is missing. */}
-                            {item.referring_physician && (
-                              <div>
-                                <span className="text-gray-400 font-bold text-meta uppercase block">Referred By</span>
-                                <span className="font-bold text-slate-900">{item.referring_physician}</span>
-                                {item.referring_physician_prc && (
-                                  <span className="block text-meta text-slate-500">
-                                    PRC {item.referring_physician_prc}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Findings Body */}
-                          <div className="space-y-3 pt-2">
-                            <div className="space-y-1">
-                              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider m-0">Clinical Findings & Impression</h4>
-                              <div className="p-4 bg-white border border-gray-200 rounded-xl text-xs leading-relaxed text-gray-800 whitespace-pre-line min-h-[100px]">
-                                {item.findings || 'No specific clinical findings recorded.'}
-                              </div>
-                            </div>
-
-                            {item.remarks && (
-                              <div className="border-l-4 border-brand-500 pl-3 py-1">
-                                <h4 className="text-fine font-bold text-gray-500 uppercase m-0">Remarks</h4>
-                                <p className="text-xs text-gray-700 m-0">{item.remarks}</p>
-                              </div>
-                            )}
-
+                        {/* The patient's copy — the SAME component the clinic's copy uses. The
+                            requirement is that staff record findings once and the saved result is
+                            what gets printed; two renderings could only ever agree by coincidence,
+                            and these two already did not. */}
+                        <ResultReport
+                          result={item}
+                          patientName={`${profiles.selected?.first_name || ''} ${profiles.selected?.last_name || ''}`.trim()}
+                          measurements={item.measurements || []}
+                          variant="patient"
+                        >
                             {(item.file_path || item.file_url) && (
                               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e6ebf1] bg-slate-50/80 p-3">
                                 <span className="flex items-center gap-2">
@@ -217,17 +174,11 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                                 )}
                               </div>
                             )}
-                          </div>
-
-                          {/* Footer Release Stamp */}
-                          <div className="pt-4 border-t border-[#e6ebf1] text-fine">
-                            <span className="text-gray-400 font-medium">Released: {formatDateTime(item.released_at)}</span>
-                          </div>
-                        </div>
+                        </ResultReport>
 
                         <div className="flex justify-end pt-2">
                           <Button
-                            onClick={() => window.print()}
+                            onClick={printReport}
                             variant="outline"
                             className="text-xs font-bold flex items-center space-x-1.5"
                           >

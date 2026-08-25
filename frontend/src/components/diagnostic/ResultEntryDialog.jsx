@@ -4,8 +4,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import { formatDateTime } from '../../lib/date';
 import { TEMPLATES_BY_CATEGORY } from '../../lib/resultTemplates';
+import ResultReport from '../ResultReport';
+import { printReport } from '../../lib/printReport';
 
 /**
  * Recording findings, and authorising the release that sends them to the patient.
@@ -32,32 +33,15 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
                 <span className="text-sm font-bold">Result released successfully.</span>
               </div>
 
-              <div className="print-area space-y-3 bg-white rounded-2xl border border-[#e6ebf1] p-5">
-                <div className="text-center border-b border-[#e6ebf1] pb-3 space-y-0.5">
-                  <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide m-0">Enlogada Ultrasound &amp; Diagnostic Clinic</h3>
-                  <p className="text-xs text-gray-500 m-0">Diagnostic Result Certificate</p>
-                </div>
-                <p className="text-xs m-0">
-                  Patient: <strong>{entry.justReleased.first_name} {entry.justReleased.last_name}</strong> &bull; Examination: <strong>{entry.justReleased.test_name}</strong>
-                </p>
-                <div className="space-y-1">
-                  <span className="text-meta font-bold text-gray-500 uppercase tracking-wider block">Findings</span>
-                  <p className="whitespace-pre-wrap text-xs bg-gray-50 border border-gray-200 rounded-xl p-3 m-0">{entry.justReleased.findings || '—'}</p>
-                </div>
-                {entry.justReleased.result_remarks && (
-                  <div className="space-y-1">
-                    <span className="text-meta font-bold text-gray-500 uppercase tracking-wider block">Remarks</span>
-                    <p className="text-xs m-0">{entry.justReleased.result_remarks}</p>
-                  </div>
-                )}
-                <p className="text-fine text-gray-400 m-0 pt-2 border-t border-[#e6ebf1]">
-                  Released {formatDateTime(entry.justReleased.released_at)}
-                  {entry.justReleased.released_by_first_name && ` by ${entry.justReleased.released_by_first_name} ${entry.justReleased.released_by_last_name}`}
-                </p>
-              </div>
+              {/* The clinic's copy of what was just released, rendered by the same component that
+                  renders the patient's copy in the portal. They were two different documents
+                  before [1.50.0] — this one hardcoded the clinic's name and showed no referring
+                  physician, so the sheet filed here and the sheet the patient downloads disagreed
+                  about what the report said. */}
+              <ResultReport result={entry.justReleased} measurements={entry.justReleased.measurements || []} />
 
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => window.print()} className="text-xs font-bold flex items-center space-x-1.5">
+                <Button type="button" variant="outline" onClick={printReport} className="text-xs font-bold flex items-center space-x-1.5">
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print Now</span>
                 </Button>

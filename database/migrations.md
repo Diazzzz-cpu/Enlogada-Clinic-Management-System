@@ -1,5 +1,98 @@
 # Database Migration & Schema History
 
+## [1.50.0] - 2026-08-26 (A result is a form, not a paragraph)
+
+Four tables, no data. Ultrasound only — see the scope note at the end.
+
+Reverse with `node src/scripts/migrateResultFieldSets.js --rollback`. **It refuses while any
+measurement exists unless `--force` is also passed**, because unlike [1.45.0]'s rollback — which
+dropped a grouping and left the money intact — this one destroys clinical values a technician
+entered, and nothing else in the database holds them.
+
+### What the clinic actually produces
+
+Their own archive settles this. 1,113 real ultrasound reports, and every one opens the same way:
+
+```
+Findings:
+    Measurements:      <- discrete, per-study numeric fields with units
+    <narrative prose, one paragraph per organ>
+Impression:
+```
+
+The measurement block is not prose and never was. `Right Liver Lobe = 15.81 cm`,
+`Gallbladder = 7.09 x 2.21 x 1.67 cm`, `Prostate Gland = 3.42 x 3.46 x 3.22 cm ( wt.= 19.95 grams )`.
+A technician retypes it into a free-text box today, and the archive shows the cost: **3.6–5.2% of
+derived weights no longer match their own axes** — someone edited the measurements and never
+recomputed. Measured independently: the ellipsoid coefficient is exactly 0.5236 in 94% of reports
+and wrong in the rest. One file titled `whole abdomen-female- normal.doc` contains a chest X-ray.
+
+The 1,117 files are named by *findings* (`fatty liver + cholecystitis`, `GS only + adnexal cyst`),
+not by patient — only 5 of 1,117 carry a patient name. It is a template library maintained by
+file-copy, and it is decaying.
+
+### The four tables
+
+- **`result_field_sets`** — one row per study (`whole_abdomen`, `hbt`, `tvs`, …), scoped by
+  `category_id` so X-ray can be turned on later as seed data rather than a migration.
+  `repeat_label` is non-NULL for exactly one set: a twin study duplicates its column block, and
+  every other study in 1,113 reports is flat.
+- **`result_fields`** — the field definitions. `value_kind` distinguishes a scalar from a
+  `linear3` L×W×H triple, which is one row rather than three: three would lose the grouping, need
+  an ordinal to restore the order, and triple the join.
+- **`result_field_set_tests`** — which catalogue rows use which set. Deliberately **not** a
+  `tests.field_set_id` column: `testRepository.updateTest` writes every column unconditionally,
+  which is exactly how the Services Catalogue's status toggle used to wipe a test's `preparation`.
+  A new `tests` column walks into the same trap; a separate table cannot be erased by a caller
+  that never names it.
+- **`result_measurements`** — the values.
+
+### Three decisions that are load-bearing
+
+**Values attach to the result VERSION, not the visit test.** `createResult` inserts a new
+`test_results` row per save and copies nothing forward — which is why `resultService` has to
+re-read and re-pass file metadata explicitly or an amendment wipes it. If measurements hung off
+`visit_test_id`, an amendment would rewrite the superseded version's numbers *in place*, so the
+amendment history would render v1's prose beside v2's figures. That destroys precisely what
+[1.15.0] exists to preserve.
+
+**The formula is stamped on the stored value, not read from code at render.** `derivation` travels
+with the number. If a coefficient is ever corrected, new rows carry the new code and
+already-released reports keep saying what they said — the same principle as [1.30.0]'s refusal to
+restate a closed day. A `value_source` of `'override'` means a sonologist typed a figure the
+formula disagrees with; it is kept exactly as typed. This system shows a clinician a
+disagreement, it does not overrule one.
+
+**Only three formulas, all evidenced by the corpus.** `ELLIPSOID_VOLUME` (π/6, verified at 0.5236
+across 343 reports), `EDC_NAEGELE` (scan date + 280 − GA, median exactly 280), and `GA_FROM_MSD`
+(MSD in mm + 25 — measured; **not** Hellman's +30, which fits this clinic's data terribly).
+**Hadlock is deliberately absent.** Gestational age and estimated fetal weight come off the
+scanner printout, the clinic's templates state no regression for either, and a fabricated
+gestational age on a clinical report is not a rounding error.
+
+### Nothing is NOT NULL at the value level
+
+Every field in the corpus has a real absence rate — the thyroid's right lobe appears in 85% of
+thyroid studies, and 18 of 405 whole abdomens carry neither pelvic organ (paediatric, or
+post-hysterectomy). A NOT NULL the clinic's own practice violates does not get respected; it gets
+a `0` typed into it, which is worse than a blank on a clinical document. `is_required` is advisory
+— a UI hint, never a save-blocker.
+
+The sex-conditional branch is real and total: of 405 whole abdomens, 194 carried a prostate, 193 a
+uterus, and **zero carried both**. `applies_to_sex` sits on the field rather than splitting the
+set in two, which would duplicate the five organs both branches share.
+
+### Scope
+
+**Ultrasound only.** The clinic's archive contains exactly **two** X-ray reports, both Chest PA,
+against a 24-test X-ray catalogue. There is no evidence to build the other 23 from, and guessing
+at a clinical form produces a document that looks official and is wrong. Laboratory has its own
+field taxonomy (74 analytes, sex-conditional reference ranges) and is a later slice.
+
+`schema.sql` is **not** updated, matching what `test_packages`, `payment_methods` and
+`payment_submissions` already do — every table added since roughly [1.45.0] lives in its migration
+script alone.
+
 ## [1.46.0] - 2026-08-25 (A fill and its foreground are two halves of one decision)
 
 No schema change. Frontend only. Fixes the third recurrence of [1.45.0]'s bug shape, and adds the

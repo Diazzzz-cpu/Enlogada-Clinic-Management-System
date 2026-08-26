@@ -386,7 +386,106 @@ test.describe('Ultrasound structured measurements', () => {
   // The API tests above prove the data is right. This proves the modality that records NO
   // measurements is untouched, which is the regression with the widest blast radius: every
   // Laboratory and X-ray ticket in the clinic goes through this dialog.
-  test('a Laboratory ticket still has exactly one textarea and no grid', async ({ page }) => {
+  // ── The printed document ───────────────────────────────────────────────────────────────────
+  //
+  // The requirement is that the saved result prints as the form the clinic already issues. These
+  // assert the parts of that document that carry meaning: the sections that group the analytes,
+  // the four column headings, and the two signatories with their licence numbers. Nothing here
+  // asserts styling — only that the document says what their sheet says.
+  test('a Urinalysis prints as the clinic form, with sections and both signatories', async ({ page }) => {
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1984-02-19', sex: 'Male', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e urinalysis print' },
+    })).json()).data.visit;
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const ua = tests.find((t) => t.name === 'Urinalysis');
+    expect(ua, 'Urinalysis must exist in the catalogue').toBeTruthy();
+    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [ua.id] },
+    })).json()).data.visitTests[0];
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    const lab = await login('lab@enlogada.com');
+
+    // The form the clinic prints, filled the way they fill it — text, not numbers.
+    const rec = await apiContext.post(`${API}/results/${attached.id}`, {
+      headers: auth(lab),
+      multipart: {
+        findings: '',
+        measurements: JSON.stringify({
+          specimen: { value_text: 'RANDOM' },
+          color: { value_text: 'YELLOW' },
+          appearance: { value_text: 'CLEAR' },
+          glucose: { value_text: 'NEGATIVE' },
+          protein: { value_text: 'NEGATIVE' },
+          ph: { value_text: '6.0' },
+          specific_gravity: { value_text: '1.010' },
+          wbc: { value_text: '0-2' },
+          rbc: { value_text: '3-5' },
+          bacteria: { value_text: 'FEW' },
+        }),
+      },
+    });
+    expect(rec.status(), 'a laboratory form saves without any narrative prose').toBe(201);
+
+    const saved = (await (await apiContext.get(`${API}/results/${attached.id}`, { headers: auth(lab) })).json())
+      .data.result;
+    const byCodeLocal = Object.fromEntries((saved.measurements || []).map((m) => [m.field_code, m]));
+
+    // Text values survive verbatim — a numeric column would have refused three of these.
+    expect(byCodeLocal.color.value_text).toBe('YELLOW');
+    expect(byCodeLocal.wbc.value_text).toBe('0-2');
+    expect(byCodeLocal.bacteria.value_text).toBe('FEW');
+
+    // The sections that make it their document rather than a flat list.
+    expect(byCodeLocal.color.section).toBe('Macroscopic:');
+    expect(byCodeLocal.glucose.section).toBe('Chemical:');
+    expect(byCodeLocal.wbc.section).toBe('Microscopic:');
+    // And the reference range the clinic prints beside the microscopic counts.
+    expect(byCodeLocal.wbc.unit).toBe('/HPF');
+    expect(byCodeLocal.wbc.reference_note).toBe('0.0-5.0');
+
+    // Two signatories, both with licence numbers, in the clinic's printed order.
+    expect(saved.signatories).toHaveLength(2);
+    expect(saved.signatories[0].role_caption).toBe('Medical Technologist');
+    expect(saved.signatories[0].prc_license).toBe('0142853');
+    expect(saved.signatories[1].role_caption).toBe('Pathologist');
+    expect(saved.signatories[1].prc_license).toBe('0083764');
+
+    // The header block the form prints, carried by the result itself.
+    expect(saved.discipline).toBe('CLINICAL MICROSCOPY');
+    expect(saved.sex).toBe('Male');
+    expect(saved.birthdate).toBeTruthy();
+    expect(saved.patient_type_name).toBeTruthy();
+
+    // And it renders. Released first, because the patient copy only exists once it is out.
+    await apiContext.post(`${API}/results/${attached.id}/release`, { headers: auth(lab) });
+    await page.goto('/');
+    await page.getByText('Sign In', { exact: true }).first().click();
+    await page.fill('input[type="email"]', 'lab@enlogada.com');
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.locator('button[type="submit"]').click();
+    await expect(page.getByPlaceholder('Search patient, test, queue...')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('a Laboratory ticket renders its own grid, and still has exactly one textarea', async ({ page }) => {
     // Its own ticket, so it does not consume a seeded demo stage.
     const person = fixturePerson();
     const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
@@ -429,14 +528,15 @@ test.describe('Ultrasound structured measurements', () => {
 
     // The assertion `laboratory.spec.js` depends on without saying so: it drives the findings box
     // with a BARE page.locator('textarea'), so a second one anywhere in this dialog breaks two of
-    // its tests with a strict-mode violation, from a file that never mentions the grid.
+    // its tests with a strict-mode violation, from a file that never mentions the grid. [1.52.0]
+    // gave Laboratory its own field sets, so this now guards a grid that IS rendered — every input
+    // in it must remain an <input>.
     await expect(page.locator('textarea')).toHaveCount(1);
-    // And no grid at all, because a Laboratory test has no field set. This is what keeps the
-    // free-text path identical to what it was before the feature existed.
-    await expect(page.locator('[data-testid^="measurement-row-"]')).toHaveCount(0);
+    // And the grid is present, because [1.52.0] seeded the clinic's laboratory forms.
+    await expect(page.locator('[data-testid^="measurement-row-"]').first()).toBeVisible();
   });
 
-  test('a Laboratory result still records free text, and takes no measurements', async () => {
+  test('a Laboratory result records its clinic form, and keeps its free text', async () => {
     const lab = await login('lab@enlogada.com');
     const labVisitTest = await (async () => {
       const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
@@ -470,12 +570,13 @@ test.describe('Ultrasound structured measurements', () => {
       return attached.data.visitTests[0].id;
     })();
 
-    // No field set: this is what keeps every Laboratory and X-ray ticket on exactly the path it
-    // was on before this feature existed.
+    // [1.52.0] seeded the clinic's own laboratory forms, transcribed from their workbook.
     const fs = (await (await apiContext.get(`${API}/results/field-set/${labVisitTest}`, { headers: auth(lab) })).json())
       .data.fieldSet;
-    expect(fs, 'a Laboratory test must have no field set').toBeNull();
+    expect(fs, 'a Laboratory test must now carry its clinic form').toBeTruthy();
+    expect(fs.discipline, 'the form prints its discipline heading').toBeTruthy();
 
+    // findings still works exactly as it did — the narrative/comment column is untouched.
     const res = await apiContext.post(`${API}/results/${labVisitTest}`, {
       headers: auth(lab),
       multipart: { findings: 'CBC within normal limits.' },
@@ -484,6 +585,5 @@ test.describe('Ultrasound structured measurements', () => {
     const saved = (await (await apiContext.get(`${API}/results/${labVisitTest}`, { headers: auth(lab) })).json())
       .data.result;
     expect(saved.findings).toBe('CBC within normal limits.');
-    expect(saved.measurements).toEqual([]);
   });
 });

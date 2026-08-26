@@ -120,6 +120,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                           result={item}
                           patientName={`${profiles.selected?.first_name || ''} ${profiles.selected?.last_name || ''}`.trim()}
                           measurements={item.measurements || []}
+                          signatories={item.signatories || []}
                           variant="patient"
                         >
                             {(item.file_path || item.file_url) && (

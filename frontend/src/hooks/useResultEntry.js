@@ -253,7 +253,14 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   };
 
   const validate = () => {
-    if (!findings) {
+    // A laboratory form has no narrative — the clinic's own sheet carries only a COMMENT box, and
+    // demanding prose to save a Urinalysis whose fourteen fields are filled would be friction that
+    // buys nothing. So a completed grid is proof enough on its own; a test with NO field set is
+    // unchanged and still requires the text.
+    const hasMeasurements = fieldSet
+      && Object.values(measurements || {}).some((v) => v && Object.values(v)
+        .some((x) => x !== undefined && x !== null && String(x).trim() !== ''));
+    if (!findings && !hasMeasurements) {
       setError('Findings and diagnostic analysis text are required.');
       return false;
     }

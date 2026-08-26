@@ -24,7 +24,7 @@ export default function ResultViewerDialog({ result, onOpenChange, onPreviewDocu
           {/* This screen printed findings and remarks with NO letterhead at all — a clinical
               document with nothing on it saying which clinic issued it. Same component as the
               patient's copy now, so there is one report rather than three that drifted. */}
-          <ResultReport result={result} measurements={result?.measurements || []}>
+          <ResultReport result={result} measurements={result?.measurements || []} signatories={result?.signatories || []}>
             {result?.file_path && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-slate-50/80 p-3 no-print">
                 <span className="flex min-w-0 items-center gap-1.5 text-fine text-slate-600">

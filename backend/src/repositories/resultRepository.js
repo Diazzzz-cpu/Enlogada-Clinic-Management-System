@@ -315,9 +315,27 @@ class ResultRepository {
 
   async findResultByVisitTestId(visitTestId) {
     const queryText = `
-      SELECT tr.*, u.first_name as released_by_first_name, u.last_name as released_by_last_name
+      SELECT tr.*, u.first_name as released_by_first_name, u.last_name as released_by_last_name,
+             -- Everything the printed form's header block asks for. [1.52.0] The clinic's own
+             -- sheet prints Name / Birthday / Sex on the left and Date / Patient Type / Physician
+             -- on the right, and a report that leaves half of them blank is not their document.
+             p.first_name, p.last_name, p.birthdate, p.sex,
+             pt.name AS patient_type_name,
+             pv.created_at AS visit_date, pv.referring_physician, pv.referring_physician_prc,
+             t.name AS test_name, tc.name AS category_name,
+             -- The discipline heading the form prints above its panel, e.g. CLINICAL MICROSCOPY.
+             fs.discipline
       FROM test_results tr
       LEFT JOIN users u ON tr.released_by = u.id
+      JOIN visit_tests vt        ON vt.id = tr.visit_test_id
+      JOIN tests t               ON t.id = vt.test_id
+      JOIN test_categories tc    ON tc.id = t.category_id
+      JOIN patient_visits pv     ON pv.id = vt.patient_visit_id
+      JOIN patients p            ON p.id = pv.patient_id
+      LEFT JOIN patient_types pt ON pt.id = p.patient_type_id
+      -- A test with no field set has no discipline; LEFT so the row survives either way.
+      LEFT JOIN result_field_set_tests fst ON fst.test_id = vt.test_id
+      LEFT JOIN result_field_sets fs       ON fs.id = fst.field_set_id
       -- The live version. Callers here mean "the result", not "some past draft of it";
       -- findVersionHistoryByVisitTestId is the way to reach superseded versions.
       WHERE tr.visit_test_id = $1 AND tr.is_current

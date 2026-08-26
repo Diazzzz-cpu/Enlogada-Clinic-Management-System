@@ -1,50 +1,160 @@
 import React from 'react';
 
 import { useClinic } from '../lib/clinic';
-import { formatDateTime } from '../lib/date';
+import { formatDateTime, formatDate } from '../lib/date';
 
 /**
  * The clinical result document — one rendering, for every screen that prints one. [1.50.0]
  *
- * Three existed before this. The technician's just-released certificate
- * (ResultEntryDialog), the staff read-back (ResultViewerDialog) and the patient's own copy
- * (portal/ResultsTab) each built their own, and they had drifted into three different documents:
- * two hardcoded the clinic's name as a string literal, the third printed no letterhead at all,
- * and only the patient's copy showed the referring physician. That is the same problem
- * `Receipt.jsx` was extracted to solve, in the one document a patient is most likely to file.
+ * Three existed before this: the technician's just-released certificate, the staff read-back and
+ * the patient's own copy. They had drifted into three different documents — two hardcoded the
+ * clinic's name, the read-back printed no letterhead at all, and only the patient's copy showed
+ * the referring physician. The clinic's copy and the patient's copy are the SAME document by
+ * requirement — staff record findings once and the saved result is what gets printed — and two
+ * renderings can only agree by coincidence.
  *
- * It matters more now than it did: the clinic's copy and the patient's copy are the SAME
- * document — the requirement is that staff record findings once and the saved result is what
- * gets printed for the patient. Two renderings cannot satisfy that; they can only agree by
- * coincidence until someone edits one of them.
+ * ── It reproduces the clinic's own form, not a generic report ────────────────────────────────
  *
- * ── The letterhead comes from lib/clinic.js, never from a literal ─────────────────────────────
- * `useClinic()` reads what `GET /api/clinic` returned, so changing the clinic's address is a
- * `backend/.env` edit rather than a rebuild. The two literals this replaced were already drifting
- * from the address the footer and the receipt print.
+ * [1.52.0] The clinic issues a four-column sheet: `TEST | RESULT | UNIT | REFERENCE RANGE`, with
+ * section headings (`Macroscopic:`, `Chemical:`, `Microscopic:`) grouping the analytes beneath a
+ * discipline heading, then a COMMENT block, a disclaimer, and a two-signatory footer carrying PRC
+ * licence numbers. That is the document a patient files and a referring physician reads, so the
+ * system prints it rather than an approximation of it.
+ *
+ * Ultrasound is a genuinely different document — a Measurements block, narrative prose, an ALL-CAPS
+ * impression, one radiologist and no licence number — so the same component renders both shapes
+ * from the data rather than branching on the category name in more than one place.
  *
  * ── What is deliberately NOT printed ──────────────────────────────────────────────────────────
- * No PRC licence number for the examiner. The clinic's own 1,113 ultrasound reports carry the
- * credential line and no licence number anywhere in the corpus, so there is no true value to
- * print — and inventing one on a document a patient may file for reimbursement is the same false
- * record `lib/clinic.js` refuses to create with a made-up TIN. The referring physician's PRC is a
- * different person's number, is captured per visit, and IS printed where present.
+ *
+ * A PRC licence number that was not supplied. The laboratory forms carry one for both signatories
+ * and those are seeded from the clinic's own workbook; the radiologist has none anywhere in 1,113
+ * archived reports, so that slot prints nothing rather than a plausible-looking number. Same rule
+ * `lib/clinic.js` applies to the TIN: a made-up number on a document a patient files for
+ * reimbursement is a false record.
  */
 
-/** One measurement, as the clinic writes it: `7.09 x 2.21 x 1.67 cm`, or `15.81 cm`. */
-function formatMeasurement(m) {
+/** One measurement, as the clinic writes it: `7.09 x 2.21 x 1.67 cm`, or `15.81`. */
+function formatValue(m) {
   if (m.value_text) return m.value_text;
   if (m.value_date) return m.value_date;
   const axes = [m.value_1, m.value_2, m.value_3].filter((v) => v !== null && v !== undefined && v !== '');
-  if (!axes.length) return '—';
-  const joined = axes.map((v) => Number(v)).join(' x ');
-  return m.unit ? `${joined} ${m.unit}` : joined;
+  if (!axes.length) return '';
+  return axes.map((v) => Number(v)).join(' x ');
+}
+
+/** The header block, identical on every form the clinic issues. */
+function Letterhead({ clinic, title }) {
+  return (
+    <div className="space-y-0.5 border-b-2 border-slate-800 pb-2 text-center">
+      <h2 className="m-0 text-base font-extrabold uppercase tracking-[0.2em] text-slate-900">{clinic.name}</h2>
+      {clinic.services && (
+        <p className="m-0 text-meta font-semibold uppercase tracking-widest text-slate-600">{clinic.services}</p>
+      )}
+      <p className="m-0 text-meta text-slate-500">{clinic.address}</p>
+      {clinic.phone && <p className="m-0 text-meta text-slate-500">{clinic.phone}</p>}
+      {title && (
+        <p className="m-0 pt-1 text-note font-bold uppercase tracking-wider text-slate-800">{title}</p>
+      )}
+    </div>
+  );
+}
+
+/** Name / Birthday / Sex on the left, Date / Patient Type / Physician on the right. */
+function PatientBlock({ result, name }) {
+  const Row = ({ label, value }) => (
+    <div className="flex gap-1.5">
+      <span className="font-bold text-slate-700">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-slate-900">{value || ''}</span>
+    </div>
+  );
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 border-b border-slate-400 py-2 text-fine">
+      <Row label="Name:" value={name} />
+      <Row label="Date:" value={result.released_at ? formatDate(result.released_at) : formatDate(result.visit_date)} />
+      <Row label="Birthday:" value={result.birthdate ? formatDate(result.birthdate) : ''} />
+      <Row label="Patient Type:" value={result.patient_type_name} />
+      <Row label="Sex:" value={result.sex} />
+      <Row label="Physician:" value={result.referring_physician} />
+    </div>
+  );
+}
+
+/**
+ * The four-column analyte table, with section headings printed once above the fields they group.
+ *
+ * The heading is emitted by comparing against the PREVIOUS row rather than tracking state, which
+ * means a field with no section simply closes the group. That matters on the clinic's CBC, where
+ * `RDW-CV` prints after the `Differential Count` block and does not belong to it — a rule that
+ * carried a section forward until the next one would file it wrongly on every CBC they issue.
+ */
+function AnalyteTable({ measurements, showReference }) {
+  return (
+    <table className="w-full text-fine">
+      <thead>
+        <tr className="border-b border-slate-400 text-meta uppercase tracking-[0.15em] text-slate-700">
+          <th className="py-1 text-left font-bold">Test</th>
+          <th className="py-1 text-left font-bold">Result</th>
+          <th className="py-1 text-left font-bold">Unit</th>
+          {showReference && <th className="py-1 text-left font-bold">Reference Range</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {measurements.map((m, i) => {
+          const startsSection = m.section && m.section !== measurements[i - 1]?.section;
+          return (
+            <React.Fragment key={`${m.field_code}-${m.group_index || 1}`}>
+              {startsSection && (
+                <tr>
+                  <td className="pt-2 pb-0.5 font-bold text-slate-800" colSpan={showReference ? 4 : 3}>
+                    {m.section}
+                  </td>
+                </tr>
+              )}
+              <tr>
+                <td className={`py-0.5 text-slate-800${m.section ? ' pl-4' : ''}`}>
+                  {m.group_label ? `${m.group_label} — ${m.label}` : m.label}
+                </td>
+                <td className="py-0.5 font-bold tabular-nums text-slate-900">{formatValue(m)}</td>
+                <td className="py-0.5 text-slate-600">{m.unit || ''}</td>
+                {showReference && <td className="py-0.5 text-slate-600">{m.reference_note || ''}</td>}
+              </tr>
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** The two-column footer. A signatory with no licence number prints none. */
+function Signatories({ signatories }) {
+  if (!signatories?.length) return null;
+  return (
+    <div className="pt-8" data-signatory>
+      <p className="m-0 pb-4 text-fine font-bold text-slate-700">FOR:</p>
+      <div className="grid grid-cols-2 gap-6">
+        {signatories.map((s) => (
+          <div key={`${s.full_name}-${s.role_caption}`} className="text-center">
+            <p className="m-0 border-t border-slate-800 pt-1 text-fine font-bold uppercase text-slate-900">
+              {s.full_name}
+            </p>
+            <p className="m-0 text-meta text-slate-700">{s.role_caption}</p>
+            {s.prc_license && (
+              <p className="m-0 text-meta italic text-slate-600">PRC License No. {s.prc_license}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function ResultReport({
   result,
   patientName,
   measurements = [],
+  signatories = [],
   variant = 'clinic',
   children,
 }) {
@@ -52,97 +162,48 @@ export default function ResultReport({
   if (!result) return null;
 
   const name = patientName || [result.first_name, result.last_name].filter(Boolean).join(' ');
-  const releasedBy = result.released_by_first_name
-    ? `${result.released_by_first_name} ${result.released_by_last_name || ''}`.trim()
-    : null;
+  const isUltrasound = result.category_name === 'Ultrasound';
+  const sigs = signatories.length ? signatories : result.signatories || [];
 
-  // The credential line is printed only for Ultrasound, because that is the only modality whose
-  // real reports state one. Laboratory's own forms name a Medical Technologist AND a Pathologist
-  // with licence numbers, which this component has no source for; printing a guess would be worse
-  // than printing nothing.
-  const credential = result.category_name === 'Ultrasound' ? 'RADIOLOGIST/SONOLOGIST' : null;
+  // Fecalysis is the one form in the clinic's workbook with no reference-range column, so the
+  // column is dropped when nothing in the set carries a range rather than printing an empty one.
+  const showReference = measurements.some((m) => m.reference_note);
 
   return (
-    <div className="print-area print-active space-y-4 bg-white p-1">
-      {/* Letterhead */}
-      <div className="space-y-0.5 border-b border-line pb-3 text-center">
-        <h2 className="m-0 text-base font-extrabold uppercase tracking-wide text-slate-900">{CLINIC.name}</h2>
-        <p className="m-0 text-fine text-slate-500">{CLINIC.address}</p>
-        {CLINIC.phone && <p className="m-0 text-fine text-slate-500">{CLINIC.phone}</p>}
-        <p className="m-0 pt-1 text-note font-bold uppercase tracking-wider text-slate-700">
-          {result.category_name === 'Ultrasound' ? 'Ultrasound Report' : 'Diagnostic Examination Report'}
-        </p>
-        {variant === 'patient' && (
-          <span className="block text-meta font-bold text-brand-600">Confidential Medical Document</span>
-        )}
-      </div>
+    <div className="print-area print-active space-y-3 bg-white p-1">
+      <Letterhead
+        clinic={CLINIC}
+        title={isUltrasound ? 'Ultrasound Report' : result.discipline || ''}
+      />
+      <PatientBlock result={result} name={name} />
 
-      {/* Who and what. Mirrors the header block on the clinic's own form. */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl border border-line bg-slate-50 p-3.5 text-xs sm:grid-cols-3">
-        <div>
-          <span className="block text-meta font-bold uppercase text-slate-400">Patient</span>
-          <span className="font-bold text-slate-900">{name || '—'}</span>
-        </div>
-        <div>
-          <span className="block text-meta font-bold uppercase text-slate-400">Examination</span>
-          <span className="font-bold text-slate-900">{result.test_name || '—'}</span>
-        </div>
-        {result.category_name && (
-          <div>
-            <span className="block text-meta font-bold uppercase text-slate-400">Category</span>
-            <span className="font-bold text-slate-900">{result.category_name}</span>
-          </div>
-        )}
-        {/* Only when there is one. A "Referred by: —" line on a self-pay walk-in's report is
-            noise: nobody referred them, and an empty field invites the reader to wonder what is
-            missing. */}
-        {result.referring_physician && (
-          <div>
-            <span className="block text-meta font-bold uppercase text-slate-400">Referred By</span>
-            <span className="font-bold text-slate-900">{result.referring_physician}</span>
-            {result.referring_physician_prc && (
-              <span className="block text-meta text-slate-500">PRC {result.referring_physician_prc}</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Measurements. Absent for a modality that records none, which is every test with no
-          field set — the block does not render rather than printing an empty heading. */}
       {measurements.length > 0 && (
-        <div className="space-y-1.5">
-          <h4 className="m-0 text-xs font-bold uppercase tracking-wider text-slate-900">Measurements</h4>
-          <table className="w-full text-xs">
-            <tbody>
-              {measurements.map((m) => (
-                <tr key={`${m.field_code}-${m.group_index || 1}`} className="border-b border-line last:border-0">
-                  <td className="py-1 pr-3 align-top text-slate-600">
-                    {m.group_label ? `${m.group_label} — ${m.label}` : m.label}
-                  </td>
-                  <td className="py-1 pr-3 text-right font-bold tabular-nums text-slate-900">
-                    {formatMeasurement(m)}
-                  </td>
-                  <td className="py-1 text-right text-meta text-slate-400">{m.reference_note || ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        isUltrasound ? (
+          <div className="space-y-1">
+            <h4 className="m-0 text-fine font-bold uppercase tracking-wider text-slate-900">Measurements</h4>
+            <AnalyteTable measurements={measurements} showReference={showReference} />
+          </div>
+        ) : (
+          <AnalyteTable measurements={measurements} showReference={showReference} />
+        )
       )}
 
-      {/* The narrative. Still the whole of `findings` — the measurement block above is the only
-          thing that left that column, and nothing regenerates prose from the numbers. */}
-      <div className="space-y-1">
-        <h4 className="m-0 text-xs font-bold uppercase tracking-wider text-slate-900">Findings &amp; Impression</h4>
-        <div className="whitespace-pre-wrap rounded-xl border border-line bg-white p-3 text-xs leading-relaxed text-slate-800">
-          {result.findings || 'No specific clinical findings recorded.'}
+      {/* The narrative. Still the whole of `findings` — the analyte table is the only thing that
+          left that column, and nothing regenerates prose from the numbers. The clinic's laboratory
+          form calls this box COMMENT; their ultrasound report calls it Findings & Impression. */}
+      <div className="space-y-1 pt-1">
+        <h4 className="m-0 text-fine font-bold uppercase tracking-wider text-slate-900">
+          {isUltrasound ? 'Findings & Impression' : 'Comment'}
+        </h4>
+        <div className="min-h-[2.5rem] whitespace-pre-wrap border-b border-slate-300 pb-2 text-fine leading-relaxed text-slate-800">
+          {result.findings || ''}
         </div>
       </div>
 
       {(result.remarks || result.result_remarks) && (
         <div className="border-l-4 border-brand-500 py-1 pl-3">
-          <h4 className="m-0 text-fine font-bold uppercase text-slate-500">Remarks</h4>
-          <p className="m-0 text-xs text-slate-700">{result.remarks || result.result_remarks}</p>
+          <h4 className="m-0 text-meta font-bold uppercase text-slate-500">Remarks</h4>
+          <p className="m-0 text-fine text-slate-700">{result.remarks || result.result_remarks}</p>
         </div>
       )}
 
@@ -150,18 +211,23 @@ export default function ResultReport({
           (staff preview vs patient view), and only the caller knows which. */}
       {children}
 
-      {/* Signatory. `break-inside: avoid` in the print block keeps this off its own orphan page. */}
-      <div className="flex items-end justify-between gap-4 pt-6" data-signatory>
-        <p className="m-0 text-fine text-slate-400">
-          {result.released_at ? `Released ${formatDateTime(result.released_at)}` : 'Not yet released'}
+      {/* The clinic prints this on 28 of its 38 forms. It is their claim, not one this system
+          invents, and it is why the signature block matters. */}
+      <p className="m-0 pt-3 text-center text-meta text-slate-600">
+        NOTE: DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL
+      </p>
+
+      <Signatories signatories={sigs} />
+
+      {variant === 'patient' && (
+        <p className="m-0 pt-2 text-center text-meta font-bold text-brand-600">
+          Confidential Medical Document
         </p>
-        <div className="min-w-[12rem] text-center">
-          <p className="m-0 border-t border-slate-400 pt-1 text-xs font-bold text-slate-900">{releasedBy || ' '}</p>
-          {credential && (
-            <p className="m-0 text-meta uppercase tracking-wider text-slate-500">{credential}</p>
-          )}
-        </div>
-      </div>
+      )}
+
+      {result.released_at && (
+        <p className="m-0 text-fine text-slate-400">Released {formatDateTime(result.released_at)}</p>
+      )}
     </div>
   );
 }

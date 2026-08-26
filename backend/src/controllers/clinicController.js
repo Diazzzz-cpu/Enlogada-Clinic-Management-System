@@ -33,6 +33,8 @@ class ClinicController {
             name: env('CLINIC_NAME'),
             shortName: env('CLINIC_SHORT_NAME'),
             address: env('CLINIC_ADDRESS'),
+            // The services line printed beneath the clinic name on every result form. [1.52.0]
+            services: env('CLINIC_SERVICES'),
             phone: env('CLINIC_PHONE'),
             email: env('CLINIC_EMAIL'),
             // A sole proprietorship's receipts name the proprietor; the clinic's own invoice

@@ -630,7 +630,8 @@ class ResultService {
     // the parent row once per FIELD — eleven times for a whole abdomen — and unlike the
     // amendment case that `is_current` fixes, no filter helps.
     const measurements = await resultMeasurementRepository.findByResultId(result.id);
-    return { ...result, measurements };
+    const signatories = await resultMeasurementRepository.findSignatoriesByCategory(result.category_name);
+    return { ...result, measurements, signatories };
   }
 
   /**
@@ -747,7 +748,20 @@ class ResultService {
       list.push(m);
       byResult.set(m.test_result_id, list);
     }
-    return rows.map((r) => ({ ...r, measurements: byResult.get(r.result_id ?? r.id) || [] }));
+    // Signatories are per-category and there are at most a handful, so they are fetched once per
+    // category rather than once per row.
+    const sigCache = new Map();
+    for (const r of rows) {
+      if (!sigCache.has(r.category_name)) {
+        sigCache.set(r.category_name,
+          await resultMeasurementRepository.findSignatoriesByCategory(r.category_name));
+      }
+    }
+    return rows.map((r) => ({
+      ...r,
+      measurements: byResult.get(r.result_id ?? r.id) || [],
+      signatories: sigCache.get(r.category_name) || [],
+    }));
   }
 }
 

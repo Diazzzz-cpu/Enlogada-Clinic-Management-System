@@ -32,7 +32,7 @@ const resultMeasurementRepository = {
    */
   async findFieldSetForVisitTest(visitTestId) {
     const setResult = await db.query(
-      `SELECT fs.id, fs.code, fs.name, fs.repeat_label
+      `SELECT fs.id, fs.code, fs.name, fs.repeat_label, fs.discipline
          FROM visit_tests vt
          JOIN result_field_set_tests m ON m.test_id = vt.test_id
          JOIN result_field_sets fs     ON fs.id = m.field_set_id
@@ -44,7 +44,7 @@ const resultMeasurementRepository = {
 
     const fields = await db.query(
       `SELECT id, code, label, value_kind, unit, display_order, applies_to_sex,
-              is_required, reference_note, derivation, derived_from, is_repeating
+              is_required, reference_note, derivation, derived_from, is_repeating, section
          FROM result_fields
         WHERE field_set_id = $1 AND is_active = TRUE
         ORDER BY display_order`,
@@ -70,13 +70,33 @@ const resultMeasurementRepository = {
     return rows[0] || null;
   },
 
+  /**
+   * Who signs a report of this category, left column first.
+   *
+   * A laboratory report carries two — a Medical Technologist and a Pathologist, each with a PRC
+   * licence number. An ultrasound report carries one radiologist and no licence number at all,
+   * because 1,113 archived reports contain none. A category with no row configured prints no
+   * signature block rather than a blank one.
+   */
+  async findSignatoriesByCategory(categoryName) {
+    const { rows } = await db.query(
+      `SELECT s.full_name, s.role_caption, s.prc_license, s.display_order
+         FROM clinic_signatories s
+         LEFT JOIN test_categories tc ON tc.id = s.category_id
+        WHERE s.is_active = TRUE AND (s.category_id IS NULL OR tc.name = $1)
+        ORDER BY s.display_order`,
+      [categoryName]
+    );
+    return rows;
+  },
+
   /** Everything recorded against one version of a result, ready to render. */
   async findByResultId(testResultId) {
     const { rows } = await db.query(
       `SELECT rm.id, rm.field_id, rm.group_index, rm.value_1, rm.value_2, rm.value_3,
               rm.value_text, rm.value_date, rm.value_source, rm.derivation,
               f.code AS field_code, f.label, f.unit, f.value_kind, f.reference_note,
-              f.applies_to_sex, f.display_order
+              f.applies_to_sex, f.display_order, f.section
          FROM result_measurements rm
          JOIN result_fields f ON f.id = rm.field_id
         WHERE rm.test_result_id = $1
@@ -96,7 +116,7 @@ const resultMeasurementRepository = {
       `SELECT rm.test_result_id, rm.field_id, rm.group_index, rm.value_1, rm.value_2, rm.value_3,
               rm.value_text, rm.value_date, rm.value_source, rm.derivation,
               f.code AS field_code, f.label, f.unit, f.value_kind, f.reference_note,
-              f.display_order
+              f.display_order, f.section
          FROM result_measurements rm
          JOIN result_fields f ON f.id = rm.field_id
         WHERE rm.test_result_id = ANY($1)

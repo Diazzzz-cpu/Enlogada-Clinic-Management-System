@@ -35,7 +35,14 @@ const env = import.meta.env || {};
 export const CLINIC_DEFAULTS = Object.freeze({
   name: 'Enlogada Ultrasound & Diagnostic Clinic',
   shortName: 'ENLOGADA',
-  address: 'Bugo, Cagayan de Oro, Philippines 9000',
+  // The services line the clinic prints beneath its name on every result form. [1.52.0] Their own
+  // forms separate them with a REGISTERED SIGN, which is a Wingdings bullet that lost its symbol
+  // font somewhere — reproduced here as the bullet it was meant to be.
+  services: 'LABORATORY • ULTRASOUND • X-RAY',
+  // Corrected from 'Bugo, Cagayan de Oro, Philippines 9000' in [1.52.0]. The clinic's own printed
+  // result form carries the fuller address, and the printed document is the authority: a report
+  // whose address differs from the one on the clinic's letterhead is a document nobody can rely on.
+  address: 'National Highway, Diesto Building, Bugo, Cagayan de Oro City, Misamis Oriental, 9000',
   phone: '0936 132 0650',
   email: 'enlogadaclinic2011@gmail.com',
   proprietor: '',

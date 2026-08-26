@@ -41,6 +41,7 @@
  */
 const db = require('../config/database');
 const logger = require('../config/logger');
+const { LAB_FIELD_SETS, SIGNATORIES } = require('../constants/labResultForms');
 
 const APPLY = process.argv.includes('--confirm');
 
@@ -202,6 +203,9 @@ const FIELD_SETS = [
   },
 ];
 
+// Ultrasound first (its sets carry no discipline), then the laboratory forms.
+const ALL_FIELD_SETS = [...FIELD_SETS, ...LAB_FIELD_SETS];
+
 async function run() {
   const created = [];
   const updated = [];
@@ -209,10 +213,14 @@ async function run() {
   const unmapped = [];
   const notes = [];
 
-  const cat = (await db.query(`SELECT id FROM test_categories WHERE name = 'Ultrasound'`)).rows[0];
-  if (!cat) throw new Error('No Ultrasound category — run setupRbac/migrateDb first.');
+  const categories = {};
+  for (const name of ['Ultrasound', 'Laboratory']) {
+    const row = (await db.query(`SELECT id FROM test_categories WHERE name = $1`, [name])).rows[0];
+    if (!row) throw new Error(`No ${name} category — run migrateDb first.`);
+    categories[name] = row.id;
+  }
 
-  for (const set of FIELD_SETS) {
+  for (const set of ALL_FIELD_SETS) {
     // Canonical code first, alias second. Looking up by name first is not idempotent and dies on
     // the unique index the second time — the same ordering seedRealCatalogue.js documents.
     const existing = (await db.query(`SELECT id FROM result_field_sets WHERE code = $1`, [set.code])).rows[0];
@@ -221,8 +229,9 @@ async function run() {
     if (!setId) {
       if (APPLY) {
         setId = (await db.query(
-          `INSERT INTO result_field_sets (code, name, category_id) VALUES ($1,$2,$3) RETURNING id`,
-          [set.code, set.name, cat.id]
+          `INSERT INTO result_field_sets (code, name, category_id, discipline)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [set.code, set.name, categories[set.discipline ? 'Laboratory' : 'Ultrasound'], set.discipline || null]
         )).rows[0].id;
       }
       created.push(`${set.code} (${set.fields.length} fields)`);
@@ -236,7 +245,7 @@ async function run() {
       order += 1;
       const cur = setId
         ? (await db.query(`SELECT id, label, unit, value_kind, display_order, applies_to_sex,
-                                  is_required, reference_note, derivation, derived_from, is_active
+                                  is_required, reference_note, derivation, derived_from, section, is_active
                              FROM result_fields WHERE field_set_id = $1 AND code = $2`, [setId, f.code])).rows[0]
         : null;
 
@@ -244,6 +253,7 @@ async function run() {
         label: f.label, unit: f.unit || null, value_kind: f.kind, display_order: order,
         applies_to_sex: f.sex || null, is_required: !!f.req, reference_note: f.note || null,
         derivation: f.derivation || null, derived_from: f.derivedFrom || null,
+        section: f.section || null,
       };
 
       if (!cur) {
@@ -251,10 +261,11 @@ async function run() {
           await db.query(
             `INSERT INTO result_fields
                (field_set_id, code, label, value_kind, unit, display_order,
-                applies_to_sex, is_required, reference_note, derivation, derived_from)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                applies_to_sex, is_required, reference_note, derivation, derived_from, section)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [setId, f.code, want.label, want.value_kind, want.unit, want.display_order,
-             want.applies_to_sex, want.is_required, want.reference_note, want.derivation, want.derived_from]
+             want.applies_to_sex, want.is_required, want.reference_note, want.derivation,
+             want.derived_from, want.section]
           );
         }
         created.push(`  ${set.code}.${f.code} — ${f.label}${f.unit ? ` (${f.unit})` : ''}`);
@@ -276,10 +287,11 @@ async function run() {
         await db.query(
           `UPDATE result_fields SET label=$1, unit=$2, value_kind=$3, display_order=$4,
                                     applies_to_sex=$5, is_required=$6, reference_note=$7,
-                                    derivation=$8, derived_from=$9, is_active=TRUE
-            WHERE id=$10`,
+                                    derivation=$8, derived_from=$9, section=$10, is_active=TRUE
+            WHERE id=$11`,
           [want.label, want.unit, want.value_kind, want.display_order, want.applies_to_sex,
-           want.is_required, want.reference_note, want.derivation, want.derived_from, cur.id]
+           want.is_required, want.reference_note, want.derivation, want.derived_from,
+           want.section, cur.id]
         );
       }
       updated.push(`${set.code}.${f.code}`);
@@ -300,6 +312,34 @@ async function run() {
         await db.query(`INSERT INTO result_field_set_tests (field_set_id, test_id) VALUES ($1,$2)`, [setId, t.id]);
       }
       created.push(`  map "${testName}" -> ${set.code}`);
+    }
+  }
+
+  // ── Who signs a report ─────────────────────────────────────────────────────────────────────
+  //
+  // Transcribed from the clinic's own forms, never invented. The radiologist's licence number is
+  // NULL because 1,113 archived ultrasound reports carry none — a blank prints nothing rather
+  // than a plausible-looking number on a document a patient may file for reimbursement.
+  for (const g of SIGNATORIES) {
+    const catId = categories[g.category];
+    if (!catId) { unmapped.push(`signatory "${g.name}" -> ${g.category} (no such category)`); continue; }
+    const cur = (await db.query(
+      `SELECT id, prc_license, display_order FROM clinic_signatories
+        WHERE category_id = $1 AND full_name = $2 AND role_caption = $3`,
+      [catId, g.name, g.caption]
+    )).rows[0];
+    if (!cur) {
+      if (APPLY) {
+        await db.query(
+          `INSERT INTO clinic_signatories (category_id, full_name, role_caption, prc_license, display_order)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [catId, g.name, g.caption, g.prc, g.order]
+        );
+      }
+      created.push(`  signatory ${g.category}: ${g.name} — ${g.caption}${g.prc ? ` (PRC ${g.prc})` : ''}`);
+    } else if (String(cur.prc_license || '') !== String(g.prc || '')) {
+      // A licence number changing is worth saying out loud rather than applying quietly.
+      notes.push(`signatory "${g.name}" PRC differs: stored ${cur.prc_license || '(none)'} vs ${g.prc || '(none)'}`);
     }
   }
 

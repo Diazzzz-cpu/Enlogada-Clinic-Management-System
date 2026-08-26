@@ -71,19 +71,27 @@ export default function MeasurementGrid({ fieldSet, values, patientSex, onChange
   return (
     <div className="space-y-2 rounded-xl border border-line bg-slate-50/60 p-3">
       <div className="flex items-baseline justify-between">
-        <span className="field-label m-0">Measurements</span>
+        <span className="field-label m-0">{fieldSet.discipline || 'Measurements'}</span>
         <span className="text-meta text-slate-400">{fieldSet.name}</span>
       </div>
 
       <div className="space-y-1.5">
-        {fields.map((field) => {
+        {fields.map((field, i) => {
           const value = values?.[field.code] || {};
           const derived = isDerived(field);
+          // A section heading prints once, above the first field that belongs to it — the same
+          // place the clinic's own form puts `Macroscopic:` or `Differential Count`. Comparing
+          // against the PREVIOUS field rather than tracking state keeps this a pure render, and
+          // means a field with no section simply closes the group without needing an end marker.
+          const startsSection = field.section && field.section !== fields[i - 1]?.section;
 
           return (
+            <React.Fragment key={`${field.code}-group`}>
+            {startsSection && (
+              <div className="pt-1.5 text-fine font-bold text-slate-700">{field.section}</div>
+            )}
             <div
-              key={field.code}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3"
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3${field.section ? ' pl-3' : ''}`}
               data-testid={`measurement-row-${field.code}`}
             >
               <label className="text-fine text-slate-600" htmlFor={`measurement-${field.code}`}>
@@ -91,6 +99,7 @@ export default function MeasurementGrid({ fieldSet, values, patientSex, onChange
                 {field.reference_note && (
                   <span className="ml-1.5 text-meta text-slate-400">{field.reference_note}</span>
                 )}
+                {field.unit && <span className="ml-1 text-meta text-slate-400">{field.unit}</span>}
                 {derived && (
                   <span className="ml-1.5 text-meta text-slate-400">computed on save</span>
                 )}
@@ -142,6 +151,7 @@ export default function MeasurementGrid({ fieldSet, values, patientSex, onChange
                 </div>
               )}
             </div>
+            </React.Fragment>
           );
         })}
       </div>

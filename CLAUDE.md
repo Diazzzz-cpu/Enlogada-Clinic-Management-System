@@ -78,6 +78,7 @@ node src/scripts/migrateTestPackages.js        # [1.45.0] the clinic's package d
 node src/scripts/migratePaymentSubmissions.js  # [1.48.0] clinic payment channels + manual proof of payment (--rollback reverses it)
 node src/scripts/migrateResultFieldSets.js     # [1.50.0] structured result entry, Ultrasound only (--rollback REFUSES while measurements exist; add --force)
 node src/scripts/migrateBiophysicalScore.js     # [1.51.0] lets a biophysical score total itself (--rollback reverses it)
+node src/scripts/migrateLabResultForms.js       # [1.52.0] section headings + who signs a report (--rollback reverses it)
 # Loads the ten Ultrasound field sets the migration above makes room for. Dry-run by default.
 # Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
 node src/scripts/seedResultFieldSets.js            # report only
@@ -528,6 +529,20 @@ Services Catalogue.
   filter helps. And an **omitted field is not an instruction to erase** — the client sends a key
   for every field it rendered, so absent means "carry the previous version's value forward" and
   null means "the user cleared it". `ultrasound-measurements.spec.js` guards all three.
+- **A result form is the clinic's document, not a generic report.** `[1.52.0]` Laboratory prints
+  `TEST | RESULT | UNIT | REFERENCE RANGE` with section headings (`Macroscopic:`, `Chemical:`,
+  `Microscopic:`, `Differential Count`) under a discipline heading, a COMMENT box, a disclaimer and
+  a TWO-signatory footer with PRC licence numbers. Ultrasound is a different document — Measurements
+  block, prose, ALL-CAPS impression, one radiologist, no licence number. `ResultReport.jsx` renders
+  both from the data. **`section` is a column, never a "carry it forward until the next heading"
+  rule** — the clinic's CBC prints `RDW-CV` after the Differential Count block and it does not
+  belong to it.
+- **A laboratory RESULT is text.** `YELLOW`, `NEGATIVE`, `FEW`, `0-2` and `1.010` share one column,
+  often on one sheet. Only analytes numeric on every observed sheet get `value_kind: 'number'`.
+- **`findings` is required only when a test has NO field set.** `[1.52.0]` A laboratory form has no
+  narrative — the clinic's sheet carries only a COMMENT box — so a completed grid is proof enough.
+  Tests with no field set are unchanged, which is what keeps `laboratory.spec.js` green.
+
 - **A quick-fill template must never carry a number.** `[1.51.0]` `lib/resultTemplates.js` is
   paste-able boilerplate one click from a real patient's report, and it shipped three invented
   clinical figures: a fabricated CBC value beside a reference range that is not this clinic's, and

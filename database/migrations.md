@@ -1,5 +1,110 @@
 # Database Migration & Schema History
 
+## [1.52.0] - 2026-08-26 (The form the clinic actually prints)
+
+Two schema additions (`node src/scripts/migrateLabResultForms.js`, `--rollback` reverses it), 22
+laboratory field sets, and a report that reproduces the clinic's own sheet rather than
+approximating it.
+
+### What was wrong
+
+[1.50.0] built structured entry and seeded it for **Ultrasound only**, and printed a generic
+report. The clinic's requirement is narrower and more literal than that: a technician opens Record
+Findings, the fields for THAT test are already laid out, they type only the results, and the
+printout looks like the document they issue today. Their Urinalysis form settles what that means —
+a four-column sheet, `TEST | RESULT | UNIT | REFERENCE RANGE`, with section headings grouping the
+analytes under a discipline heading, a COMMENT box, a disclaimer, and a two-signatory footer
+carrying PRC licence numbers.
+
+Three things were missing: **sections**, **laboratory field sets**, and **the signatory block**.
+
+### `section`, and why it is a column rather than a convention
+
+"A section owns everything until the next section" is the obvious rule and it is wrong on the
+clinic's own CBC. `RDW-CV` prints two rows below `Basophils`, after the `Differential Count` block,
+and is not a differential parameter. A convention would file it under the wrong heading on every
+CBC they ever issue. An explicit nullable column cannot, and the renderer emits a heading by
+comparing against the previous row, so a field with no section simply closes the group.
+
+`result_field_sets.discipline` joins it — `CLINICAL MICROSCOPY`, `HEMATOLOGY`,
+`CLINICAL CHEMISTRY`, `SEROLOGY/IMMUNOLOGY` — because the form prints one above its panel title.
+
+### 22 laboratory field sets, 63 fields, transcribed not invented
+
+Every label, unit, section and reference range comes from the clinic's own workbook. Coverage
+against the 23-test Laboratory catalogue: **22 seeded, 1 not**.
+
+**Almost everything is `text`, not `number`.** A laboratory RESULT column carries `YELLOW`,
+`NEGATIVE`, `FEW`, `0-2` and `1.010` — often on one sheet. A numeric input would refuse three of
+those five. Only analytes that are numeric on every observed sheet are `number`.
+
+**Sex-conditional ranges print both halves**, exactly as the clinic's CBC does. One field, not
+two: the technician records one haemoglobin value, and the patient's sex decides only which half
+of the printed range the reader applies. Splitting it would ask for the same measurement twice —
+and would have violated `UNIQUE (field_set_id, code)`.
+
+**Fecalysis has no reference-range column at all** — the only sheet in 38 without one — so the
+column is dropped when nothing in a set carries a range, rather than printing an empty one.
+
+### The signatory block
+
+A laboratory report carries **two** named signatories with PRC licence numbers. An ultrasound
+report carries one radiologist and, in 1,113 archived reports, no licence number anywhere. So the
+block differs by category, which is why `clinic_signatories` is keyed by one.
+
+Not on `users`: the pathologist is an external consultant who signs the report and has no account,
+and `users` has no credential column by design. Not env config like the TIN either — the clinic's
+own forms supply both names and both numbers on 36 of 38 sheets, and a table lets them be corrected
+from a screen rather than by editing `.env` and restarting.
+
+`prc_license` is nullable and **not defaulted**. The radiologist's is blank because the corpus
+contains none, and a blank prints nothing rather than a plausible-looking number — the same rule
+`lib/clinic.js` applies to the TIN.
+
+### `findings` is no longer the only proof a result exists
+
+A laboratory form has no narrative; the clinic's sheet carries only a COMMENT box. Demanding prose
+to save a Urinalysis whose fourteen fields are filled is friction that buys nothing, so a completed
+grid is proof enough on its own. A test with **no** field set is unchanged and still requires the
+text, which is what keeps `result-versioning.spec.js` and `laboratory.spec.js` green.
+
+### Clinic identity corrected against the printed form
+
+The system printed `Bugo, Cagayan de Oro, Philippines 9000`. Their own result form prints
+`National Highway, Diesto Building, Bugo, Cagayan de Oro City, Misamis Oriental, 9000`, plus a
+`LABORATORY • ULTRASOUND • X-RAY` services line the system had no field for. The printed document
+is the authority: a report whose address differs from the clinic's letterhead is one nobody can
+rely on. `CLINIC_SERVICES` joins the existing env-configurable identity.
+
+Their form separates the three services with a **REGISTERED SIGN** — a Wingdings bullet that lost
+its symbol font — so it currently prints `LABORATORY ® ULTRASOUND ® X-RAY`. Reproduced here as the
+bullet it was meant to be.
+
+### Open questions the clinic must answer
+
+Recorded rather than guessed at, and reported by the seed on every run:
+
+1. **FBS upper bound: 99.0 or 100.0.** The standalone forms print `70.0 - 100.0`; the two combined
+   chemistry panels print `70.0-99.0`, for the same analyte. Seeded from the standalone form
+   because that is the form this catalogue test corresponds to.
+2. **OGTT 75g has two forms** with different reference semantics — one normal-range, one captioned
+   `GESTATIONAL DIABETES` whose values are diagnostic thresholds of the opposite polarity. Seeded
+   from the plain form; the gestational one needs its own catalogue test.
+3. **Thyroid units.** The workbook prints `miu/L`, `nmo/L`, `pmo/L`. Seeded as `mIU/L`, `nmol/L`,
+   `pmol/L` — the SI forms — because these are character omissions rather than clinical judgements,
+   and printing a malformed unit on a new system perpetuates an error. One line each to revert.
+4. **`Hct Hgb` prints haemoglobin in `g/L`** where every CBC sheet prints `g/dl`, with identical
+   numbers. One of the two is wrong.
+5. **Examiner caption.** The same person is captioned `Medical Technologist` on 21 sheets and
+   `Examiner` on 17, with no discernible rule. The clinic's current form settles it as
+   `Medical Technologist`.
+6. **Disclaimer policy.** 28 sheets require a physical seal; 8 say the report is electronically
+   signed and needs no signature. These say opposite things. Seeded with the 28-sheet majority.
+7. **HIV Screening has no form in the workbook** — zero occurrences across every shared string.
+   Nothing seeded.
+8. **BUN.** The only standalone sheet is captioned `( POST )`. The plain analyte is seeded from the
+   combined panels; the caption is not carried.
+
 ## [1.51.0] - 2026-08-26 (Three answers, and three fabricated numbers removed)
 
 One constraint change (`node src/scripts/migrateBiophysicalScore.js`, `--rollback` reverses it),

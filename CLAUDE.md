@@ -77,6 +77,7 @@ node src/scripts/migratePaymentMethods.js     # [1.33.0] narrow chk_payment_meth
 node src/scripts/migrateTestPackages.js        # [1.45.0] the clinic's package deals (--rollback reverses it)
 node src/scripts/migratePaymentSubmissions.js  # [1.48.0] clinic payment channels + manual proof of payment (--rollback reverses it)
 node src/scripts/migrateResultFieldSets.js     # [1.50.0] structured result entry, Ultrasound only (--rollback REFUSES while measurements exist; add --force)
+node src/scripts/migrateBiophysicalScore.js     # [1.51.0] lets a biophysical score total itself (--rollback reverses it)
 # Loads the ten Ultrasound field sets the migration above makes room for. Dry-run by default.
 # Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
 node src/scripts/seedResultFieldSets.js            # report only
@@ -527,6 +528,17 @@ Services Catalogue.
   filter helps. And an **omitted field is not an instruction to erase** — the client sends a key
   for every field it rendered, so absent means "carry the previous version's value forward" and
   null means "the user cleared it". `ultrasound-measurements.spec.js` guards all three.
+- **A quick-fill template must never carry a number.** `[1.51.0]` `lib/resultTemplates.js` is
+  paste-able boilerplate one click from a real patient's report, and it shipped three invented
+  clinical figures: a fabricated CBC value beside a reference range that is not this clinic's, and
+  a uterus size that would land in the narrative while the Measurements block carried the real one.
+  Templates are a starting point for prose. Numbers come from the form or from the scanner.
+- **`reference_note` mirrors the clinic's own printed form; it never imports literature.**
+  `[1.51.0]` `N.V. = 5.0 - 25.0 gms` is on the prostate because it is printed on their sheet.
+  Endometrial thickness gets NONE, despite a well-known 4mm cut-off, because that threshold is
+  conditional on a population `result_fields` does not hold — postmenopausal *and* bleeding. A note
+  that is wrong for most patients is worse than no note.
+
 - **The clinical report has one rendering: `components/ResultReport.jsx`.** The clinic's copy and
   the patient's copy are the same document by requirement, so a second rendering can only agree
   with the first by coincidence. Print through `lib/printReport.js`, never a bare `window.print()`:

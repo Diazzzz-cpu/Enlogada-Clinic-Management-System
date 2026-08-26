@@ -10,27 +10,37 @@
  * machine to find it.
  */
 
-const CBC_NORMAL = `COMPLETE BLOOD COUNT (CBC) RESULTS:
-Hemoglobin: 14.5 g/dL (Normal: 13.0 - 17.5)
-Hematocrit: 43.5 % (Normal: 40.0 - 52.0)
-WBC Count: 6.8 x 10^9/L (Normal: 4.5 - 11.0)
-Platelet Count: 280 x 10^9/L (Normal: 150 - 450)
+// Values and reference ranges REMOVED. [1.51.0] This used to paste "Hemoglobin: 14.5 g/dL
+// (Normal: 13.0 - 17.5)" — a fabricated patient value one click from a real report, beside a
+// reference range that is not the clinic's. Their own workbook reads Male: 13.7-16.7 /
+// Female: 11.7-14.5, which is sex-conditional and narrower. A template is a starting point for
+// prose; it must never carry a number that could be mistaken for a measurement.
+const CBC_NORMAL = `COMPLETE BLOOD COUNT (CBC):
 
 IMPRESSION:
 Normal Complete Blood Count parameters.`;
 
-const XRAY_CHEST = `CHEST X-RAY (PA VIEW) FINDINGS:
-- Lungs are clear with no active infiltrates, mass, or consolidation.
-- Cardiac silhouette and mediastinal contours are within normal limits.
-- Both costophrenic angles and hemidiaphragms are intact.
-- Osseous structures are unremarkable.
+// The clinic's own wording, transcribed from an archived Chest PA report rather than written
+// here. [1.51.0] The four bullets this replaced were invented, in a different order, and used
+// terms ("Osseous structures", "cardiac silhouette") the radiologist does not. Five lines in a
+// fixed anatomic order is also what RSNA's own chest-radiograph templates model, so the shape is
+// not idiosyncratic — it is simply theirs.
+const XRAY_CHEST = `Chest X-ray PA:
+Lungs are clear.
+Heart is not enlarged.
+Aorta is not dilated.
+Diaphragm and both costophrenic sulci are intact.
+The rest of the visualized chest structures are unremarkable.
 
-IMPRESSION:
-Normal Chest Radiograph.`;
+Impression: Normal chest radiograph.`;
 
+// The fabricated uterus size that used to sit in this template was removed in [1.51.0]. Pelvic
+// Ultrasound gained a measurement field set in [1.50.0], so a technician pasting this could put
+// "5.2 x 4.1 x 3.8 cm" into the narrative while the Measurements block above it carried the real
+// figure — two numbers for one organ on one report, and no way to tell which was measured.
 const PELVIC_US = `PELVIC ULTRASOUND FINDINGS:
 - Urinary bladder is well-distended with thin smooth walls.
-- Uterus is normal in size and echotexture (5.2 x 4.1 x 3.8 cm).
+- Uterus is normal in size and echotexture.
 - Both ovaries display normal sonographic morphology without cystic or solid masses.
 - No free fluid noted in the cul-de-sac.
 

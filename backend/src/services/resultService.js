@@ -9,7 +9,7 @@ const { sendEmail } = require('../config/email');
 const notificationService = require('./notificationService');
 const { UPLOAD_ROOT } = require('../config/upload');
 const auditService = require('./auditService');
-const { computeDerived } = require('../constants/ultrasound');
+const { computeDerived, BPS_COMPONENTS, BPS_NST_COMPONENT } = require('../constants/ultrasound');
 const {
   DIAGNOSTIC_CATEGORIES,
   MODALITY_SETTABLE_TEST_STATUSES,
@@ -195,7 +195,15 @@ function mergeMeasurements({ fieldSet, submitted, previous, patientSex, scanDate
   for (const field of fieldSet.fields) {
     if (!field.derivation) continue;
     const source = merged.get(field.derived_from);
-    const computed = computeDerived(field, source, { scanDate });
+    // `values` lets a derivation read the whole merged map rather than one source field — a
+    // biophysical score sums four of them. `components` is the set THIS field set defines, so an
+    // /8 profile can never total itself out of 10.
+    const computed = computeDerived(field, source, {
+      scanDate,
+      values: merged,
+      components: [...BPS_COMPONENTS, BPS_NST_COMPONENT]
+        .filter((c) => fieldSet.fields.some((f) => f.code === c)),
+    });
     const sentExplicitly = submitted && Object.prototype.hasOwnProperty.call(submitted, field.code)
       && submitted[field.code] !== null && submitted[field.code] !== '';
 

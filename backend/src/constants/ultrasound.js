@@ -1,9 +1,15 @@
 /**
  * The arithmetic an ultrasound report does. One definition, because the clinic currently has none.
  *
- * These three formulas are the ONLY ones evidenced by the clinic's 1,113-report archive, and each
- * was measured against it rather than looked up. That distinction matters: the obvious textbook
- * formula is wrong for one of them.
+ * Every formula here is either measured against the clinic's 1,113-report archive or is a sum of
+ * numbers printed on their own form. That distinction matters: the obvious textbook formula is
+ * wrong for one of them, and nothing is admitted on the strength of a reference alone.
+ *
+ * Hadlock is deliberately absent, and stays absent. Gestational age and estimated fetal weight
+ * come off the scanner printout; "Hadlock" is a family of a dozen equations rather than one, so
+ * reproducing it means guessing which the scanner is configured for — and guessing wrong prints a
+ * number that disagrees with the sheet the technician is copying from, wearing this system's
+ * authority. Recomputing what the measuring instrument already reported is how the two disagree.
  *
  * ── Why the system should own this at all ────────────────────────────────────────────────────
  *
@@ -40,7 +46,19 @@ const DERIVATIONS = {
   ELLIPSOID_VOLUME: 'ELLIPSOID_VOLUME',
   EDC_NAEGELE: 'EDC_NAEGELE',
   GA_FROM_MSD: 'GA_FROM_MSD',
+  BPS_SUM: 'BPS_SUM',
 };
+
+/**
+ * The components of a biophysical profile, in Manning's order. Each scores 0 or 2.
+ *
+ * The non-stress test is the fifth and is present only when one was actually performed, which is
+ * why the clinic bills BPS and BPS w/ NST as two different products: the totals mean different
+ * things (/8 against /10), and a score out of 8 presented as though it were out of 10 reads as a
+ * worse result than it is.
+ */
+const BPS_COMPONENTS = ['fetal_tone', 'fetal_movement', 'fetal_breathing', 'amniotic_fluid'];
+const BPS_NST_COMPONENT = 'non_stress_test';
 
 /**
  * Volume of an ellipsoid from three axes, in the same cubic unit the axes are given in.
@@ -98,6 +116,19 @@ function computeDerived(field, sourceValue, context = {}) {
       const days = gestationalAgeFromMsd(sourceValue.value_1);
       return days === null ? null : { value_1: days };
     }
+    case DERIVATIONS.BPS_SUM: {
+      // Sums whichever components this field set actually defines, so the /8 form cannot
+      // accidentally report a total out of 10. `context.values` is the merged map.
+      const codes = context.components || BPS_COMPONENTS;
+      const present = codes
+        .map((c) => context.values?.get?.(c))
+        .filter((v) => v && v.value_1 !== null && v.value_1 !== undefined && v.value_1 !== '');
+      // A partial profile has no total. Reporting 4/8 when two components were never assessed
+      // would look like a poor score rather than an incomplete study.
+      if (present.length !== codes.length) return null;
+      const total = present.reduce((sum, v) => sum + Number(v.value_1), 0);
+      return Number.isFinite(total) ? { value_1: total } : null;
+    }
     case DERIVATIONS.EDC_NAEGELE: {
       if (!sourceValue) return null;
       const edc = estimatedDateOfConfinement(context.scanDate, sourceValue.value_1);
@@ -109,6 +140,8 @@ function computeDerived(field, sourceValue, context = {}) {
 }
 
 module.exports = {
+  BPS_COMPONENTS,
+  BPS_NST_COMPONENT,
   ELLIPSOID_COEFFICIENT,
   GA_FROM_MSD_OFFSET_DAYS,
   GESTATION_DAYS,

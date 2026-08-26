@@ -251,6 +251,132 @@ test.describe('Ultrasound structured measurements', () => {
     expect(res.status).toBe(400);
   });
 
+  // ── The biophysical profile ────────────────────────────────────────────────────────────────
+  //
+  // Two products, two totals. A score of 8 presented as though it were out of 10 reads as a worse
+  // result than it is, which is why these are separate field sets rather than one with an
+  // optional NST field.
+  test('a biophysical profile totals itself, and only when it is complete', async () => {
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1996-07-04', sex: 'Female', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e bps' },
+    })).json()).data.visit;
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const bps = tests.find((t) => t.name === 'BPS');
+    expect(bps, 'BPS must exist in the catalogue').toBeTruthy();
+    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [bps.id] },
+    })).json()).data.visitTests[0];
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    const post = async (measurements, extra = {}) => {
+      const res = await apiContext.post(`${API}/results/${attached.id}`, {
+        headers: auth(ultra),
+        multipart: {
+          findings: 'Biophysical profile performed.',
+          measurements: JSON.stringify(measurements),
+          ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])),
+        },
+      });
+      return res.status();
+    };
+    const read = async () => Object.fromEntries(
+      ((await (await apiContext.get(`${API}/results/${attached.id}`, { headers: auth(ultra) })).json())
+        .data.result.measurements || []).map((m) => [m.field_code, m])
+    );
+
+    // Incomplete: three of four assessed. A total here would read as a poor score rather than an
+    // unfinished study, so there must be none.
+    expect(await post({ fetal_tone: { value_1: 2 }, fetal_movement: { value_1: 2 }, fetal_breathing: { value_1: 2 } })).toBe(201);
+    expect((await read()).bps_total, 'an incomplete profile has no total').toBeUndefined();
+
+    // Complete, one component absent-scoring.
+    expect(await post({
+      fetal_tone: { value_1: 2 }, fetal_movement: { value_1: 0 },
+      fetal_breathing: { value_1: 2 }, amniotic_fluid: { value_1: 2 },
+    }, { amendmentReason: 'Profile completed on review' })).toBe(201);
+
+    const done = await read();
+    expect(Number(done.bps_total.value_1), 'FT2 + FM0 + FBM2 + AFI2 = 6').toBe(6);
+    expect(done.bps_total.value_source).toBe('computed');
+    expect(done.bps_total.derivation).toBe('BPS_SUM');
+    // The /8 set must never advertise itself as /10.
+    expect(done.bps_total.reference_note).toContain('8');
+  });
+
+  test('endometrial thickness is a real field, and records a value', async () => {
+    // A genuine ticket rather than an existence check on the catalogue. The point is that a
+    // sonographer can record the number, not that a row exists in a table.
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1979-11-30', sex: 'Female', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e endometrium' },
+    })).json()).data.visit;
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const tvs = tests.find((t) => t.name === 'Trans-vaginal (TVS)');
+    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [tvs.id] },
+    })).json()).data.visitTests[0];
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    const fs = (await (await apiContext.get(`${API}/results/field-set/${attached.id}`, { headers: auth(ultra) })).json())
+      .data.fieldSet;
+    const endo = fs.fields.find((f) => f.code === 'endometrial_thickness');
+    expect(endo, 'TVS must carry endometrial thickness').toBeTruthy();
+    expect(endo.unit).toBe('cm');
+    // Deliberately no threshold printed beside it. The 4mm literature is scoped to POSTMENOPAUSAL
+    // women WITH BLEEDING, and a result_fields row carries neither menopausal nor symptom status —
+    // so any single note here would be wrong for most of this clinic's TVS patients.
+    expect(endo.reference_note, 'no threshold, because the schema cannot know the population').toBeNull();
+
+    const res = await apiContext.post(`${API}/results/${attached.id}`, {
+      headers: auth(ultra),
+      multipart: {
+        findings: 'The anteverted uterus is normal in size and echopattern.',
+        measurements: JSON.stringify({ endometrial_thickness: { value_1: 0.76 } }),
+      },
+    });
+    expect(res.status()).toBe(201);
+    const saved = Object.fromEntries(
+      ((await (await apiContext.get(`${API}/results/${attached.id}`, { headers: auth(ultra) })).json())
+        .data.result.measurements || []).map((m) => [m.field_code, m])
+    );
+    expect(Number(saved.endometrial_thickness.value_1)).toBeCloseTo(0.76, 2);
+  });
+
   // ── The screen itself ──────────────────────────────────────────────────────────────────────
   //
   // The API tests above prove the data is right. These prove a technician can actually reach it,

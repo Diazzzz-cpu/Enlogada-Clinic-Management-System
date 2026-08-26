@@ -1,5 +1,114 @@
 # Database Migration & Schema History
 
+## [1.51.0] - 2026-08-26 (Three answers, and three fabricated numbers removed)
+
+One constraint change (`node src/scripts/migrateBiophysicalScore.js`, `--rollback` reverses it),
+seed data, and a correction to `resultTemplates.js`. Researched against published guidance before
+deciding, because two of the three questions were about what NOT to build.
+
+### X-ray stays on free text, and that is the finding
+
+The clinic's archive holds **two** X-ray reports against a **24-test** X-ray catalogue, both Chest
+PA, one dated 2013. Their five-line anatomic order (lungs, heart, aorta, diaphragm/costophrenic
+sulci, "the rest") is not idiosyncratic — RSNA's own approved chest-radiograph templates model a
+plain film the same way, as ordered region slots whose options are complete canned sentences with
+no numeric fields at all. So the pattern is real.
+
+It still does not justify building. `result_measurements` is a MEASUREMENTS model — `NUMERIC(7,2)`
+plus a 120-character text column — and RSNA's canned sentences routinely run past 170 characters.
+There is no options table, and `ResultReport.jsx` renders measurements as a right-aligned
+`tabular-nums` table with a reference-note column, which is simply the wrong shape for prose. More
+decisively: two exemplars evidence the skeleton and one normal sentence per region. RSNA's
+equivalent carries roughly eight options per region, so building it means **inventing about forty
+clinical sentences** — which is the thing [1.50.0] already refused to do.
+
+ACR's practice parameter does not require it either. Its reporting section is explicitly headed
+"the following is a **suggested** format", and its only instruction for findings is to use
+appropriate terminology. Standardised templates "**may**" be used. No DOH or PhilHealth instrument
+prescribes report structure. There is no forcing function.
+
+### Three fabricated clinical numbers removed from `resultTemplates.js`
+
+These are paste-able boilerplate one click from a real patient's report, and each carried a number
+that was invented here:
+
+- **`XRAY_CHEST`** was four bullets in the wrong order using terms the radiologist does not write
+  ("Osseous structures", "cardiac silhouette"). Replaced with the clinic's own five lines,
+  transcribed from an archived report.
+- **`PELVIC_US`** contained a fabricated uterus measurement, `(5.2 x 4.1 x 3.8 cm)`. [1.50.0] gave
+  Pelvic Ultrasound a field set, so a technician pasting this would put a made-up uterus size in
+  the narrative while the Measurements block above carried the real one: **two numbers for one
+  organ on one report, with no way to tell which was measured.** A live inconsistency [1.50.0]
+  introduced.
+- **`CBC_NORMAL`** pasted a fabricated patient value beside a reference range that is not this
+  clinic's. Their own workbook reads `Male: 13.7-16.7 / Female: 11.7-14.5`, sex-conditional and
+  narrower than the one that shipped.
+
+A template is a starting point for prose. It must never carry a number that could be read as a
+measurement.
+
+### Endometrial thickness is now a field — with no threshold
+
+Promoted onto `tvs` and `pelvic_gyn`. It is the most standardised measurement in gynaecologic
+ultrasound: IETA exists specifically to standardise how it is acquired, and the SRU/ACOG 4mm
+cut-off has a >99% negative predictive value for endometrial cancer in postmenopausal bleeding.
+Measured against the corpus, **313 of 416 reports (75%)** carry a number explicitly bound to the
+endometrium — median 0.76 cm — living only inside a prose sentence where nothing can query it.
+
+`reference_note` is deliberately **NULL**, and the reasoning is worth keeping. The 4mm figure is
+conditional on a population this schema does not hold: it is scoped to postmenopausal women *with
+bleeding*. For asymptomatic postmenopausal women the literature says the threshold is not known and
+ROC work suggests roughly 11mm; premenopausally there is no cut-off at all, since the endometrium
+cycles from 1-4mm to 18mm. A `result_fields` row carries neither menopausal nor symptom status, so
+any single printed note would be wrong for most of this clinic's TVS patients.
+
+This keeps the `reference_note` rule coherent: it mirrors what is printed on the clinic's own form
+(as `N.V. = 5.0 - 25.0 gms` does for the prostate) and never imports literature.
+
+### BPS and Pregnancy Evaluation are different things
+
+The clinic's owner confirmed they are not the same product, and the corpus shows why. **"Pregnancy
+Evaluation"** is the study — 17 reports of fetal biometry. **BPS** is a *scoring block appended
+inside* one, present in only 2 of those 17: `FT`, `FM`, `FBM`, `AFI`, each 0 or 2. That is Manning's
+biophysical profile, and the billing world separates them the same way the catalogue already does —
+`BPS` and `BPS w/ NST` are two products because the totals mean different things, /8 against /10.
+
+Two field sets, therefore, not one with an optional NST field: a score of 8 presented as though it
+were out of 10 reads as a worse result than it is. `BPS_SUM` totals only the components the set
+itself defines, and **refuses to total an incomplete profile** — reporting 4/8 when two components
+were never assessed would look like a poor score rather than an unfinished study.
+
+`chk_result_fields_derivation` had to widen to admit `BPS_SUM`; the rollback refuses while any
+field still declares it, since narrowing the constraint under live rows would leave data the schema
+rejects.
+
+### Two things deliberately not built
+
+**"Pregnancy Evaluation" has no catalogue row**, so the clinic performs the study and cannot bill it
+by name. That needs a **price**, and a fabricated price is precisely what `seedRealCatalogue.js`
+refuses to invent. Reported in the seed's outstanding block.
+
+**The per-fetus repeating group.** Sized honestly this time: **8 of 17 Pregnancy Evaluations are
+twins — 47%**, not the fraction of a percent it looks like against the whole corpus. So it is
+required before biometry can be seeded at all, and it is not small: `mergeMeasurements` is keyed on
+field code alone, and per-fetus means recasting the carry-forward rule onto a composite key — the
+most safety-critical function in the feature. It also raises a question with no current answer: if
+version 1 recorded two fetuses and version 2 submits one, is the missing block "carry forward" or
+"erase"? Getting that wrong silently retains a demised fetus's biometry on a live report.
+
+### Hadlock stays out, and the research strengthened the case
+
+Gestational age and estimated fetal weight remain **entered**, transcribed from the scanner.
+"Hadlock" is a family of a dozen-odd equations rather than one, so reproducing it means guessing
+which the scanner is configured for — and guessing wrong prints a number that disagrees with the
+sheet the technician is copying from, wearing this system's authority. The AIUM parameter is also
+explicit that a pregnancy should NOT be redated after an accurate earlier scan, which is exactly
+what recomputing GA on every scan does. And it states that even the best weight prediction carries
+errors up to 15%, so computing EFW to the gram implies an accuracy the method does not have.
+
+The corpus's per-parameter ages matching Hadlock closely is evidence the **scanner** emits them.
+The scanner is the measuring instrument; this system is the record.
+
 ## [1.50.0] - 2026-08-26 (A result is a form, not a paragraph)
 
 ### The screens

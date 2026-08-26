@@ -19,15 +19,18 @@
  *
  * ── Two things deliberately NOT seeded ───────────────────────────────────────────────────────
  *
- * TVS endometrial thickness. It is a real measurement, present in 179 reports — but it lives
- * inside a prose sentence, never in the Measurements block. Promoting it would change what the
- * printed report looks like, which is a decision for the clinic rather than for this script.
+ * "Pregnancy Evaluation" — the fetal biometry study, 17 reports. It has NO catalogue row, so the
+ * clinic performs it and cannot bill it by name. That is a pricing decision, not a schema one, and
+ * a fabricated price is exactly what `seedRealCatalogue.js` refuses to invent. Reported below.
  *
- * The obstetric/biometry set (BPS, "Pregnancy Evaluation", n=30). It is the only study needing a
- * per-fetus repeating group — a twin report duplicates the whole column block — and it is 2.7% of
- * the corpus. The nine flat studies below cover roughly 90% of their ultrasound work with none of
- * that complexity. BPS keeps the free-text path it has today, so nothing regresses; it becomes a
- * seed-data change once the repeating group is built.
+ * The per-fetus repeating group. 8 of those 17 Pregnancy Evaluations are TWINS — 47%, not the
+ * fraction of a percent it looks like against the whole corpus. So the group is required before
+ * biometry can be seeded at all, and it is not a small change: `mergeMeasurements` is keyed on
+ * field code alone, and per-fetus means recasting the carry-forward rule onto a composite key.
+ * That rule is the most safety-critical function in the feature. It also raises a question with no
+ * current answer — if version 1 recorded two fetuses and version 2 submits one, is the missing
+ * block "carry forward" or "erase"? Getting that wrong silently retains a demised fetus's biometry
+ * on a live report. Not to be solved under time pressure.
  *
  * ── Fields are deactivated, never deleted ────────────────────────────────────────────────────
  *
@@ -135,6 +138,7 @@ const FIELD_SETS = [
       { code: 'cervix', label: 'Cervix', kind: L3, unit: 'cm' },
       { code: 'right_ovary', label: 'Right Ovary', kind: L3, unit: 'cm' },
       { code: 'left_ovary', label: 'Left Ovary', kind: L3, unit: 'cm' },
+      { code: 'endometrial_thickness', label: 'Endometrial thickness', kind: N, unit: 'cm' },
     ],
   },
   {
@@ -146,6 +150,7 @@ const FIELD_SETS = [
       { code: 'cervix', label: 'Cervix', kind: L3, unit: 'cm' },
       { code: 'right_ovary', label: 'Right Ovary', kind: L3, unit: 'cm' },
       { code: 'left_ovary', label: 'Left Ovary', kind: L3, unit: 'cm' },
+      { code: 'endometrial_thickness', label: 'Endometrial thickness', kind: N, unit: 'cm' },
     ],
   },
   {
@@ -156,6 +161,43 @@ const FIELD_SETS = [
       { code: 'left_testis', label: 'Left Testis', kind: L3, unit: 'cm' },
       { code: 'right_epididymal_head', label: 'Right Epididymal head', kind: N, unit: 'cm' },
       { code: 'left_epididymal_head', label: 'Left Epididymal head', kind: N, unit: 'cm' },
+    ],
+  },
+  // ── The biophysical profile ────────────────────────────────────────────────────────────────
+  //
+  // Two sets, not one with an optional field, because the clinic bills two products and the totals
+  // mean different things: /8 without a non-stress test and /10 with. A score of 8 presented as
+  // though it were out of 10 reads as a worse result than it is.
+  //
+  // Manning scores each component 0 or 2. The clinic's two archived examples are both TWIN studies
+  // carrying a per-fetus block (`FT - 2`, `FM - 2`, `FBM - 2`, `AFI - 2`), so the single-fetus form
+  // below is that block taken once rather than a separate exemplar — stated plainly because
+  // everything else in this file is transcribed directly.
+  {
+    code: 'bps', name: 'Biophysical Profile', tests: ['BPS'],
+    fields: [
+      { code: 'fetal_tone', label: 'Fetal tone (FT)', kind: N },
+      { code: 'fetal_movement', label: 'Fetal movement (FM)', kind: N },
+      { code: 'fetal_breathing', label: 'Fetal breathing movement (FBM)', kind: N },
+      { code: 'amniotic_fluid', label: 'Amniotic fluid (AFI)', kind: N },
+      {
+        code: 'bps_total', label: 'Biophysical score', kind: N,
+        derivation: 'BPS_SUM', derivedFrom: 'fetal_tone', note: 'out of 8',
+      },
+    ],
+  },
+  {
+    code: 'bps_nst', name: 'Biophysical Profile with NST', tests: ['BPS w/ NST'],
+    fields: [
+      { code: 'fetal_tone', label: 'Fetal tone (FT)', kind: N },
+      { code: 'fetal_movement', label: 'Fetal movement (FM)', kind: N },
+      { code: 'fetal_breathing', label: 'Fetal breathing movement (FBM)', kind: N },
+      { code: 'amniotic_fluid', label: 'Amniotic fluid (AFI)', kind: N },
+      { code: 'non_stress_test', label: 'Non-stress test (NST)', kind: N },
+      {
+        code: 'bps_total', label: 'Biophysical score', kind: N,
+        derivation: 'BPS_SUM', derivedFrom: 'fetal_tone', note: 'out of 10',
+      },
     ],
   },
 ];
@@ -274,10 +316,13 @@ async function run() {
   line('STILL NEEDED FROM THE CLINIC:');
   line('  - X-ray: only 2 real reports exist (both Chest PA) against 24 catalogue tests.');
   line('    Exemplars for the other views are needed before any X-ray field set can be written.');
-  line('  - BPS / "Pregnancy Evaluation": confirm they are the same product, and that a per-fetus');
-  line('    repeating group is wanted for twin studies. Free text until then.');
-  line('  - TVS endometrial thickness is recorded in prose today, not in the Measurements block.');
-  line('    Confirm whether the clinic wants it promoted to a field.');
+  line('  - A PRICE for "Pregnancy Evaluation". The clinic performs this study (17 reports in the');
+  line('    archive) and has no catalogue row for it, so it cannot be billed by name. No price is');
+  line('    invented here for the same reason seedRealCatalogue.js invents none.');
+  line('  - Twin studies stay on free text: 8 of 17 Pregnancy Evaluations are twins, so biometry');
+  line('    needs a per-fetus repeating group before it can be seeded at all.');
+  line('  - Endometrial thickness is now a field. The clinic may want to drop the number from its');
+  line('    canned sentence, or it will print in both the table and the narrative.');
   line('');
 }
 

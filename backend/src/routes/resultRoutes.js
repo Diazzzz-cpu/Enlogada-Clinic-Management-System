@@ -64,6 +64,10 @@ router.get('/critical/outstanding', verifyToken, authorizeStaff, authorizePermis
 // against a 'Waiting for Release' ticket. Registered last: a bare '/:visitTestId' would
 // otherwise shadow nothing here (every route above has two segments), but keeping catch-all
 // shapes at the bottom is the convention this codebase already follows in visitRoutes.
+// The shape a result should be recorded in. Two path segments, so it cannot be swallowed by
+// the single-segment '/:visitTestId' below whatever order they are declared in.
+router.get('/field-set/:visitTestId', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getFieldSet);
+
 router.get('/:visitTestId', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getResult);
 
 module.exports = router;

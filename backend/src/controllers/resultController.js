@@ -68,6 +68,31 @@ class ResultController {
       const { findings, remarks, amendmentReason, isCritical } = req.body;
       const releasedBy = req.user.userId;
 
+      // Same multipart problem as `isCritical` below, one step worse: an object cannot survive
+      // form-data at all, so the client sends it as a JSON string. Parsed here rather than in the
+      // service, because a malformed body is a request problem and the service should never have
+      // to know how it arrived. A bad string is refused rather than treated as "no measurements",
+      // which would silently save a report with an empty Measurements block.
+      let measurements;
+      if (req.body.measurements !== undefined) {
+        if (typeof req.body.measurements === 'string') {
+          try {
+            measurements = JSON.parse(req.body.measurements);
+          } catch {
+            const error = new Error('measurements must be valid JSON.');
+            error.statusCode = 400;
+            throw error;
+          }
+        } else {
+          measurements = req.body.measurements;
+        }
+        if (measurements !== null && (typeof measurements !== 'object' || Array.isArray(measurements))) {
+          const error = new Error('measurements must be an object keyed by field code.');
+          error.statusCode = 400;
+          throw error;
+        }
+      }
+
       const result = await resultService.uploadResult({
         visitTestId,
         file: req.file,
@@ -77,7 +102,8 @@ class ResultController {
         amendmentReason,
         // Arrives as a string over multipart/form-data, where every field is text — a bare
         // truthiness check would make the string "false" mean true.
-        isCritical: isCritical === true || isCritical === 'true'
+        isCritical: isCritical === true || isCritical === 'true',
+        measurements
       }, req.user);
 
       return res.status(201).json({
@@ -184,6 +210,23 @@ class ResultController {
         message,
         data: { result }
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * The field set for a test, so the entry form knows what to render.
+   *
+   * Returns `{ fieldSet: null }` rather than 404 for a test that has none: "this modality records
+   * free text" is a normal answer, not a missing resource, and a 404 would have the dialog show an
+   * error branch on every Laboratory ticket.
+   */
+  async getFieldSet(req, res, next) {
+    try {
+      const { visitTestId } = req.params;
+      const fieldSet = await resultService.getFieldSetForVisitTest(visitTestId, req.user);
+      return res.status(200).json({ status: 'success', data: { fieldSet: fieldSet || null } });
     } catch (err) {
       next(err);
     }

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const resultRepository = require('../repositories/resultRepository');
+const resultMeasurementRepository = require('../repositories/resultMeasurementRepository');
 const testRepository = require('../repositories/testRepository');
 const visitRepository = require('../repositories/visitRepository');
 const db = require('../config/database');
@@ -8,6 +9,7 @@ const { sendEmail } = require('../config/email');
 const notificationService = require('./notificationService');
 const { UPLOAD_ROOT } = require('../config/upload');
 const auditService = require('./auditService');
+const { computeDerived } = require('../constants/ultrasound');
 const {
   DIAGNOSTIC_CATEGORIES,
   MODALITY_SETTABLE_TEST_STATUSES,
@@ -110,6 +112,115 @@ async function assertStaffOwnsVisitTest(requestingUser, visitTestId) {
   }
 }
 
+/**
+ * Decide what measurements a NEW version of a result should carry.
+ *
+ * `createResult` inserts a fresh `test_results` row per save and copies nothing forward, which is
+ * why the file metadata above has to be re-read and re-passed explicitly or an amendment wipes it.
+ * Measurements have exactly the same problem and a worse blast radius: a technician correcting one
+ * decimal point on a whole abdomen would otherwise produce a live version carrying one field, with
+ * the other ten readable only on the superseded row. It would pass every existing check.
+ *
+ * So this is `CLAUDE.md`'s "An omitted field is not an instruction to erase", applied to a child
+ * table. The client sends a key for EVERY field it rendered, using null for a box the user
+ * cleared, which is what makes the three cases distinguishable:
+ *
+ *   key absent          the client never showed this field (it was added to the set after the
+ *                       previous version was written) -> carry the old row forward
+ *   key present, empty  the user cleared it            -> write nothing
+ *   key present, value  -> write it
+ *
+ * A two-way "is it there or not" test cannot tell "not shown" from "cleared", which is precisely
+ * the shape of the bug that erased `preparation` on a catalogue status toggle.
+ */
+function mergeMeasurements({ fieldSet, submitted, previous, patientSex, scanDate }) {
+  const byCode = new Map(fieldSet.fields.map((f) => [f.code, f]));
+  const previousByCode = new Map((previous || []).map((m) => [m.field_code, m]));
+  const merged = new Map();
+
+  for (const [code, field] of byCode) {
+    const sent = submitted ? Object.prototype.hasOwnProperty.call(submitted, code) : false;
+
+    if (!sent) {
+      const old = previousByCode.get(code);
+      if (old) {
+        merged.set(code, {
+          field_id: field.id, group_index: old.group_index || 1,
+          value_1: old.value_1, value_2: old.value_2, value_3: old.value_3,
+          value_text: old.value_text, value_date: old.value_date,
+          value_source: old.value_source, derivation: old.derivation,
+        });
+      }
+      continue;
+    }
+
+    const raw = submitted[code];
+    if (raw === null || raw === undefined || raw === '') continue;   // cleared
+
+    // A field that does not apply to this patient's sex is a wrong record, not a wrong form:
+    // of 405 whole abdomens in the clinic's archive, not one carried both a prostate and a
+    // uterus. Refusing loudly is better than storing something nobody can explain later.
+    if (field.applies_to_sex && patientSex && field.applies_to_sex !== patientSex) {
+      const error = new Error(
+        `"${field.label}" is not recorded for a ${patientSex} patient. ` +
+          'Check the patient record before recording it.'
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    merged.set(code, {
+      field_id: field.id,
+      group_index: Number(raw.group_index) || 1,
+      value_1: raw.value_1 ?? null, value_2: raw.value_2 ?? null, value_3: raw.value_3 ?? null,
+      value_text: raw.value_text ?? null, value_date: raw.value_date ?? null,
+      value_source: 'entered', derivation: null,
+    });
+  }
+
+  // Anything the client sent that this field set does not define is a bug in the caller, and
+  // silently dropping it would make that bug invisible for as long as it took someone to notice
+  // a missing number on a printed report.
+  for (const code of Object.keys(submitted || {})) {
+    if (!byCode.has(code)) {
+      const error = new Error(`"${code}" is not a field of the ${fieldSet.name} form.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  // Derived values LAST, from the merged map, so editing an axis recomputes the weight on the new
+  // version while the superseded one keeps the figure it was released with. This is the 1-in-20
+  // stale rate in the clinic's own archive, fixed.
+  for (const field of fieldSet.fields) {
+    if (!field.derivation) continue;
+    const source = merged.get(field.derived_from);
+    const computed = computeDerived(field, source, { scanDate });
+    const sentExplicitly = submitted && Object.prototype.hasOwnProperty.call(submitted, field.code)
+      && submitted[field.code] !== null && submitted[field.code] !== '';
+
+    if (sentExplicitly) {
+      // A sonologist typed a figure. Keep it exactly as typed and mark it, rather than overruling
+      // a clinician with arithmetic — the UI shows them the disagreement at entry time.
+      const row = merged.get(field.code);
+      if (row && computed && String(row.value_1) !== String(computed.value_1)) {
+        row.value_source = 'override';
+        row.derivation = field.derivation;
+      }
+      continue;
+    }
+    if (!computed) { merged.delete(field.code); continue; }
+    merged.set(field.code, {
+      field_id: field.id, group_index: 1,
+      value_1: computed.value_1 ?? null, value_2: null, value_3: null,
+      value_text: null, value_date: computed.value_date ?? null,
+      value_source: 'computed', derivation: field.derivation,
+    });
+  }
+
+  return [...merged.values()];
+}
+
 class ResultService {
   async getPendingByCategory(categoryName, requestingUser) {
     // '2D Echo' is its own row in test_categories, distinct from 'Ultrasound', but
@@ -169,7 +280,7 @@ class ResultService {
   }
 
   async uploadResult(
-    { visitTestId, file, findings, remarks, releasedBy, amendmentReason, isCritical },
+    { visitTestId, file, findings, remarks, releasedBy, amendmentReason, isCritical, measurements },
     requestingUser
   ) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
@@ -257,6 +368,33 @@ class ResultService {
         amendmentReason,
         isCritical
       });
+
+      // The structured half, written against the version that was just created.
+      //
+      // Inside this transaction deliberately: a result row whose measurements failed to write is
+      // a report with a blank Measurements block that nothing on any screen explains, and the
+      // technician would have been told it saved.
+      const fieldSet = await resultMeasurementRepository.findFieldSetForVisitTest(visitTestId);
+      if (fieldSet) {
+        const context = await resultMeasurementRepository.findVisitContextByVisitTest(visitTestId);
+        const previous = existing
+          ? await resultMeasurementRepository.findByResultId(existing.id)
+          : [];
+        const rows = mergeMeasurements({
+          fieldSet,
+          submitted: measurements,
+          previous,
+          patientSex: context?.sex,
+          scanDate: context?.scan_date,
+        });
+        if (rows.length) await resultMeasurementRepository.insertMany(created.id, rows);
+      } else if (measurements && Object.keys(measurements).length) {
+        // Sent measurements for a test that records none. Dropping them silently would be the
+        // worst outcome: the caller would believe they were stored.
+        const error = new Error('This test does not record structured measurements.');
+        error.statusCode = 400;
+        throw error;
+      }
 
       // Phase D: only a correction is audit-worthy here — the first-time release of every result
       // would make the log mostly noise from routine work, not the "something changed after the
@@ -478,7 +616,25 @@ class ResultService {
   // findings it recorded earlier, instead of overwriting them with a blank form.
   async getResultByVisitTestId(visitTestId, requestingUser) {
     await assertStaffMayReadVisitTest(requestingUser, visitTestId);
-    return await resultRepository.findResultByVisitTestId(visitTestId);
+    const result = await resultRepository.findResultByVisitTestId(visitTestId);
+    if (!result) return result;
+    // Fetched separately rather than joined. Joining a child table into a result query repeats
+    // the parent row once per FIELD — eleven times for a whole abdomen — and unlike the
+    // amendment case that `is_current` fixes, no filter helps.
+    const measurements = await resultMeasurementRepository.findByResultId(result.id);
+    return { ...result, measurements };
+  }
+
+  /**
+   * The shape a result should be recorded in, or null for a test that has no field set.
+   *
+   * Null is the answer for every Laboratory and X-ray test today, and it is what keeps their
+   * free-text path exactly as it was: the dialog renders a grid only when this returns one, so
+   * turning a modality on later is seed data rather than a code change.
+   */
+  async getFieldSetForVisitTest(visitTestId, requestingUser) {
+    await assertStaffMayReadVisitTest(requestingUser, visitTestId);
+    return await resultMeasurementRepository.findFieldSetForVisitTest(visitTestId);
   }
 
   /**

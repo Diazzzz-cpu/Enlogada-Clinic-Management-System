@@ -39,7 +39,7 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
                   before [1.50.0] — this one hardcoded the clinic's name and showed no referring
                   physician, so the sheet filed here and the sheet the patient downloads disagreed
                   about what the report said. */}
-              <ResultReport result={entry.justReleased} measurements={entry.justReleased.measurements || []} signatories={entry.justReleased.signatories || []} />
+              <ResultReport result={entry.justReleased} measurements={entry.justReleased.measurements || []} signatories={entry.justReleased.signatories || []} fieldSet={entry.fieldSet} />
 
               <div className="flex justify-end space-x-2">
                 <Button type="button" variant="outline" onClick={printReport} className="text-xs font-bold flex items-center space-x-1.5">

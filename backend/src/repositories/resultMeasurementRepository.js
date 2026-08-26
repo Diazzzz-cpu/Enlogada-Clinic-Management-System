@@ -84,7 +84,10 @@ const resultMeasurementRepository = {
          FROM clinic_signatories s
          LEFT JOIN test_categories tc ON tc.id = s.category_id
         WHERE s.is_active = TRUE AND (s.category_id IS NULL OR tc.name = $1)
-        ORDER BY s.display_order`,
+        -- id as a tiebreaker: display_order alone is stable only while no two signatories share
+        -- one, and which name prints LEFT on a signed clinical document must never be whatever the
+        -- planner returns that day. [1.53.0]
+        ORDER BY s.display_order, s.id`,
       [categoryName]
     );
     return rows;

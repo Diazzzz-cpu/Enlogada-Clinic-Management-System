@@ -253,14 +253,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   };
 
   const validate = () => {
-    // A laboratory form has no narrative — the clinic's own sheet carries only a COMMENT box, and
-    // demanding prose to save a Urinalysis whose fourteen fields are filled would be friction that
-    // buys nothing. So a completed grid is proof enough on its own; a test with NO field set is
-    // unchanged and still requires the text.
-    const hasMeasurements = fieldSet
-      && Object.values(measurements || {}).some((v) => v && Object.values(v)
-        .some((x) => x !== undefined && x !== null && String(x).trim() !== ''));
-    if (!findings && !hasMeasurements) {
+    if (!findings && !hasContent()) {
       setError('Findings and diagnostic analysis text are required.');
       return false;
     }
@@ -303,6 +296,21 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     }
     return out;
   };
+
+  /**
+   * Is there anything here worth saving?
+   *
+   * A laboratory form has no narrative — the clinic's own sheet carries only a COMMENT box — so a
+   * completed grid is proof enough on its own, and a test with NO field set still requires the
+   * text. This is ONE predicate on purpose: it was two, and they disagreed. `validate()` accepted a
+   * filled grid with an empty comment while `release()` still guarded on `if (findings)`, so
+   * authorising that result skipped the save entirely and then reported it released and the patient
+   * notified — with the typed values discarded when the dialog closed. [1.53.0]
+   */
+  const hasContent = () => Boolean(
+    fieldSet && Object.values(measurements || {}).some((v) => v && Object.values(v)
+      .some((x) => x !== undefined && x !== null && String(x).trim() !== ''))
+  );
 
   const submitFindings = async () => {
     if (resultFile) {
@@ -363,7 +371,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     try {
       // Findings may have been recorded in an earlier session — the ticket is sitting in
       // 'Waiting for Release' — in which case there is nothing new to save, only to release.
-      if (findings) await submitFindings();
+      if (findings || hasContent()) await submitFindings();
 
       const releaseRes = await api.post(`/results/${activeTest.visit_test_id}/release`);
       const emailStatus = releaseRes.data.data.result?.emailStatus;
@@ -379,12 +387,25 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       }
 
       setConfirmingRelease(false);
-      setJustReleased({
+
+      // Re-read what was actually stored rather than rebuilding the document from form state.
+      // [1.53.0] The reconstruction carried no signatories, no discipline heading and no section
+      // headings — `activeTest` comes from the worklist query, which has none of them — so the
+      // certificate handed across the counter printed "DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE
+      // OFFICIAL SEAL" above no signatures, as a flat list, while the same result viewed one screen
+      // away showed all three. That is the "three renderings that agree only by coincidence"
+      // failure ResultReport was extracted to end, reappearing as three data shapes.
+      let stored = null;
+      try {
+        stored = (await api.get(`/results/${activeTest.visit_test_id}`)).data.data.result;
+      } catch {
+        // Non-fatal: the release succeeded either way, and the panel falls back to what is in hand.
+      }
+
+      setJustReleased(stored ? { ...activeTest, ...stored } : {
         ...activeTest,
         findings,
         result_remarks: remarks,
-        // The figures that were just saved, so the certificate prints the same document the
-        // patient will later download rather than a version of it with the numbers missing.
         measurements: measurementsForPrint(fieldSet, measurements, activeTest?.sex),
         released_at: new Date().toISOString(),
         released_by_first_name: user?.firstName,

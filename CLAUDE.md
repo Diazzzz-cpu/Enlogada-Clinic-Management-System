@@ -79,6 +79,7 @@ node src/scripts/migratePaymentSubmissions.js  # [1.48.0] clinic payment channel
 node src/scripts/migrateResultFieldSets.js     # [1.50.0] structured result entry, Ultrasound only (--rollback REFUSES while measurements exist; add --force)
 node src/scripts/migrateBiophysicalScore.js     # [1.51.0] lets a biophysical score total itself (--rollback reverses it)
 node src/scripts/migrateLabResultForms.js       # [1.52.0] section headings + who signs a report (--rollback reverses it)
+node src/scripts/migrateResultPrecision.js      # [1.53.0] a suppressed TSH no longer stores as zero (--rollback reverses it)
 # Loads the ten Ultrasound field sets the migration above makes room for. Dry-run by default.
 # Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
 node src/scripts/seedResultFieldSets.js            # report only

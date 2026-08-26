@@ -1,5 +1,116 @@
 # Database Migration & Schema History
 
+## [1.53.0] - 2026-08-26 (What the review found)
+
+No new feature. An architecture review of `[1.50.0]`..`[1.52.0]` — commissioned before the work and
+lost to a session limit partway through, then run retrospectively — found three defects that a
+228-passing suite did not, plus several smaller ones. This is the fix.
+
+### The suite was green because it tested the wrong layer
+
+Worth recording before the defects themselves. The specs asserted API payloads and the presence of
+a grid; they never drove the two buttons a technician presses. The first version of the regression
+test written for the worst defect below **passed with the bug still in place**, because it posted
+to the API while the bug lives in the hook behind the button. It drives the browser now, and was
+verified by reverting the fix and watching it fail.
+
+### F1 — a released result that saved nothing
+
+`useResultEntry.js`. `[1.52.0]` relaxed `validate()` so a laboratory form with a filled grid and an
+empty COMMENT box is a legal save. Its silent partner was `release()`, still guarding on
+`if (findings)`. A technician who filled a Urinalysis, left the comment blank and pressed
+**Authorize & Release Result** got a success toast, the patient got a "results are ready" email, and
+**nothing was written** — the typed values were discarded when the dialog closed.
+
+On an amendment it was worse: the release POST succeeded against the OLD stored version, the
+certificate printed the edited values, and the database kept the previous ones. The printed document
+and the record disagreed, and no amendment reason was recorded.
+
+One predicate now serves both. Two predicates that must agree is a bug waiting for someone to edit
+one of them, which is exactly what happened.
+
+### F2 and F3 — one document, three data shapes
+
+`[1.50.0]` extracted `ResultReport` so the clinic's copy and the patient's copy could not drift.
+`[1.52.0]` then fed it from three different queries, and two of them lacked the columns the new
+layout reads:
+
+- **The patient's copy** came from `findResultsByPatientId`, which selected no `birthdate`, `sex`,
+  `patient_type_name` or `discipline` — so Birthday, Sex and Patient Type printed blank and the
+  letterhead carried **no title at all**.
+- **The just-released certificate** — the copy handed across the counter — was rebuilt from form
+  state, which carries no signatories, no discipline and no section headings. It printed
+  "DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL" above **no signatures**, as a flat list.
+  The same result viewed one screen away showed all three.
+
+The certificate re-reads the stored row after release now, and the history query carries the header
+block. The failure had simply moved from three renderings to three data shapes.
+
+### F4 — a form that changed shape between patients
+
+`showReference` was computed from the values recorded rather than from the form. Only 2 of
+Urinalysis's 14 fields carry a reference range, so a Urinalysis where microscopy was not recorded
+printed a **three-column** sheet and the next patient's printed four. Derived from the field set
+now. Fecalysis — the one form in the workbook with no reference column — was right by accident and
+is right by rule.
+
+### F5 — a suppressed TSH stored as zero
+
+`result_measurements.value_1` was `NUMERIC(7,2)`, sized when every field was a measurement in
+centimetres. `[1.52.0]` put laboratory analytes on it, and Postgres **rounds rather than errors**: a
+TSH of 0.004 mIU/L stored as `0.00`, and 0.001 and 0.009 became the same number. The value that
+reads as "undetectable" is the clinically decisive one. Now `NUMERIC(10,4)`, and the rollback
+refuses to narrow the column if any stored value would lose precision.
+
+### F6 — a unique constraint that did not constrain
+
+`uq_signatory UNIQUE (category_id, full_name, role_caption)` was commented "Re-running the seed must
+not duplicate them." NULLs are DISTINCT in a Postgres unique constraint, so two identical **global**
+signatories — the `category_id IS NULL` case, which is the one meaning "signs every report" — were
+both accepted. A partial unique index covers it.
+
+### Smaller, same commit
+
+- **F7** Signatory order had no tiebreaker. Which name prints on the left of a signed clinical
+  document must not be whatever the planner returns.
+- **F8** A report with no `discipline` — every X-ray test, 2D Echo, any laboratory test outside the
+  22 seeded sets — printed **no title**. Restored. And 2D Echo takes the ultrasound SHAPE now, since
+  it is performed by Ultrasound Staff and 18 historical visit_tests still point at the category.
+- **F10** `mergeMeasurements` trusted its client's payload shape. A bare value wrote an all-NULL row
+  and died on a raw CHECK violation; an empty string reached NUMERIC and 500'd; an empty
+  `value_text` wrote a row that passed the CHECK and printed as a blank line — the exact thing that
+  CHECK exists to prevent.
+- **F12** The discipline join had no `is_active` filter, so a deactivated field set kept printing
+  its heading on reports whose grid had gone.
+- **The report names who released it again.** The `[1.52.0]` rewrite dropped `released_by`. The
+  seeded signatories are the clinic's standing attestation; they are not a record of who authorised
+  THIS report, and the query had carried that all along.
+- **`first_name` on a result row now means the patient**, not the releasing user — `[1.52.0]`
+  changed that silently by widening the query. Aliased so the next reader is not caught.
+
+### Also fixed: a test that depended on the demo data it was not testing
+
+`workflow-context.spec.js` asserted that SOME seeded worklist row carried a referring physician.
+That made it a test of the demo dataset: the seeded tickets are released over a day of suite runs,
+and once the last one was gone it failed with "element not found" — which reads exactly like a code
+regression and cost real time to diagnose as depletion. Both worklist tests build their own paid
+ticket now and assert against a row they created, so the assertion is exact and the failure honest.
+
+### Still open — needs the owner, not a developer
+
+The report prints **a fixed pair of seeded names on every Laboratory result**, including an external
+consultant pathologist with his PRC licence number attached automatically to results he may never
+have seen. The photograph the owner sent is sufficient authority for the DATA — the names and
+numbers are correct — but not for the BEHAVIOUR. One written line from the clinic, and ideally from
+Dr. Lamayra, that both names are to print automatically on every laboratory result the system
+issues, belongs on file before this reaches a real patient.
+
+Separately escalated: `findResultsByPatientId` has no released-state filter, so a patient calling
+`GET /api/results/history/...` directly can read a result recorded but not yet authorised. The UI
+hides it; the API does not. Pre-existing — `findings` was already exposed this way — but `[1.50.0]`
+added measurements to that payload and `[1.52.0]` added signatories, so a third feature has now
+widened the same hole.
+
 ## [1.52.0] - 2026-08-26 (The form the clinic actually prints)
 
 Two schema additions (`node src/scripts/migrateLabResultForms.js`, `--rollback` reverses it), 22

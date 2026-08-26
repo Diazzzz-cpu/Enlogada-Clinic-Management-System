@@ -386,6 +386,107 @@ test.describe('Ultrasound structured measurements', () => {
   // The API tests above prove the data is right. This proves the modality that records NO
   // measurements is untouched, which is the regression with the widest blast radius: every
   // Laboratory and X-ray ticket in the clinic goes through this dialog.
+  // ── The defects a review found that a green suite did not ──────────────────────────────────
+  //
+  // Each of these was reachable in a 228-passing suite. They are here because the specs above
+  // asserted the API payload and the presence of a grid, and never drove the two buttons a
+  // technician actually presses.
+  test('releasing a form with an empty comment box still saves the grid', async ({ page }) => {
+    // [1.53.0] validate() was relaxed so a filled grid with no narrative is a legal save, and
+    // release()'s `if (findings)` guard was its silent partner: authorising that result skipped
+    // the save, reported "released" and notified the patient, and discarded the typed values.
+    //
+    // This drives the BROWSER on purpose. The first version of this test posted to the API and
+    // passed with the bug still in place, because the defect lives in the hook that the two
+    // buttons call — which is exactly the gap a review found in a 228-passing suite.
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1990-06-06', sex: 'Female', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e empty comment' },
+    })).json()).data.visit;
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const ua = tests.find((t) => t.name === 'Urinalysis');
+    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [ua.id] },
+    })).json()).data.visitTests[0];
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    await page.goto('/');
+    await page.getByText('Sign In', { exact: true }).first().click();
+    await page.fill('input[type="email"]', 'lab@enlogada.com');
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
+    const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]');
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await row.getByRole('button', { name: 'Record Findings' }).click();
+
+    // Fill ONE grid field and leave the comment box untouched — the legal state [1.52.0] created.
+    await page.getByTestId('measurement-color').fill('YELLOW');
+    await expect(page.locator('textarea')).toHaveValue('');
+
+    // Authorise straight from the form, which is the path that skipped the save.
+    await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
+    // ConfirmDialog's own button, which is labelled 'Authorize & Release' (no 'Result').
+    await page.getByRole('button', { name: 'Authorize & Release', exact: true }).click();
+
+    // The value must be in the database, not merely on the screen that said it was released.
+    const lab = await login('lab@enlogada.com');
+    await expect(async () => {
+      const saved = (await (await apiContext.get(`${API}/results/${attached.id}`, { headers: auth(lab) })).json())
+        .data.result;
+      expect(saved, 'the release must not report success with nothing stored').toBeTruthy();
+      expect(saved.measurements.find((m) => m.field_code === 'color')?.value_text).toBe('YELLOW');
+    }).toPass({ timeout: 15000 });
+  });
+
+  test('the patient copy carries the same header block as the clinic copy', async () => {
+    // [1.53.0] The two are the same document by requirement, but they came from two queries and
+    // only one of them selected birthdate, sex, patient type and discipline — so the patient's
+    // copy printed three fields blank and no title at all.
+    const client = await login('client@enlogada.com');
+    const profiles = (await (await apiContext.get(`${API}/patients/my-profiles`, { headers: auth(client) })).json())
+      .data.patients;
+    if (!profiles?.length) return;   // a client with no profile has nothing to assert against
+    const history = (await (await apiContext.get(`${API}/results/history/${profiles[0].id}`, { headers: auth(client) })).json())
+      .data.results;
+    if (!history?.length) return;
+    // Present as KEYS even when a given row has no value — the defect was the column being absent
+    // from the query, which is what made the printed field blank.
+    for (const key of ['birthdate', 'sex', 'patient_type_name', 'discipline']) {
+      expect(Object.prototype.hasOwnProperty.call(history[0], key), `patient copy must carry ${key}`).toBe(true);
+    }
+  });
+
+  test('a bare value is refused rather than written as an empty row', async () => {
+    // [1.53.0] The browser client always sends an object, which is exactly why the server checks:
+    // a bare string wrote an all-NULL row and failed on a raw CHECK violation instead of saying
+    // what was wrong.
+    const res = await record(ultra, {
+      findings: 'Attempted with a bare value.',
+      amendmentReason: 'Should be refused',
+      measurements: { right_kidney: '10.5' },
+    });
+    expect(res.status).toBe(400);
+  });
+
   // ── The printed document ───────────────────────────────────────────────────────────────────
   //
   // The requirement is that the saved result prints as the form the clinic already issues. These

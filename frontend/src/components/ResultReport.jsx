@@ -155,6 +155,7 @@ export default function ResultReport({
   patientName,
   measurements = [],
   signatories = [],
+  fieldSet = null,
   variant = 'clinic',
   children,
 }) {
@@ -162,18 +163,30 @@ export default function ResultReport({
   if (!result) return null;
 
   const name = patientName || [result.first_name, result.last_name].filter(Boolean).join(' ');
-  const isUltrasound = result.category_name === 'Ultrasound';
+  // 2D Echo is performed by Ultrasound Staff and reads as an ultrasound study, so it takes the
+  // ultrasound SHAPE — a narrative and an impression rather than a COMMENT box. Its tests are
+  // deactivated, but 18 historical visit_tests point at the category and their reports must still
+  // render as what they were. [1.53.0]
+  const isUltrasound = result.category_name === 'Ultrasound' || result.category_name === '2D Echo';
   const sigs = signatories.length ? signatories : result.signatories || [];
 
   // Fecalysis is the one form in the clinic's workbook with no reference-range column, so the
-  // column is dropped when nothing in the set carries a range rather than printing an empty one.
-  const showReference = measurements.some((m) => m.reference_note);
+  // column is dropped for it — but the decision belongs to the FORM, not to what happens to have
+  // been recorded. [1.53.0] Deriving it from the values printed a three-column Urinalysis when
+  // microscopy was left blank and a four-column one for the next patient, because only 2 of its 14
+  // fields carry a range. `fieldSet` is authoritative when the caller has it.
+  const showReference = fieldSet
+    ? fieldSet.fields.some((f) => f.reference_note)
+    : measurements.some((m) => m.reference_note);
 
   return (
     <div className="print-area print-active space-y-3 bg-white p-1">
       <Letterhead
         clinic={CLINIC}
-        title={isUltrasound ? 'Ultrasound Report' : result.discipline || ''}
+        // [1.53.0] `discipline` is NULL for X-ray, for 2D Echo, and for any test outside the 22
+        // seeded laboratory sets — so falling back to it alone printed NO title at all beneath the
+        // letterhead, under a disclaimer about an official seal.
+        title={isUltrasound ? 'Ultrasound Report' : result.discipline || 'Diagnostic Examination Report'}
       />
       <PatientBlock result={result} name={name} />
 
@@ -225,8 +238,16 @@ export default function ResultReport({
         </p>
       )}
 
+      {/* Who authorised it, and when. [1.53.0] The rewrite dropped this: the seeded signatories
+          are the clinic's standing attestation, but they are not a record of who actually released
+          THIS report, and the query has carried that all along. A report that cannot say who
+          authorised it is weaker than the one it replaced. */}
       {result.released_at && (
-        <p className="m-0 text-fine text-slate-400">Released {formatDateTime(result.released_at)}</p>
+        <p className="m-0 text-fine text-slate-400">
+          Released {formatDateTime(result.released_at)}
+          {result.released_by_first_name
+            && ` by ${result.released_by_first_name} ${result.released_by_last_name || ''}`.trimEnd()}
+        </p>
       )}
     </div>
   );

@@ -133,6 +133,9 @@ async function assertStaffOwnsVisitTest(requestingUser, visitTestId) {
  * A two-way "is it there or not" test cannot tell "not shown" from "cleared", which is precisely
  * the shape of the bug that erased `preparation` on a catalogue status toggle.
  */
+/** '' and whitespace are a cleared field, not a value. NUMERIC would reject the first outright. */
+const blankOut = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : v);
+
 function mergeMeasurements({ fieldSet, submitted, previous, patientSex, scanDate }) {
   const byCode = new Map(fieldSet.fields.map((f) => [f.code, f]));
   const previousByCode = new Map((previous || []).map((m) => [m.field_code, m]));
@@ -157,6 +160,27 @@ function mergeMeasurements({ fieldSet, submitted, previous, patientSex, scanDate
     const raw = submitted[code];
     if (raw === null || raw === undefined || raw === '') continue;   // cleared
 
+    // The browser client always sends an object, and that is exactly why this is checked: a
+    // caller that sends `{"color":"YELLOW"}` would otherwise write an all-NULL row and fail on a
+    // raw CHECK violation, and `{"wbc":{"value_1":""}}` would send an empty string to NUMERIC and
+    // 500. Both are the caller's mistake and both deserve a message that says so. [1.53.0]
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+      const error = new Error(`"${field.label}" must be an object of values, not a bare value.`);
+      error.statusCode = 400;
+      throw error;
+    }
+    const blank = (v) => v === undefined || v === null || String(v).trim() === '';
+    // Every key blank is a cleared field, not a row of nothing — the CHECK constraint exists to
+    // keep an empty line off a printed clinical document.
+    if (['value_1', 'value_2', 'value_3', 'value_text', 'value_date'].every((k) => blank(raw[k]))) continue;
+    for (const k of ['value_1', 'value_2', 'value_3']) {
+      if (!blank(raw[k]) && !Number.isFinite(Number(raw[k]))) {
+        const error = new Error(`"${field.label}" expects a number.`);
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
     // A field that does not apply to this patient's sex is a wrong record, not a wrong form:
     // of 405 whole abdomens in the clinic's archive, not one carried both a prostate and a
     // uterus. Refusing loudly is better than storing something nobody can explain later.
@@ -172,8 +196,8 @@ function mergeMeasurements({ fieldSet, submitted, previous, patientSex, scanDate
     merged.set(code, {
       field_id: field.id,
       group_index: Number(raw.group_index) || 1,
-      value_1: raw.value_1 ?? null, value_2: raw.value_2 ?? null, value_3: raw.value_3 ?? null,
-      value_text: raw.value_text ?? null, value_date: raw.value_date ?? null,
+      value_1: blankOut(raw.value_1), value_2: blankOut(raw.value_2), value_3: blankOut(raw.value_3),
+      value_text: blankOut(raw.value_text), value_date: blankOut(raw.value_date),
       value_source: 'entered', derivation: null,
     });
   }

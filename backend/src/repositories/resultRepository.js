@@ -319,6 +319,10 @@ class ResultRepository {
              -- Everything the printed form's header block asks for. [1.52.0] The clinic's own
              -- sheet prints Name / Birthday / Sex on the left and Date / Patient Type / Physician
              -- on the right, and a report that leaves half of them blank is not their document.
+             -- Aliased. A bare first_name on a result row used to mean the releasing user; since
+             -- [1.52.0] widened this query it means the patient, and every caller spreading the
+             -- result inherits that silently. Naming it removes the trap. [1.53.0]
+             p.first_name AS patient_first_name, p.last_name AS patient_last_name,
              p.first_name, p.last_name, p.birthdate, p.sex,
              pt.name AS patient_type_name,
              pv.created_at AS visit_date, pv.referring_physician, pv.referring_physician_prc,
@@ -335,7 +339,7 @@ class ResultRepository {
       LEFT JOIN patient_types pt ON pt.id = p.patient_type_id
       -- A test with no field set has no discipline; LEFT so the row survives either way.
       LEFT JOIN result_field_set_tests fst ON fst.test_id = vt.test_id
-      LEFT JOIN result_field_sets fs       ON fs.id = fst.field_set_id
+      LEFT JOIN result_field_sets fs       ON fs.id = fst.field_set_id AND fs.is_active = TRUE
       -- The live version. Callers here mean "the result", not "some past draft of it";
       -- findVersionHistoryByVisitTestId is the way to reach superseded versions.
       WHERE tr.visit_test_id = $1 AND tr.is_current
@@ -369,11 +373,22 @@ class ResultRepository {
              pv.referring_physician, pv.referring_physician_prc,
              tr.id as result_id, tr.findings, tr.remarks as result_remarks,
              tr.file_path, tr.file_original_name, tr.released_at,
-             u.first_name as released_by_first_name, u.last_name as released_by_last_name
+             u.first_name as released_by_first_name, u.last_name as released_by_last_name,
+             -- The printed header block. [1.53.0] The patient's copy and the clinic's copy are the
+             -- same document by requirement, and this query fed the patient's — so without these
+             -- their copy printed Birthday, Sex and Patient Type blank and carried no title at all,
+             -- while the clinic's showed all four.
+             p.birthdate, p.sex, ptp.name AS patient_type_name, fs.discipline
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
+      JOIN patients p ON p.id = pv.patient_id
+      LEFT JOIN patient_types ptp ON ptp.id = p.patient_type_id
+      -- 1:1 by uq_fst_test, so neither join can multiply a row. is_active matches
+      -- findFieldSetForVisitTest: a deactivated set must stop printing its heading too.
+      LEFT JOIN result_field_set_tests fst ON fst.test_id = vt.test_id
+      LEFT JOIN result_field_sets fs ON fs.id = fst.field_set_id AND fs.is_active = TRUE
       -- is_current: a test can now carry several versions, and joining them all would repeat
       -- the row once per amendment and show superseded findings alongside the live ones.
       LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current

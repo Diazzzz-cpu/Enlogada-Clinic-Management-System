@@ -1,6 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { selfPayProfile } from './helpers/patients.js';
+import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 
 // Information each role needs *on the screen where they act*, rather than one screen away.
 //
@@ -21,35 +22,110 @@ async function signIn(page, email) {
   await page.locator('button[type="submit"]').click();
 }
 
+
+/**
+ * A paid Laboratory ticket sitting on the modality worklist, built by this file rather than
+ * borrowed from the demo seed.
+ *
+ * These tests used to assert against whatever the seeded dataset happened to leave on the
+ * worklist. That made them tests of the demo data: the seeded tickets are released over a day of
+ * suite runs, and once the relevant one is gone the assertion fails with "element not found",
+ * which reads exactly like a code regression. `[1.52.0]` Building the ticket makes the assertion
+ * exact and the failure honest.
+ */
+async function paidLabTicket(apiContext, { referringPhysician, sex = 'Female', birthdate = '1978-09-12' } = {}) {
+  const login = async (email) =>
+    (await (await apiContext.post(`${API}/auth/login`, { data: { email, password: PASSWORD } })).json()).data.token;
+  const rec = await login('receptionist@enlogada.com');
+  const cashier = await login('cashier@enlogada.com');
+  const auth = (t) => ({ Authorization: `Bearer ${t}` });
+
+  const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(rec) })).json())
+    .data.patientTypes;
+  const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+
+  const person = fixturePerson();
+  const patient = (await (await apiContext.post(`${API}/patients`, {
+    headers: auth(rec),
+    data: {
+      patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+      birthdate, sex, contactNumber: FIXTURE_CONTACT,
+    },
+  })).json()).data.patient;
+
+  const visit = (await (await apiContext.post(`${API}/visits`, {
+    headers: auth(rec),
+    data: {
+      patientId: patient.id, visitType: 'Walk in', notes: 'e2e worklist context',
+      ...(referringPhysician ? { referringPhysician, referringPhysicianPrc: '0142887' } : {}),
+    },
+  })).json()).data.visit;
+
+  const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+  const labTest = tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
+  await apiContext.post(`${API}/tests/visit-tests`, {
+    headers: auth(rec),
+    data: { patientVisitId: visit.id, testIds: [labTest.id] },
+  });
+
+  // Paying is what releases the ticket to the modality worklist.
+  const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+    .data.bill;
+  await apiContext.post(`${API}/payments`, {
+    headers: auth(cashier),
+    data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+  });
+  return person;
+}
+
+/** Find this run's own row. The worklist pages at 10 against a queue that grows during a run. */
+async function findRow(page, person) {
+  await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
+  const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]');
+  await expect(row).toBeVisible({ timeout: 15000 });
+  return row;
+}
+
 test('the diagnostic worklist shows age and sex, which decide the reference range', async ({ page }) => {
   // Not cosmetic. Diagnostic reference ranges are banded by age and by sex — a haemoglobin that
   // is normal for a 40-year-old man is anaemia in a child — so a technician recording findings
   // has to know which band applies. The query returned birthdate and sex all along; the worklist
   // rendered neither, and the tech had to open a second screen to find out.
-  await signIn(page, 'lab@enlogada.com');
-  await expect(page.getByRole('heading', { name: /laboratory operations worklist/i }))
-    .toBeVisible({ timeout: 15000 });
+  const apiContext = await request.newContext();
+  try {
+    const person = await paidLabTicket(apiContext, { sex: 'Male', birthdate: '1994-03-08' });
 
-  const rows = page.locator('tbody tr');
-  await expect(rows.first()).toBeVisible({ timeout: 15000 });
+    await signIn(page, 'lab@enlogada.com');
+    await expect(page.getByRole('heading', { name: /laboratory operations worklist/i }))
+      .toBeVisible({ timeout: 15000 });
 
-  // "PT-12 · 31y · Male" under the patient's name.
-  const first = rows.first();
-  await expect(first).toContainText(/\d+y/);
-  await expect(first).toContainText(/Male|Female/);
+    // "PT-12 · 31y · Male" under the patient's name. Asserted on THIS run's own row, so the sex
+    // is known rather than whichever the first seeded row happens to carry.
+    const row = await findRow(page, person);
+    await expect(row).toContainText(/\d+y/);
+    await expect(row).toContainText('Male');
+  } finally {
+    await apiContext.dispose();
+  }
 });
 
 test('the diagnostic worklist names the referring physician when there is one', async ({ page }) => {
   // The report goes back to this doctor, and a technician querying an odd result needs to know
   // who to call. [1.23.0] recorded it and put it on the report and the HMO review; the worklist
   // — where the work happens — was missed.
-  await signIn(page, 'lab@enlogada.com');
-  await expect(page.getByRole('heading', { name: /laboratory operations worklist/i }))
-    .toBeVisible({ timeout: 15000 });
+  const apiContext = await request.newContext();
+  try {
+    const person = await paidLabTicket(apiContext, { referringPhysician: 'Dr. Amelia Santos' });
 
-  await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 15000 });
-  // The seeded worklist tickets carry a referrer, so at least one row shows it.
-  await expect(page.getByText(/Ref: Dr\./).first()).toBeVisible({ timeout: 10000 });
+    await signIn(page, 'lab@enlogada.com');
+    await expect(page.getByRole('heading', { name: /laboratory operations worklist/i }))
+      .toBeVisible({ timeout: 15000 });
+
+    const row = await findRow(page, person);
+    await expect(row).toContainText('Dr. Amelia Santos');
+  } finally {
+    await apiContext.dispose();
+  }
 });
 
 test('an upcoming booking tells the patient what to do beforehand', async ({ page }) => {

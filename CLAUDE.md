@@ -77,6 +77,10 @@ node src/scripts/migratePaymentMethods.js     # [1.33.0] narrow chk_payment_meth
 node src/scripts/migrateTestPackages.js        # [1.45.0] the clinic's package deals (--rollback reverses it)
 node src/scripts/migratePaymentSubmissions.js  # [1.48.0] clinic payment channels + manual proof of payment (--rollback reverses it)
 node src/scripts/migrateResultFieldSets.js     # [1.50.0] structured result entry, Ultrasound only (--rollback REFUSES while measurements exist; add --force)
+# Loads the ten Ultrasound field sets the migration above makes room for. Dry-run by default.
+# Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
+node src/scripts/seedResultFieldSets.js            # report only
+node src/scripts/seedResultFieldSets.js --confirm  # apply
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -124,7 +128,7 @@ The E2E suite creates a throwaway client, patient, visit and payment on every ru
 
 The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRoles` writes one row per recipient per event, so its size is events × staff, not events. Because the suite also created staff and elevated accounts that were never cleaned up (137 Cashiers, 89 Admins, 45 SuperAdmins had accumulated), both factors grew at once and the table reached 255,540 rows across 4,309 events in five days — average fan-out 60, peak 181, with 99.4% never read by anyone. After a reset the same fan-out is 3. Production will not see the runaway staff count, but it has no retention either: 20 staff × 200 events/day is ~1.5M rows a year, growing forever. Schedule `pruneNotifications.js` (default: read 30d, unread 90d) in any environment that runs longer than a demo.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 35 Playwright specs (211 tests, ~260s) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. There are no unit tests; the backend has no test script.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 36 Playwright specs (225 tests, ~300s) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. There are no unit tests; the backend has no test script.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history and critical values (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344), and that a reversed receipt is both still listed and not counted (`cashup-reversals.spec.js` — see the note under Architecture; the log and the money are two different questions, and this spec fails if either half is answered with the other), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -512,6 +516,25 @@ Services Catalogue.
   panels, `.auth-panel`, the public footer and the navy banners do not flip, so `text-slate-300`
   on them inverts to dark-on-dark. Use `text-rail-ink-*` and `border-rail-line`. This has now been
   found four separate times; it is the single most repeated dark-mode mistake in this codebase.
+
+- **A result is a form, not a paragraph — for Ultrasound.** `[1.50.0]` `test_results.findings`
+  still holds the narrative and the impression; the MEASUREMENT block is structured
+  (`result_field_sets` / `result_fields` / `result_measurements`). Three rules follow. Measurements
+  attach to the result **version**, never the visit test — `createResult` inserts a new row per
+  save and copies nothing, so hanging them off the visit test would let an amendment rewrite the
+  superseded version's numbers in place. They are **never joined** into a list query: a child table
+  repeats the parent row once per field, eleven times for a whole abdomen, and no `is_current`
+  filter helps. And an **omitted field is not an instruction to erase** — the client sends a key
+  for every field it rendered, so absent means "carry the previous version's value forward" and
+  null means "the user cleared it". `ultrasound-measurements.spec.js` guards all three.
+- **The clinical report has one rendering: `components/ResultReport.jsx`.** The clinic's copy and
+  the patient's copy are the same document by requirement, so a second rendering can only agree
+  with the first by coincidence. Print through `lib/printReport.js`, never a bare `window.print()`:
+  two mounted `.print-area` elements print stacked on top of each other, and the diagnostic
+  dashboard can hold three at once.
+- **Never add a second `<textarea>` to the result entry dialog.** `laboratory.spec.js` drives the
+  findings box with a bare `page.locator('textarea')`, so a second one breaks two of its tests with
+  a strict-mode violation from a file that never mentions the component that added it.
 
 **Don't couple a test to a class name.** `payment.spec.js` used to scope itself with
   `ancestor::div[contains(@class,"rounded-2xl")]`, so changing a corner radius failed a payment

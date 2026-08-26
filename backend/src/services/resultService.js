@@ -720,10 +720,26 @@ class ResultService {
    * never loaded and never cross the wire.
    */
   async getPatientHistory(patientId, requestingUser) {
-    return await resultRepository.findResultsByPatientId(
+    const rows = await resultRepository.findResultsByPatientId(
       patientId,
       visibleCategoriesFor(requestingUser)
     );
+    if (!rows.length) return rows;
+
+    // One extra query for the whole list, never a join. Joining measurements in would repeat each
+    // result row once per FIELD — eleven times for a whole abdomen — and unlike the amendment
+    // case, no `is_current` filter helps. This is the same reason the clinic's copy fetches them
+    // separately.
+    const byResult = new Map();
+    const measurements = await resultMeasurementRepository.findByResultIds(
+      rows.map((r) => r.result_id ?? r.id).filter(Boolean)
+    );
+    for (const m of measurements) {
+      const list = byResult.get(m.test_result_id) || [];
+      list.push(m);
+      byResult.set(m.test_result_id, list);
+    }
+    return rows.map((r) => ({ ...r, measurements: byResult.get(r.result_id ?? r.id) || [] }));
   }
 }
 

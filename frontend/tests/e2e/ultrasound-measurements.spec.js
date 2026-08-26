@@ -251,6 +251,65 @@ test.describe('Ultrasound structured measurements', () => {
     expect(res.status).toBe(400);
   });
 
+  // ── The screen itself ──────────────────────────────────────────────────────────────────────
+  //
+  // The API tests above prove the data is right. These prove a technician can actually reach it,
+  // and that the modality which records no measurements is untouched.
+  // ── The screen itself ──────────────────────────────────────────────────────────────────────
+  //
+  // The API tests above prove the data is right. This proves the modality that records NO
+  // measurements is untouched, which is the regression with the widest blast radius: every
+  // Laboratory and X-ray ticket in the clinic goes through this dialog.
+  test('a Laboratory ticket still has exactly one textarea and no grid', async ({ page }) => {
+    // Its own ticket, so it does not consume a seeded demo stage.
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1988-03-11', sex: 'Female', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e grid absence' },
+    })).json()).data.visit;
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const labTest = tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
+    await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [labTest.id] },
+    });
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    await page.goto('/');
+    await page.getByText('Sign In', { exact: true }).first().click();
+    await page.fill('input[type="email"]', 'lab@enlogada.com');
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    await page.getByPlaceholder('Search patient, test, queue...').fill(patient.last_name);
+    await expect(page.getByText(`${patient.first_name} ${patient.last_name}`)).toBeVisible({ timeout: 15000 });
+    const row = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
+    await row.getByRole('button', { name: 'Record Findings' }).click();
+
+    // The assertion `laboratory.spec.js` depends on without saying so: it drives the findings box
+    // with a BARE page.locator('textarea'), so a second one anywhere in this dialog breaks two of
+    // its tests with a strict-mode violation, from a file that never mentions the grid.
+    await expect(page.locator('textarea')).toHaveCount(1);
+    // And no grid at all, because a Laboratory test has no field set. This is what keeps the
+    // free-text path identical to what it was before the feature existed.
+    await expect(page.locator('[data-testid^="measurement-row-"]')).toHaveCount(0);
+  });
+
   test('a Laboratory result still records free text, and takes no measurements', async () => {
     const lab = await login('lab@enlogada.com');
     const labVisitTest = await (async () => {

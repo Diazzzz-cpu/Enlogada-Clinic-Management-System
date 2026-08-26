@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { TEMPLATES_BY_CATEGORY } from '../../lib/resultTemplates';
+import MeasurementGrid from './MeasurementGrid';
 import ResultReport from '../ResultReport';
 import { printReport } from '../../lib/printReport';
 
@@ -113,6 +114,17 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
                 </div>
               </div>
             )}
+
+            {/* Only for a test whose modality records measurements. Everything else is the
+                free-text form it has always been — a data-driven switch rather than a category
+                branch, so turning X-ray on later is seed data and not a code change. */}
+            <MeasurementGrid
+              fieldSet={entry.fieldSet}
+              values={entry.measurements}
+              patientSex={entry.activeTest?.sex}
+              onChange={entry.setMeasurements}
+              disabled={entry.saving}
+            />
 
             <div className="space-y-1.5">
               <label htmlFor="diagnosticdashboard-findings-impression-required" className="field-label">Findings & Impression (Required)</label>

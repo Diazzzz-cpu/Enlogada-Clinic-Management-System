@@ -2,6 +2,33 @@
 
 ## [1.50.0] - 2026-08-26 (A result is a form, not a paragraph)
 
+### The screens
+
+**One document, three screens.** `components/ResultReport.jsx` renders the clinical report for the
+technician's just-released certificate, the staff read-back and the patient's own copy. Three
+hand-rolled renderings existed before, and they had drifted: two hardcoded the clinic's name, the
+read-back printed no letterhead at all, and only the patient's copy showed the referring physician.
+The requirement — *record once, and that is what the patient prints* — cannot be met by three
+renderings that agree only by coincidence.
+
+**`components/diagnostic/MeasurementGrid.jsx`** renders the fields, and appears **only when the API
+returns a field set**. That is a data-driven switch rather than a category branch, so Laboratory and
+X-ray dialogs are byte-identical to what they were, and turning a modality on later is seed data.
+
+Every input in the grid is an `<input>`, never a `<textarea>`. `laboratory.spec.js` drives the
+findings box with a bare `page.locator('textarea')`, so a second one anywhere in that dialog breaks
+two of its tests with a strict-mode violation — from a file that never mentions the grid. A spec now
+asserts the count is exactly one.
+
+**Derived values are not computed in the browser.** A live prostate weight as the axes are typed
+would be nicer, and it would put a second copy of clinical arithmetic in the frontend.
+`moneyRange.js` exists because two copies of a money rule drifted apart within one commit.
+
+**The reset discipline extends to measurements.** `release()` saves whatever is in state before
+releasing, so `openRelease` clearing `findings` but not the grid would write the PREVIOUS patient's
+measurements onto this patient's report moments before it is emailed. All three openers clear both.
+
+
 Four tables, no data. Ultrasound only — see the scope note at the end.
 
 Reverse with `node src/scripts/migrateResultFieldSets.js --rollback`. **It refuses while any

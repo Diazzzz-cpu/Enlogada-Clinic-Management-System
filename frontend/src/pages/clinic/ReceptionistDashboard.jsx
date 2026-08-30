@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
 import { Button } from '../../components/ui/button';
 import PageHeader from '../../components/ui/page-header';
@@ -6,7 +6,6 @@ import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
-import { formatDateTime } from '../../lib/date';
 import { toastSuccess, toastInfo } from '../../lib/toast';
 import RescheduleDialog from '../../components/booking/RescheduleDialog';
 import TestPicker from '../../components/booking/TestPicker';
@@ -23,7 +22,10 @@ import { useAppointmentCheckIn } from '../../hooks/useAppointmentCheckIn';
 import { useVisitDisposition } from '../../hooks/useVisitDisposition';
 import { useTestAssignment } from '../../hooks/useTestAssignment';
 import { useHmoLogging } from '../../hooks/useHmoLogging';
-import { UserCheck, UserPlus, QrCode, AlertCircle, History } from 'lucide-react';
+import { UserCheck, UserPlus, QrCode, AlertCircle, History, X } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import LoadingState from '../../components/ui/loading-state';
+import { formatCurrency } from '../../lib/currency';
 
 const PAGE_TITLES = {
   'reception-queue': 'Active Patient Queue',
@@ -55,6 +57,7 @@ const PAGE_BLURBS = {
 const VALID_VIEWS = Object.keys(PAGE_TITLES);
 
 const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) => {
+  const { hasPermission } = useAuth();
   // Any nav value this component doesn't recognize (e.g. a stale/default 'dashboard') falls
   // back to the primary queue view, mirroring DiagnosticDashboard's existing fallback pattern.
   const view = VALID_VIEWS.includes(activeNav) ? activeNav : 'reception-queue';
@@ -90,10 +93,6 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
 
   const testAssignment = useTestAssignment({ onAssigned: () => queue.refresh() });
 
-  // The visit whose queue slip is being printed. Held in state only for the duration of the
-  // print dialog — see handlePrintTicket.
-  const [ticketToPrint, setTicketToPrint] = useState(null);
-
   // Existing Patient Lookup State (Module 7: patient record lookup)
   const lookup = usePatientLookup();
 
@@ -112,28 +111,11 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
   // effectively invisible unless someone already knew to look at Admin's Service Requests page.
   // Read-only here: approving stays wherever it already lives, this just surfaces the list.
   /**
-   * Prints the physical queue slip the patient carries.
-   *
-   * This button used to call a bare `window.print()` on a view with no `.print-area` anywhere in
-   * it. The rule in index.css hides `body *` and reveals only `.print-area`, so it produced a
-   * completely blank sheet — on the one artefact the whole queue_number design assumes exists.
-   *
-   * The slip is rendered into a dedicated node rather than printed from the table row, because a
-   * table row has none of the things a ticket needs: the number at a readable size, the patient's
-   * name to hand it to the right person, and which departments they are going to.
-   *
-   * The print dialog is synchronous and blocks until dismissed, so the slip is cleared afterwards
-   * rather than on a timer.
+   * Calls the patient by voice. [1.54.0] The queue row's other control — a per-row reprint of the
+   * physical slip — is gone: the ticket is printed once at registration, the number is on screen
+   * and called aloud, and a second copy answered a question nobody was asking. Its slip markup and
+   * handler went with it rather than being left behind for someone to wonder about.
    */
-  const handlePrintTicket = (visit) => {
-    setTicketToPrint(visit);
-    // Let React commit the slip before the browser snapshots the page for printing.
-    requestAnimationFrame(() => {
-      window.print();
-      setTicketToPrint(null);
-    });
-  };
-
   const speakQueueNumber = (queueNum) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(`Queue Number ${queueNum}, please proceed to the desk`);
@@ -152,7 +134,12 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
           title={PAGE_TITLES[view]}
           description={PAGE_BLURBS[view]}
           actions={
-            view === 'reception-queue' ? (
+            /* Only for someone who can actually register one. [1.53.0] A Cashier holds
+               `visits:read` and so reaches this queue legitimately — knowing who is waiting is
+               half of running a till — but not `visits:create`. This button sent them to a screen
+               their own sidebar does not list, to submit a request the API answers with 403.
+               Gated on the permission the endpoint itself demands, so the two agree. */
+            view === 'reception-queue' && hasPermission('visits:create') ? (
               <Button variant="outline" onClick={() => onSelectNav?.('reception-walkin')}>
                 <UserPlus className="h-4 w-4" />
                 Register Walk-In
@@ -169,16 +156,54 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
           </div>
         )}
 
+        {/* Queue and registration together, on a screen wide enough to hold both. [1.63.0]
+            ── Why 2xl and not lg ──────────────────────────────────────────────────────────────
+            A reception monitor is 1920 wide; a laptop at the desk is 1280-1440. Splitting at `lg`
+            would squeeze the queue table — which has seven columns and is the primary content —
+            on exactly the machines that can least afford it. At 2xl there is genuinely room for
+            both, and below it the layout is unchanged, which is also why no existing test moves.
+
+            Registration is the SECOND column, not the first. The queue is what a receptionist
+            watches continuously; registering a walk-in is what they do intermittently. Putting
+            the form on the left would put the interruption where the attention lives.
+
+            The two views stay mutually exclusive elsewhere, so the form is never mounted twice —
+            `reception-walkin` still renders it alone, full width, for the narrower screens where
+            that is the only way to give it room. */}
         {view === 'reception-queue' && (
-          <ActiveQueuePanel
-            queue={queue}
-            disposition={disposition}
-            hmo={hmo}
-            testAssignment={testAssignment}
-            onPrintTicket={handlePrintTicket}
-            onCallPatient={speakQueueNumber}
-            onSelectNav={onSelectNav}
-          />
+          <div className="grid grid-cols-1 items-start gap-5 2xl:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+            {/* The wrapper is load-bearing, not tidiness. ActiveQueuePanel returns a FRAGMENT, so
+                without it the panel's three children — the metric row, the HMO band and the queue
+                table — each became a separate grid item and got dealt alternately into the two
+                columns. Found by screenshotting it: the metrics sat left, the HMO band top-right,
+                the table left again.
+
+                `items-start` for the same class of reason: grid items stretch to the tallest row
+                by default, which inflated the metric cards into tall empty boxes to match the
+                band beside them.
+
+                3fr/1fr rather than 2fr/1fr because the queue table has seven columns. At 2fr it
+                fitted the viewport but clipped Actions — the primary controls — off its own right
+                edge. The table scrolls inside its panel as a backstop, but a horizontal scrollbar
+                to reach "Edit Tests" is a worse answer than giving the table the room. */}
+            <div className="min-w-0 space-y-5">
+              <ActiveQueuePanel
+                queue={queue}
+                disposition={disposition}
+                hmo={hmo}
+                testAssignment={testAssignment}
+                onCallPatient={speakQueueNumber}
+                onSelectNav={onSelectNav}
+              />
+            </div>
+            {/* Only for someone who may actually register one — the same permission the button in
+                the header answers to, and the same 403 it exists to avoid. */}
+            {hasPermission('visits:create') && (
+              <div className="hidden 2xl:block">
+                <WalkInPanel queue={queue} lookup={lookup} checkIn={checkIn} reference={reference} compact />
+              </div>
+            )}
+          </div>
         )}
 
         {view === 'reception-history' && (
@@ -197,13 +222,72 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
         <Dialog open={testAssignment.open} onOpenChange={(next) => { if (!next) testAssignment.close(); }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Attach Diagnostic Tests to Visit</DialogTitle>
+              <DialogTitle>Edit Tests on This Visit</DialogTitle>
               <DialogDescription>
-                Select tests requested for Visit ID #{testAssignment.visitId}.
+                What this visit is for. Tests are usually chosen at registration — change them
+                here if the patient adds one, or if one was picked in error.
               </DialogDescription>
             </DialogHeader>
 
+            {/* What the visit ALREADY carries, first. [1.55.0] This dialog used to open on an
+                empty picker, so the desk could not see what was attached and could only add to it
+                — and a test picked in error stayed on the visit until the cashier had to explain
+                the charge to a patient standing at the counter. */}
+            <div className="space-y-1.5 pt-2">
+              <span className="field-label">Currently on this visit</span>
+              {testAssignment.loading ? (
+                <LoadingState size="sm" label="Loading this visit's tests…" />
+              ) : testAssignment.existing.length === 0 ? (
+                <p className="m-0 rounded-lg border border-dashed border-line px-3 py-2.5 text-fine text-slate-500">
+                  Nothing attached yet — choose below.
+                </p>
+              ) : (
+                <ul className="m-0 max-h-40 list-none space-y-1 overflow-y-auto p-0">
+                  {testAssignment.existing.map((line) => {
+                    const locked = testAssignment.lockReason(line);
+                    return (
+                      <li
+                        key={line.id}
+                        className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-fine font-semibold text-slate-800">
+                            {line.test_name}
+                            {line.package_name && (
+                              <span className="ml-1.5 font-normal text-azure-700">
+                                · {line.package_name}
+                              </span>
+                            )}
+                          </span>
+                          {/* Why it cannot come off, said beside it rather than only on refusal. */}
+                          {locked && (
+                            <span className="block text-micro text-slate-500">{locked}</span>
+                          )}
+                        </span>
+                        <span className="flex-shrink-0 text-fine font-semibold tabular-nums text-slate-600">
+                          {formatCurrency(line.price_at_time)}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          disabled={Boolean(locked) || testAssignment.removing === line.id}
+                          loading={testAssignment.removing === line.id}
+                          onClick={() => testAssignment.remove(line)}
+                          aria-label={`Remove ${line.test_name} from this visit`}
+                          className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
             <form onSubmit={testAssignment.submit} className="space-y-4 pt-2">
+              <span className="field-label">Add more</span>
               {/* Same control as the registration form below, so the two cannot drift on
                   grouping, the running total, or the preparation warning. */}
               <TestPicker
@@ -216,7 +300,7 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
                 disabled={testAssignment.submitting}
               />
 
-              <div className="flex justify-end space-x-2 pt-2 border-t border-[#e6ebf1]">
+              <div className="flex justify-end space-x-2 pt-2 border-t border-line">
                 <Button type="button" variant="outline" onClick={testAssignment.close}>Cancel</Button>
                 <Button
                   type="submit"
@@ -227,7 +311,7 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
                   }
                   className="font-bold"
                 >
-                  Attach Selected
+                  Add to Visit
                 </Button>
               </div>
             </form>
@@ -304,7 +388,7 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
                 />
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2 border-t border-[#e6ebf1]">
+              <div className="flex justify-end space-x-2 pt-2 border-t border-line">
                 <Button type="button" variant="outline" onClick={hmo.close}>Cancel</Button>
                 <Button type="submit" className="font-bold">Log HMO Request</Button>
               </div>
@@ -367,61 +451,6 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav }) =
           }}
         />
 
-        {/* The physical queue slip.
-            Mounted only while printing, and `hidden` on screen — the @media print rule in
-            index.css reveals .print-area and hides everything else, so this never appears in the
-            dashboard itself. Rendering it unconditionally would put a stray ticket in the DOM of
-            every screen and inside every other print job on this page. */}
-        {ticketToPrint && (
-          <div className="print-area hidden print:block" aria-hidden="true">
-            <div style={{ textAlign: 'center', fontFamily: 'Outfit, sans-serif', padding: '24px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                Enlogada Ultrasound
-              </div>
-              <div style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#555' }}>
-                &amp; Diagnostic Clinic
-              </div>
-
-              <div style={{ borderTop: '1px dashed #999', margin: '14px 0' }} />
-
-              <div style={{ fontSize: '10px', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#555' }}>
-                Queue Number
-              </div>
-              {/* Deliberately enormous: this is read across a waiting room, and it is the only
-                  thing on the slip that matters at a glance. */}
-              <div style={{ fontSize: '64px', fontWeight: 800, lineHeight: 1.1, letterSpacing: '0.04em' }}>
-                {ticketToPrint.queue_number}
-              </div>
-
-              <div style={{ borderTop: '1px dashed #999', margin: '14px 0' }} />
-
-              <div style={{ fontSize: '14px', fontWeight: 700 }}>
-                {ticketToPrint.first_name} {ticketToPrint.last_name}
-              </div>
-              <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>
-                {ticketToPrint.visit_type} · {formatDateTime(ticketToPrint.created_at)}
-              </div>
-
-              {/* Where to go next. Without this the patient has a number and no idea which
-                  department it is for, which is the question reception then answers by hand. */}
-              {ticketToPrint.tests && ticketToPrint.tests.length > 0 && (
-                <div style={{ marginTop: '12px' }}>
-                  <div style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#555' }}>
-                    Proceed to
-                  </div>
-                  <div style={{ fontSize: '12px', fontWeight: 700, marginTop: '2px' }}>
-                    {[...new Set(ticketToPrint.tests.map((t) => t.category_name))].join(' · ')}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ borderTop: '1px dashed #999', margin: '14px 0' }} />
-              <div style={{ fontSize: '9px', color: '#777' }}>
-                Please keep this slip and wait for your number to be called.
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </SidebarLayout>
   );

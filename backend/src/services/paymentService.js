@@ -5,6 +5,7 @@ const db = require('../config/database');
 const notificationService = require('./notificationService');
 const visitService = require('./visitService');
 const visitRepository = require('../repositories/visitRepository');
+const patientRepository = require('../repositories/patientRepository');
 const auditService = require('./auditService');
 const logger = require('../config/logger');
 
@@ -17,6 +18,15 @@ const REVERSIBLE_TARGET_STATUSES = ['Refunded', 'Cancelled'];
 const { COUNTER_METHODS } = require('../constants/paymentMethods');
 
 class PaymentService {
+  /**
+   * What a visit owes right now — the authoritative figure, recomputed on every call.
+   *
+   * @param {number} visitId
+   * @returns {Promise<{subtotal:number, hmoCoverage:number, discount:object, netDue:number,
+   *   tests:Array}>} Never a stored total: the bill is derived from `visit_tests.price_at_time`
+   *   plus the live HMO and discount state, so a test added or a discount granted between the
+   *   cashier opening the screen and pressing pay cannot leave a stale amount on it.
+   */
   async getBillingSummary(visitId) {
     const { visitInfo, items } = await paymentRepository.getBillingSummary(visitId);
     if (!visitInfo) {
@@ -115,6 +125,32 @@ class PaymentService {
     };
   }
 
+  /**
+   * Takes a payment: issues a receipt number, settles the visit and releases it to the modalities.
+   *
+   * @param {object} params
+   * @param {number} params.patientVisitId
+   * @param {number} params.processedBy      The cashier's user id — named on the receipt.
+   * @param {string} params.paymentMethod    'Cash' | 'GCash' | 'Bank'; `chk_payment_method` is the
+   *   backstop, and the vocabulary lives in `constants/paymentMethods.js`.
+   * @param {string} [params.referenceNumber] The transfer reference, for the two online methods.
+   * @param {number} params.amount           Rejected if it differs from the recomputed bill by
+   *   more than ₱0.01 — the client's figure is never trusted as the amount charged.
+   * @returns {Promise<object>} The settled `payments` row, carrying its receipt number.
+   *
+   * ── Concurrency guards, and both are load-bearing ────────────────────────────────────────
+   *
+   * The receipt number comes from `daily_counters` via `INSERT … ON CONFLICT DO UPDATE … RETURNING`,
+   * never from `COUNT(*) + 1`. Counting rows is not a sequence: it races under two cashiers and it
+   * REWINDS when a receipt is refunded, reissuing a number already handed to a patient.
+   *
+   * `uq_payments_one_paid_per_visit` allows exactly one settled row per visit, so a double-submit
+   * is refused by the database rather than by a check that can be outrun.
+   *
+   * The whole thing runs inside `withTransaction`, so the receipt, the visit status and the
+   * modality release commit together or not at all — a released visit with no receipt is work the
+   * clinic cannot bill for.
+   */
   async processPayment({ patientVisitId, processedBy, paymentMethod, referenceNumber, amount }) {
     // Recompute the authoritative bill server-side — also serves as the visit-exists check —
     // rather than trusting the client-submitted amount outright.
@@ -201,6 +237,21 @@ class PaymentService {
     return payment;
   }
 
+  /**
+   * Reverses a settled receipt — a refund or a staff void.
+   *
+   * @param {number} paymentId
+   * @param {object} params
+   * @param {string} params.status  'Refunded' or 'Cancelled'.
+   * @param {string} params.reason  Required. A reversal with no stated reason leaves the cash-up
+   *   short with nothing to explain it.
+   * @param {object} requestingUser  Audited; a reversal names who authorised it.
+   * @returns {Promise<object>} The updated row.
+   *
+   * Stamps `refunded_at` rather than mutating `paid_at`. That is the whole of [1.30.0]: takings are
+   * bucketed by when money was TAKEN and reversals by when it was HANDED BACK, so reversing an old
+   * receipt can never restate a day that has already been printed and filed.
+   */
   async updatePaymentStatus(paymentId, { status, reason }, requestingUser) {
     if (!REVERSIBLE_TARGET_STATUSES.includes(status)) {
       const error = new Error(`Status must be one of: ${REVERSIBLE_TARGET_STATUSES.join(', ')}`);
@@ -301,7 +352,7 @@ class PaymentService {
    * Rejected rather than ignored when unrecognised. Silently returning everything for a method
    * that does not exist reads, on a money screen, as "the clinic took nothing by that method".
    */
-  async getTransactions({ startDate, endDate, page, limit, method }) {
+  async getTransactions({ startDate, endDate, page, limit, method, search }) {
     const limitNum = limit ? Math.min(Math.max(parseInt(limit, 10) || 0, 1), 100) : null;
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
 
@@ -318,9 +369,16 @@ class PaymentService {
         startDate,
         endDate,
         method,
+        // Trimmed to null rather than passed through: an empty box must not become `%%`, which
+        // matches every row while looking to the reader like an active filter.
+        search: (search || '').trim() || null,
         limit: limitNum,
         offset: limitNum ? (pageNum - 1) * limitNum : 0,
       }),
+      // Deliberately NOT filtered by `search`. The summary is the day's cash position, and a
+      // cashier typing a patient's name to find one receipt has not changed what the drawer took.
+      // Narrowing it would make the totals move as somebody searched — the fastest way to make a
+      // money figure untrustworthy.
       paymentRepository.findTransactionSummary({ startDate, endDate, method }),
     ]);
 
@@ -337,10 +395,79 @@ class PaymentService {
     };
   }
 
+  /**
+   * One receipt, by its number, with the itemised bill it was issued for. [1.52.0]
+   *
+   * The receipt already existed as a printable document, but only ever as a dialog inside the
+   * cashier's own console, reachable from the day's transaction list. There was no way to answer
+   * "find me receipt RCT-20260826-0406" — a question the clinic gets weeks later, from a patient
+   * holding a printed slip and asking for a copy for reimbursement.
+   *
+   * Returns the payment and the bill together, because a receipt is not one row: the payment
+   * carries the money and the frozen discount, and the bill carries the lines that explain it.
+   * Fetching them as one call is what lets a standalone print page render in a single load.
+   */
+  async getReceipt(receiptNumber, requestingUser) {
+    const payment = await paymentRepository.findByReceiptNumber(receiptNumber);
+    if (!payment) {
+      const error = new Error('No receipt with that number.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // ── Who may read one receipt ───────────────────────────────────────────────────────────────
+    //
+    // Staff who hold billing:read — Cashier, Admin, SuperAdmin — may read any receipt: answering
+    // "send me a copy of RCT-…" is the job. A CLIENT may read exactly their own, and a patient
+    // being able to print the receipt for the money they paid is not a privilege, it is the point
+    // of issuing one; they need it for HMO reimbursement and for their own records.
+    //
+    // Authorized HERE rather than by route middleware because the two callers need different
+    // questions answered — a permission for staff, ownership for a patient — and a single
+    // middleware can only ask one of them. Same shape as resultService's department scoping.
+    //
+    // The 404 above fires BEFORE this check, which is deliberate and safe: receipt numbers are
+    // sequential per day, so confirming existence to a signed-in patient leaks nothing they could
+    // not already infer from their own receipt. What must not leak is the CONTENT, and that is
+    // what the ownership test below protects.
+    const roles = requestingUser?.roles || [];
+    if (roles.includes('Client')) {
+      const visit = await visitRepository.findVisitById(payment.patient_visit_id);
+      const patient = visit ? await patientRepository.findPatientById(visit.patient_id) : null;
+      if (!patient || patient.user_id !== requestingUser.userId) {
+        const error = new Error('This receipt does not belong to your account.');
+        error.statusCode = 403;
+        throw error;
+      }
+    } else if (!(requestingUser?.permissions || []).includes('billing:read') && !roles.includes('SuperAdmin')) {
+      const error = new Error('You do not have permission to read receipts.');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    // The same GET /payments/bill/:visitId the till and the reprint both read, so a receipt opened
+    // months later itemises exactly as it did at the counter — price_at_time, not today's prices.
+    const bill = await this.getBillingSummary(payment.patient_visit_id);
+    return { payment, bill };
+  }
+
+  /**
+   * Every payment row against a visit, settled or not.
+   *
+   * @param {number} visitId
+   * @returns {Promise<Array>} Includes reversed and abandoned-gateway rows — this is the LOG.
+   *   Never sum it for a money figure; the aggregates come from SQL over settled rows.
+   */
   async getPaymentsForVisit(visitId) {
     return await paymentRepository.findPaymentsByVisitId(visitId);
   }
 
+  /**
+   * A patient's own payment history, across every profile their account owns.
+   *
+   * @param {number} userId  The account, not a patient — one account may own several profiles.
+   * @returns {Promise<Array>} Scoped by `patients.user_id`, which is the ownership boundary.
+   */
   async getPaymentsForClient(userId) {
     return await paymentRepository.findPaymentsByPatientUserId(userId);
   }

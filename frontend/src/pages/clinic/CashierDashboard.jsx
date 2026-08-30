@@ -224,7 +224,7 @@ const CashierDashboard = ({ activeNav = 'cashier-queue', onSelectNav }) => {
                 {/* no-print: the print rule reveals every descendant of .print-area, so a toolbar
                     inside it comes out of the printer with the receipt. That is exactly what the
                     previous version did — the Print button printed itself. */}
-                <div className="no-print flex justify-end gap-2 border-t border-[#e6ebf1] pt-3">
+                <div className="no-print flex justify-end gap-2 border-t border-line pt-3">
                   <Button variant="outline" onClick={() => receipt.setOpen(false)}>
                     Close
                   </Button>

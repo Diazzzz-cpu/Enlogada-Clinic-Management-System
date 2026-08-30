@@ -112,7 +112,7 @@ export default function PackageFormDialog({ packageAdmin }) {
                   {items.map((t) => (
                     <label
                       key={t.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-white p-2 transition-colors hover:border-azure-300"
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface p-2 transition-colors hover:border-azure-300"
                     >
                       <input
                         type="checkbox"

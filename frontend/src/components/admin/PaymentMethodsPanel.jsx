@@ -1,10 +1,13 @@
 import React from 'react';
+import LoadingState from '../ui/loading-state';
 import { Edit2, Plus, Wallet, QrCode, AlertTriangle } from 'lucide-react';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import EmptyState from '../ui/empty-state';
+import RefreshButton from '../ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 
 /**
  * The clinic's own GCash and bank accounts, as published to patients.
@@ -14,6 +17,7 @@ import EmptyState from '../ui/empty-state';
  * clinic real cash with no error anywhere to signal it.
  */
 export default function PaymentMethodsPanel({ paymentMethods }) {
+  const updatedAt = useFreshness(paymentMethods.loading, paymentMethods.error);
   const active = paymentMethods.methods.filter((m) => m.is_active);
 
   return (
@@ -23,10 +27,13 @@ export default function PaymentMethodsPanel({ paymentMethods }) {
         description="The accounts patients pay into when they settle a booking online"
         icon={Wallet}
         actions={
-          <Button size="sm" onClick={paymentMethods.openAdd}>
-            <Plus className="h-3.5 w-3.5" />
-            Add Method
-          </Button>
+          <>
+            <RefreshButton compact onRefresh={paymentMethods.reload} loading={paymentMethods.loading} updatedAt={updatedAt} />
+            <Button size="sm" onClick={paymentMethods.openAdd}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Method
+            </Button>
+          </>
         }
       />
       <PanelBody flush>
@@ -39,10 +46,7 @@ export default function PaymentMethodsPanel({ paymentMethods }) {
             action={<Button variant="outline" size="sm" onClick={paymentMethods.reload}>Try again</Button>}
           />
         ) : paymentMethods.loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-10">
-            <div className="h-6 w-6 animate-spin rounded-full border-4 border-azure-500 border-t-transparent" />
-            <span className="text-fine font-semibold text-slate-500">Loading payment methods…</span>
-          </div>
+          <LoadingState label="Loading payment methods…" />
         ) : paymentMethods.methods.length === 0 ? (
           <EmptyState
             compact

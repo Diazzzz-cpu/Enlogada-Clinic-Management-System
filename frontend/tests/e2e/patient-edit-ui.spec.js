@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 
 // The correction dialog, driven through the browser.
 //
@@ -8,17 +9,7 @@ import { test, expect } from 'playwright/test';
 // clinical field is touched, and the fact that a diagnostic account is never offered the control
 // at all.
 
-const PASSWORD = 'Password123!';
 
-async function signIn(page, email) {
-  await page.goto('/');
-  await page.getByText('Sign In', { exact: true }).first().click();
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await expect(page.getByText(/good day|welcome|queue|terminal|worklist/i).first())
-    .toBeVisible({ timeout: 15000 });
-}
 
 async function searchPatients(page, term) {
   await page.getByText('Patient Records', { exact: true }).first().click();

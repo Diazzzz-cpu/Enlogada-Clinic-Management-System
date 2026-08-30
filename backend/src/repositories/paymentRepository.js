@@ -62,7 +62,7 @@ class PaymentRepository {
   // 2.0 MB response — and this is the money screen, read on every cashier dashboard load and by
   // Admin's monitoring view. `limit` is optional so the callers that legitimately need the whole
   // set (today's collections total, the metric strip) are unchanged.
-  async findTransactions({ startDate, endDate, method = null, limit = null, offset = 0 }) {
+  async findTransactions({ startDate, endDate, method = null, search = null, limit = null, offset = 0 }) {
     // The FROM/JOIN chain is shared by the list and the count, so the two can never disagree
     // about which rows they are talking about. Written out rather than derived from the list
     // query by a regex: that would break silently the next time somebody edits the SELECT list.
@@ -132,6 +132,30 @@ class PaymentRepository {
     if (method) {
       params.push(method);
       whereText += ` AND pay.payment_method = $${params.length}`;
+    }
+
+    // Finding one receipt again, months later. [1.52.0]
+    //
+    // A cashier asked for "the receipt for Dela Cruz" has three things they might be holding: the
+    // receipt number off the printed slip, the patient's name, or the GCash reference the patient
+    // read out over the phone. All three search the same box, because making them choose the right
+    // field first is how a lookup fails for someone who has the right information.
+    //
+    // ILIKE with a leading wildcard cannot use a B-tree index, and that is accepted deliberately
+    // here: this runs only when a human types in the search box, always inside a date range that
+    // has already narrowed the scan, and never on the dashboard's own load. The alternative —
+    // anchoring the pattern — would stop 'Cruz' finding 'Dela Cruz', which is the search people
+    // actually perform.
+    if (search) {
+      params.push(`%${search}%`);
+      const n = params.length;
+      whereText += ` AND (
+        pay.receipt_number ILIKE $${n}
+        OR pay.reference_number ILIKE $${n}
+        OR p.first_name ILIKE $${n}
+        OR p.last_name ILIKE $${n}
+        OR (p.first_name || ' ' || p.last_name) ILIKE $${n}
+      )`;
     }
 
     // The row's own answer to "did this one contribute to the collected figure". [1.30.0]
@@ -351,6 +375,33 @@ class PaymentRepository {
       WHERE pay.id = $1
     `;
     const result = await db.query(queryText, [id]);
+    return result.rows[0];
+  }
+
+  /**
+   * One receipt by its number. [1.52.0]
+   *
+   * Carries the patient and the cashier alongside the payment, because a printed receipt names
+   * both and a second round trip for each would make a print page load in three requests.
+   *
+   * `receipt_number` has a unique index (migrateDataIntegrity.js), so this can never return two.
+   */
+  async findByReceiptNumber(receiptNumber) {
+    const queryText = `
+      SELECT pay.*,
+             u.first_name AS processed_by_first_name,
+             u.last_name  AS processed_by_last_name,
+             p.first_name AS patient_first_name,
+             p.last_name  AS patient_last_name,
+             pv.queue_number,
+             pv.visit_type
+        FROM payments pay
+        LEFT JOIN users u        ON u.id = pay.processed_by
+        JOIN patient_visits pv   ON pv.id = pay.patient_visit_id
+        JOIN patients p          ON p.id = pv.patient_id
+       WHERE pay.receipt_number = $1
+    `;
+    const result = await db.query(queryText, [receiptNumber]);
     return result.rows[0];
   }
 

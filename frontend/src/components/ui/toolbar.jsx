@@ -16,7 +16,7 @@ import { cn } from '../../lib/utils';
 const Toolbar = ({ children, attached = false, className }) => (
   <div
     className={cn(
-      'flex flex-wrap items-center gap-x-3 gap-y-2.5 rounded-xl border border-[#e6ebf1] bg-white px-3.5 py-2.5',
+      'flex flex-wrap items-center gap-x-3 gap-y-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5',
       attached && 'rounded-b-none border-b-0',
       className
     )}
@@ -70,7 +70,7 @@ export const SegmentedFilter = ({ options, value, onChange, className, ariaLabel
           className={cn(
             'inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border-0 px-2.5 py-1.5 text-fine font-semibold transition-colors',
             active
-              ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+              ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
               : 'bg-transparent text-slate-500 hover:text-slate-800'
           )}
         >

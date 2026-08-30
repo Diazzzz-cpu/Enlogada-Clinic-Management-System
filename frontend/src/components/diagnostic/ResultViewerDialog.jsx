@@ -1,9 +1,11 @@
 import React from 'react';
+import { printElement } from '../../lib/printArea';
+import VersionTimeline from './VersionTimeline';
+import useResultVersions from '../../hooks/useResultVersions';
 import { Eye, Paperclip, Printer } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import ResultReport from '../ResultReport';
-import { printReport } from '../../lib/printReport';
 
 /**
  * A released report, read back.
@@ -12,6 +14,11 @@ import { printReport } from '../../lib/printReport';
  * from one 847-line file. The props are the hooks this piece reads.
  */
 export default function ResultViewerDialog({ result, onOpenChange, onPreviewDocument }) {
+  // Only fetched when there IS a history to fetch. A first issue is version 1 and its chain is one
+  // row — the overwhelming majority of reports — so asking for those would put a request behind
+  // every report anyone opens to buy nothing. `version` is already in the payload.
+  const history = useResultVersions(result?.visit_test_id, (result?.version ?? 1) > 1);
+
   return (
       <Dialog open={!!result} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl">
@@ -21,6 +28,7 @@ export default function ResultViewerDialog({ result, onOpenChange, onPreviewDocu
               Patient: <strong>{result?.first_name} {result?.last_name}</strong> &bull; Examination: <strong>{result?.test_name}</strong>
             </DialogDescription>
           </DialogHeader>
+
           {/* This screen printed findings and remarks with NO letterhead at all — a clinical
               document with nothing on it saying which clinic issued it. Same component as the
               patient's copy now, so there is one report rather than three that drifted. */}
@@ -49,8 +57,17 @@ export default function ResultViewerDialog({ result, onOpenChange, onPreviewDocu
             )}
           </ResultReport>
 
-          <div className="flex justify-end pt-2 border-t border-[#e6ebf1]">
-            <Button onClick={printReport} variant="outline">
+          {/* What this report used to say, and why it changed. [1.63.0] OUTSIDE the printable
+              document: the handed-over copy is the current report, and printing superseded
+              findings alongside it is how somebody ends up acting on a value that was withdrawn. */}
+          <VersionTimeline
+            versions={history.versions}
+            loading={history.loading}
+            error={history.error}
+          />
+
+          <div className="flex justify-end pt-2 border-t border-line">
+            <Button onClick={() => printElement(null, 'printing-report')} variant="outline">
               <Printer className="h-3.5 w-3.5" />
               Print Report
             </Button>

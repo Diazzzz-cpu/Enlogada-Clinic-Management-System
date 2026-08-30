@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from 'playwright/test';
+import { signInOnPhone } from './helpers/auth.js';
 
 // The patient journey on a phone. [1.26.0]
 //
@@ -10,22 +11,9 @@ import { test, expect } from 'playwright/test';
 // The two failure modes worth guarding are the ones that make an app unusable rather than ugly:
 // a page that scrolls sideways, and a control that cannot be reached at all.
 
-const PASSWORD = 'Password123!';
 const PHONE = { width: 390, height: 844 }; // iPhone 14 / 15, the common floor
 
 /** Sign in the way somebody on a phone has to: through the hamburger. */
-async function signInOnPhone(page, email) {
-  await page.goto('/');
-  // The desktop nav is display:none at this width, so its "Sign In" is present but unclickable —
-  // scoping to the mobile panel is the difference between testing the phone and testing nothing.
-  await page.getByRole('button', { name: 'Open menu' }).click();
-  const menu = page.locator('header div.md\\:hidden').last();
-  await menu.getByRole('button', { name: 'Sign In' }).click();
-
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-}
 
 test.use({ viewport: PHONE });
 
@@ -35,7 +23,6 @@ test('a patient can sign in and reach their bookings on a phone', async ({ page 
   page.on('pageerror', (e) => errors.push(e.message));
 
   await signInOnPhone(page, 'client@enlogada.com');
-  await expect(page.getByText(/welcome/i).first()).toBeVisible({ timeout: 20000 });
 
   // Every tab has to be reachable, not merely present. A tab strip that overflows its container
   // silently drops the last items off the right edge.
@@ -52,7 +39,6 @@ test('a patient can sign in and reach their bookings on a phone', async ({ page 
 test('no screen in the patient journey scrolls sideways on a phone', async ({ page }) => {
   test.setTimeout(90000);
   await signInOnPhone(page, 'client@enlogada.com');
-  await expect(page.getByText(/welcome/i).first()).toBeVisible({ timeout: 20000 });
 
   const overflowOf = () => page.evaluate(() => {
     const d = document.documentElement;

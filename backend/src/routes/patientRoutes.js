@@ -1,6 +1,6 @@
 const express = require('express');
 const patientController = require('../controllers/patientController');
-const { verifyToken, authorizeStaff, authorizePermissions } = require('../middlewares/auth');
+const { verifyToken, authorizeStaff, authorizePermissions, authorizeRoles } = require('../middlewares/auth');
 
 const router = express.Router();
 
@@ -47,5 +47,16 @@ router.get('/types', verifyToken, patientController.getTypes);
 router.get('/search', verifyToken, authorizeStaff, authorizePermissions('patients:read'), patientController.search);
 router.get('/:id', verifyToken, authorizePermissions('patients:read'), patientController.getProfileById);
 router.put('/:id', verifyToken, authorizePermissions('patients:update'), patientController.updateProfile);
+
+// Archiving a record. [1.56.0] Admin and SuperAdmin only, by ROLE rather than by permission, and
+// deliberately so: `patients:update` is held by Reception too, and correcting a misspelled surname
+// is a different act from taking a record out of the roster the whole front desk searches.
+//
+// Nothing is deleted. The visits, bills and results stay exactly as they were — this only decides
+// whether the record appears in the roster by default. Audited in patientService.setArchived.
+// rbac-narrowing: reception holds `patients:update` to CORRECT a record and must not be able to
+// archive one — retiring a patient's clinical history is an oversight decision. The role list
+// is deliberately narrower than the permission's holders.
+router.patch('/:id/archive', verifyToken, authorizeRoles('SuperAdmin', 'Admin'), authorizePermissions('patients:update'), patientController.setArchived);
 
 module.exports = router;

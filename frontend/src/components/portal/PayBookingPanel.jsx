@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, AlertCircle, Upload, Copy, Check, QrCode, FileText, X } from 'lucide-react';
+import { Clock, AlertCircle, AlertTriangle, Upload, Copy, Check, QrCode, FileText, X, ScanLine } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { formatCurrency } from '../../lib/currency';
@@ -60,7 +60,7 @@ function CopyField({ label, value }) {
     }
   };
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-inset ring-line">
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-surface px-2.5 py-1.5 ring-1 ring-inset ring-line">
       <span className="min-w-0">
         <span className="block text-micro font-semibold uppercase tracking-[0.1em] text-slate-400">{label}</span>
         <span className="block truncate font-mono text-note font-bold tabular-nums text-slate-900">{value}</span>
@@ -99,7 +99,7 @@ function ProofPreview({ file, onClear }) {
   if (!file) return null;
 
   return (
-    <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-line bg-white p-2">
+    <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-line bg-surface p-2">
       {src ? (
         <img src={src} alt="" className="h-16 w-16 flex-shrink-0 rounded-md border border-line object-cover" />
       ) : (
@@ -122,6 +122,78 @@ function ProofPreview({ file, onClear }) {
         <X className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/**
+ * What the automatic read of the screenshot made of it. [1.62.0]
+ *
+ * ── Three states, and only one of them is loud ──────────────────────────────────────────────
+ *
+ * Scanning      a quiet line. The patient did not ask for this and must not be made to wait on
+ *               it — the form stays fully usable throughout, and this only explains why a field
+ *               might fill itself in a moment.
+ * Read something a quiet confirmation naming what was filled in, so a patient who sees a number
+ *               appear in a field they did not type in knows where it came from. A field that
+ *               populates itself with no explanation reads as a bug.
+ * Duplicate     the one case worth interrupting for.
+ *
+ * ── Why the duplicate warning does not block ────────────────────────────────────────────────
+ *
+ * It warns and lets the patient continue, deliberately. A repeated reference is USUALLY a genuine
+ * mistake — the same screenshot sent twice — but not always: references are not globally unique
+ * across providers, and a patient correcting a rejected submission is re-sending the same one on
+ * purpose, which is exactly right. Blocking would strand that person with no way forward and no
+ * one to ask.
+ *
+ * The cashier is the one who decides, as they already do for the amount. This tells the patient
+ * what the clinic is about to notice, which is usually enough for them to check before sending.
+ *
+ * Nothing here is rendered when the scan found nothing at all: a silent failure is the correct
+ * behaviour for an assistant nobody asked for, and "we could not read your image" invites a
+ * patient to re-take a photograph they never needed to take.
+ */
+function ScanAssist({ scanning, scan }) {
+  if (scanning) {
+    return (
+      <p className="m-0 mt-2 flex items-center gap-1.5 text-fine text-slate-500">
+        <ScanLine className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+        Reading your screenshot…
+      </p>
+    );
+  }
+
+  if (!scan || !scan.scanned) return null;
+  const found = scan.reference_number || scan.amount !== null;
+  if (!found) return null;
+
+  if (scan.is_duplicate) {
+    const prior = scan.duplicate_of || {};
+    return (
+      <div role="alert" className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" aria-hidden="true" />
+        <span className="min-w-0 text-fine leading-relaxed text-amber-900">
+          <strong className="font-semibold">This reference has been used before.</strong>{' '}
+          Reference <span className="font-mono font-semibold">{scan.reference_number}</span> was
+          already {prior.source === 'payment' ? 'recorded as a payment' : 'submitted'} at the
+          clinic{prior.status ? ` (${prior.status.toLowerCase()})` : ''}. If you are re-sending a
+          payment the clinic asked you to correct, carry on — otherwise please check you have
+          attached the right screenshot.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <p className="m-0 mt-2 flex items-start gap-1.5 text-fine leading-relaxed text-slate-500">
+      <ScanLine className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-brand-600" aria-hidden="true" />
+      <span>
+        Read from your screenshot
+        {scan.reference_number && <> — reference <span className="font-mono font-semibold text-slate-700">{scan.reference_number}</span></>}
+        {scan.amount !== null && scan.amount !== undefined && <> — amount <span className="font-semibold text-slate-700">{formatCurrency(scan.amount)}</span></>}
+        . Please check both against your confirmation before sending.
+      </span>
+    </p>
   );
 }
 
@@ -193,7 +265,7 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
                 type="button"
                 onClick={() => pay.setMethodId(String(m.id))}
                 className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-fine font-semibold transition-colors ${
-                  on ? 'border-azure-400 bg-white text-azure-800' : 'border-line bg-white/60 text-slate-600 hover:bg-white'
+                  on ? 'border-azure-400 bg-surface text-azure-800' : 'border-line bg-white/60 text-slate-600 hover:bg-surface'
                 }`}
               >
                 {m.label}
@@ -279,11 +351,15 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
             id={`proof-${visitId}`}
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
-            onChange={(e) => pay.setProof(e.target.files?.[0] || null)}
+            onChange={(e) => pay.chooseProof(e.target.files?.[0] || null)}
             disabled={pay.submitting}
-            className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
+            className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-surface p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
           />
-          <ProofPreview file={pay.proof} onClear={() => pay.setProof(null)} />
+          {/* chooseProof(null) rather than setProof(null): clearing the file must also clear the
+              scan, or a removed screenshot leaves its duplicate warning on screen attached to
+              nothing. */}
+          <ProofPreview file={pay.proof} onClear={() => pay.chooseProof(null)} />
+          <ScanAssist scanning={pay.scanning} scan={pay.scan} />
         </div>
 
         <Button type="submit" loading={pay.submitting} className="w-full">

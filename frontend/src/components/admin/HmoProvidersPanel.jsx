@@ -1,10 +1,13 @@
 import React from 'react';
+import LoadingState from '../ui/loading-state';
 import { Edit2, Plus, ShieldPlus } from 'lucide-react';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import EmptyState from '../ui/empty-state';
+import RefreshButton from '../ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 
 /**
  * The HMO providers the clinic is accredited with.
@@ -13,6 +16,7 @@ import EmptyState from '../ui/empty-state';
  * four dialogs in one 688-line file.
  */
 export default function HmoProvidersPanel({ hmoAdmin }) {
+  const updatedAt = useFreshness(hmoAdmin.loading, hmoAdmin.error);
   return (
       <Panel className="overflow-hidden">
         <PanelHeader
@@ -20,10 +24,13 @@ export default function HmoProvidersPanel({ hmoAdmin }) {
           description="Accredited insurers whose pre-authorisations Reception can log against a visit"
           icon={ShieldPlus}
           actions={
+            <>
+            <RefreshButton compact onRefresh={hmoAdmin.reload} loading={hmoAdmin.loading} updatedAt={updatedAt} />
             <Button size="sm" onClick={hmoAdmin.openAdd}>
               <Plus className="h-3.5 w-3.5" />
               Add Provider
             </Button>
+            </>
           }
         />
         <PanelBody flush>
@@ -36,9 +43,10 @@ export default function HmoProvidersPanel({ hmoAdmin }) {
               action={<Button variant="outline" size="sm" onClick={hmoAdmin.reload}>Try again</Button>}
             />
           ) : hmoAdmin.loading ? (
-            <div className="py-10 flex flex-col items-center justify-center space-y-3">
-              <div className="w-6 h-6 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
+            // A label, where there was none. A bare spinner says something is happening and not
+            // WHAT — which on a panel that also renders an empty state and an error state leaves
+            // the reader guessing which of the three they are looking at.
+            <LoadingState label="Loading HMO providers…" />
           ) : hmoAdmin.providers.length === 0 ? (
             <EmptyState
               compact

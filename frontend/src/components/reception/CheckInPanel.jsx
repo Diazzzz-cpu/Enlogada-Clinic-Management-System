@@ -19,7 +19,7 @@ import QrScanner from '../QrScanner';
 export default function CheckInPanel({ checkIn, disposition }) {
   return (
         <Panel className="max-w-xl p-6">
-          <div className="border-b border-[#e6ebf1] pb-3 mb-4">
+          <div className="border-b border-line pb-3 mb-4">
             <h2 className="m-0 flex items-center gap-2 text-lead font-bold tracking-tight text-slate-900">
               <QrCode className="h-4 w-4 text-brand-600" />
               <span>Verify Appointment Reference</span>

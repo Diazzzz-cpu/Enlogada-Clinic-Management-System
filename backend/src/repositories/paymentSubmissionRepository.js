@@ -96,6 +96,32 @@ class PaymentSubmissionRepository {
               (SELECT COALESCE(SUM(vt.price_at_time), 0)
                  FROM visit_tests vt
                 WHERE vt.patient_visit_id = pv.id) AS amount_due,
+              -- Has this reference been seen before? [1.63.0]
+              --
+              -- A reference number is the clinic's only handle on a transfer that happened inside
+              -- GCash or a bank — money it can see the evidence of but not the ledger for. The
+              -- same screenshot arriving twice, on two visits, is indistinguishable from two
+              -- genuine payments unless somebody checks, and checking meant reading a number off
+              -- an image and searching for it.
+              --
+              -- Counted here rather than fetched per row: the cashier's queue is the ONE screen
+              -- where this matters, and a second request per submission to answer it would be an
+              -- N+1 on a screen that polls.
+              --
+              -- Both tables, and the union is the point: a duplicate may be another pending claim
+              -- OR a receipt already settled at the counter. Checking only submissions would miss
+              -- the case that actually costs money.
+              (
+                SELECT COUNT(*)
+                  FROM payment_submissions other
+                 WHERE other.id <> ps.id
+                   AND UPPER(TRIM(other.reference_number)) = UPPER(TRIM(ps.reference_number))
+              ) + (
+                SELECT COUNT(*)
+                  FROM payments pay
+                 WHERE pay.reference_number IS NOT NULL
+                   AND UPPER(TRIM(pay.reference_number)) = UPPER(TRIM(ps.reference_number))
+              ) AS duplicate_count,
               pm.label AS method_label, pm.kind AS method_kind,
               p.first_name, p.last_name,
               pv.queue_number, pv.visit_type,
@@ -163,6 +189,65 @@ class PaymentSubmissionRepository {
       [id, status, reviewedBy, reviewNote || null, paymentId || null]
     );
     return result.rows[0];
+  }
+
+  /**
+   * Has this reference number been seen before, in either table? [1.62.0]
+   *
+   * A reference number is the clinic's only handle on a transfer that happened inside GCash or a
+   * bank — money it can see the evidence of but not the ledger for. The same screenshot arriving
+   * twice, on two visits, is indistinguishable from two genuine payments unless somebody checks.
+   *
+   * BOTH tables, and the union is the point:
+   *
+   *   payment_submissions   a claim already queued, already verified, or already rejected
+   *   payments              a receipt a cashier settled at the counter, reference typed in by hand
+   *
+   * Searching only submissions would miss the case that actually costs money — a patient whose
+   * transfer was already accepted at the desk submitting it again online.
+   *
+   * A REJECTED submission still counts as a match and is reported as such. The caller decides what
+   * to do about it: re-submitting a reference the clinic previously turned down is a legitimate
+   * thing to do after a correction, and silently hiding it would leave the cashier deciding the
+   * same evidence twice with no idea they had seen it before. What the answer must not do is
+   * DECIDE — it is shown to a person.
+   *
+   * Trimmed and upper-cased on both sides: a reference read off a screenshot arrives with the
+   * casing and spacing OCR happened to produce, and 'GC1234' typed by a cashier must match
+   * 'gc1234 ' read from an image.
+   */
+  async findByReferenceNumber(referenceNumber) {
+    const result = await db.query(
+      `SELECT source, id, status, amount, reference_number, occurred_at, patient_visit_id
+         FROM (
+           SELECT 'submission'      AS source,
+                  ps.id,
+                  ps.status,
+                  ps.amount_claimed AS amount,
+                  ps.reference_number,
+                  ps.submitted_at   AS occurred_at,
+                  ps.patient_visit_id
+             FROM payment_submissions ps
+            WHERE UPPER(TRIM(ps.reference_number)) = UPPER(TRIM($1))
+           UNION ALL
+           SELECT 'payment'         AS source,
+                  pay.id,
+                  pay.payment_status AS status,
+                  pay.amount,
+                  pay.reference_number,
+                  pay.paid_at        AS occurred_at,
+                  pay.patient_visit_id
+             FROM payments pay
+            WHERE pay.reference_number IS NOT NULL
+              AND UPPER(TRIM(pay.reference_number)) = UPPER(TRIM($1))
+         ) matches
+        -- The most recent match is the one a person needs to see first; an older duplicate of the
+        -- same reference adds nothing to the decision.
+        ORDER BY occurred_at DESC
+        LIMIT 1`,
+      [referenceNumber]
+    );
+    return result.rows[0] || null;
   }
 }
 

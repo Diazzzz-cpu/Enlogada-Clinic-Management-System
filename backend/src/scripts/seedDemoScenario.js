@@ -90,13 +90,12 @@ async function main() {
     Laboratory: byCategory('Laboratory'),
     Xray: byCategory('Xray'),
     Ultrasound: byCategory('Ultrasound'),
-    '2D Echo': byCategory('2D Echo'),
     ECG: byCategory('ECG'),
   };
 
   // What the clinic ACTUALLY sells today, derived rather than restated.
   //
-  // These five were hardcoded in four places, and [1.47.0] retired 2D Echo and ECG — so
+  // These were hardcoded in four places, and [1.47.0] retired 2D Echo and ECG — so
   // `catalogue['2D Echo'][0].id` became a read of undefined and the whole seeder died with
   // "Cannot read properties of undefined". A demo seeder that cannot run is worse than one that
   // covers fewer departments, and the clinic's offering is not this script's to assert.
@@ -113,7 +112,6 @@ async function main() {
   const PREP = [
     [/fasting|fbs|glucose|lipid|cholesterol/i, 'Nothing to eat or drink except water for 8 hours before your appointment. Take your usual medicines unless your doctor says otherwise.'],
     [/pelvic|abdominal|kub|ultrasound/i, 'Drink 3–4 glasses of water an hour before your appointment and do not empty your bladder.'],
-    [/2d echo|echo/i, 'Wear a loose top that opens at the front. No fasting is needed.'],
     [/x-?ray|chest/i, 'Please tell us before the scan if you are or might be pregnant. Leave jewellery at home.'],
   ];
   let prepped = 0;
@@ -132,7 +130,7 @@ async function main() {
   const senior = discounts.find((d) => d.name === 'Senior Citizen');
   const pwd = discounts.find((d) => d.name === 'PWD');
 
-  const modalityToken = { Laboratory: tok.lab, Xray: tok.xray, Ultrasound: tok.ultrasound, '2D Echo': tok.ultrasound, ECG: tok.admin };
+  const modalityToken = { Laboratory: tok.lab, Xray: tok.xray, Ultrasound: tok.ultrasound, ECG: tok.admin };
 
   let personIndex = 0;
   const nextPerson = () => pick(PEOPLE, personIndex++);
@@ -295,7 +293,7 @@ async function main() {
   // 2. A senior citizen and a PWD awaiting payment, so the statutory discount and its
   //    VAT-exempt arithmetic are visible on the cashier screen rather than hypothetical.
   for (const [d, label] of [[senior, 'Senior Citizen'], [pwd, 'PWD']]) {
-    const v = await makeVisit({ category: offered('2D Echo') });
+    const v = await makeVisit({ category: offered('Ultrasound') });
     await call(`/discounts/visit/${v.visit.id}`, {
       method: 'POST', token: tok.cashier,
       body: { discountTypeId: d.id, idNumber: label === 'PWD' ? 'PWD-2026-0042' : 'OSCA-2026-0117' },
@@ -434,7 +432,7 @@ async function main() {
       //
       // The numbers are per-modality and roughly what each actually takes: bloods come back
       // inside the hour, a scan needs the room and a radiographer, an echo needs reporting.
-      const TURNAROUND_MINUTES = { Laboratory: 45, ECG: 25, Xray: 70, Ultrasound: 95, '2D Echo': 130 };
+      const TURNAROUND_MINUTES = { Laboratory: 45, ECG: 25, Xray: 70, Ultrasound: 95 };
       const arrival = 8 + (h.daysAgo % 8);                       // 08:00-15:00 arrival
       const waitToPay = 4 + (h.daysAgo % 17);                    // a few minutes at the desk
       const turnaround = TURNAROUND_MINUTES[h.category] ?? 60;

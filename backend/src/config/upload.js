@@ -304,9 +304,65 @@ const discardPaymentFile = (file) => {
   if (file && file.path) fs.unlink(file.path, () => {});
 };
 
+/**
+ * The receipt-scan upload, which deliberately writes NOTHING to disk. [1.62.0]
+ *
+ * Every other upload path here persists, because every other upload is evidence somebody will
+ * need to look at later. A scan is not evidence: it is a throwaway pass over an image purely to
+ * suggest what the patient should type, and the SAME image is uploaded again moments later by the
+ * real submit endpoint, which does store it.
+ *
+ * `memoryStorage` therefore, and the reasoning matters more than the mechanism. Disk storage
+ * would create an orphan for every scan — including every scan the user then abandoned, which is
+ * most of them, since the whole point is that they scan before deciding to submit. Those files
+ * would accumulate under uploads/payments/ mixed in with real proofs, indistinguishable from
+ * them, with nothing that could ever safely delete them. An upload with no reader does not need
+ * a retention policy; it needs to not exist.
+ *
+ * PDF is accepted for a stored proof but NOT here: Tesseract reads raster images, and handing it
+ * a PDF produces an empty result that reads to the user as "your receipt is unreadable" rather
+ * than "this format cannot be scanned". Refusing it with a clear message is the honest answer.
+ *
+ * The size ceiling is lower than the 8MB a stored proof allows, because this buffer is held in
+ * process memory and then handed to an OCR engine — the constraint here is the server's RAM, not
+ * the patient's camera.
+ */
+const RECEIPT_SCAN_MIME_EXTENSIONS = new Map([
+  ['image/jpeg', '.jpg'],
+  ['image/png', '.png'],
+  ['image/webp', '.webp'],
+]);
+const MAX_RECEIPT_SCAN_SIZE_BYTES = 6 * 1024 * 1024; // 6MB
+
+const uploadReceiptScan = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (!RECEIPT_SCAN_MIME_EXTENSIONS.has(file.mimetype)) {
+      const error = new Error('Only a JPEG, PNG or WebP image can be scanned. A PDF receipt can still be uploaded — type the details in yourself.');
+      error.statusCode = 400;
+      return cb(error);
+    }
+    cb(null, true);
+  },
+  limits: { fileSize: MAX_RECEIPT_SCAN_SIZE_BYTES, files: 1, fields: 10, fieldNameSize: 200 }
+});
+
+const uploadReceiptScanMiddleware = (req, res, next) => {
+  uploadReceiptScan.single('proof')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        err.friendlyMessage = 'The image must be 6MB or smaller to be scanned.';
+      }
+      return next(classifyUploadError(err));
+    }
+    next();
+  });
+};
+
 module.exports = {
   uploadResultFileMiddleware,
   UPLOAD_ROOT,
+  uploadReceiptScanMiddleware,
   uploadAvatarMiddleware,
   AVATAR_UPLOAD_ROOT,
   uploadHmoCardMiddleware,

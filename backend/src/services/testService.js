@@ -3,6 +3,8 @@ const testRepository = require('../repositories/testRepository');
 const packageService = require('./packageService');
 const visitRepository = require('../repositories/visitRepository');
 const patientService = require('./patientService');
+const auditService = require('./auditService');
+const paymentRepository = require('../repositories/paymentRepository');
 
 // Mirrors appointmentService.js's assertClientOwnsPatient exactly. POST /tests/visit-tests
 // authorizes the Client role (for self-service booking) but previously performed no ownership
@@ -153,8 +155,109 @@ class TestService {
     return await testRepository.findTestsByVisitId(patientVisitId);
   }
 
+  /**
+   * Take a test off a visit. [1.55.0]
+   *
+   * Reception attaches tests at registration, so the queue's job is EDITING that list — a patient
+   * who changes their mind at the desk, or a test picked in error. There was no way to do it: the
+   * dialog only ever added, so a wrong test stayed on the visit and reached the cashier as a
+   * charge somebody had to explain.
+   *
+   * ── Four reasons to refuse, and each is a different kind of damage ──────────────────────────
+   *
+   *   the visit is PAID      the receipt froze what was charged. Removing a line afterwards makes
+   *                          the bill disagree with a document the patient is holding, and the
+   *                          drawer disagree with both.
+   *   a RESULT exists        that is a clinical record. Superseded versions count: an amended
+   *                          report's history is as much a record as its current version.
+   *   status is not Pending  'Processing' means the department already has it; 'Waiting for
+   *                          Release' means findings are written. Neither is reception's to undo.
+   *   it belongs to a PACKAGE removing one component leaves the rest summing to less than the
+   *                          bundle's fixed price while still calling itself that bundle. So the
+   *                          whole package goes, or none of it does — and only if every line in it
+   *                          passes the tests above.
+   *
+   * Returns what was actually removed, because for a package that is more than the caller asked
+   * for and the screen has to be able to say so.
+   */
+  async removeTestFromVisit(visitTestId, requestingUser) {
+    const line = await testRepository.findVisitTestForRemoval(visitTestId);
+    if (!line) {
+      const error = new Error('That test is not on this visit.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await assertClientOwnsVisit(requestingUser, line.patient_visit_id);
+
+    const refuse = (message) => {
+      const error = new Error(message);
+      error.statusCode = 409;
+      throw error;
+    };
+
+    if (line.visit_paid) {
+      refuse('This visit has already been paid. Removing a test now would change a bill the patient has a receipt for — reverse the payment first if it was charged in error.');
+    }
+    if (line.has_result) {
+      refuse(`${line.test_name} already has a result recorded. A result is a clinical record and cannot be removed by taking the test off the visit.`);
+    }
+    if (line.status !== 'Pending') {
+      refuse(`${line.test_name} is already with the department (${line.status}). Cancel it there rather than removing it here.`);
+    }
+
+    // A bundle is removed whole. Every line in it must pass the same tests, or none moves.
+    let ids = [visitTestId];
+    let removedPackage = null;
+    if (line.package_id) {
+      const lines = await testRepository.findPackageLinesOnVisit(line.patient_visit_id, line.package_id);
+      const blocked = lines.find((l) => l.has_result || l.status !== 'Pending');
+      if (blocked) {
+        refuse(`${line.package_name || 'This package'} cannot be removed: ${blocked.test_name} is already ${blocked.has_result ? 'reported' : blocked.status.toLowerCase()}. A package is billed as one price, so it is removed as one thing.`);
+      }
+      ids = lines.map((l) => l.id);
+      removedPackage = line.package_name;
+    }
+
+    const removed = await testRepository.deleteVisitTests(ids);
+
+    await auditService.log({
+      actorId: requestingUser?.userId,
+      action: 'visit_test.removed',
+      entityType: 'patient_visit',
+      entityId: line.patient_visit_id,
+      description: removedPackage
+        ? `Removed package ${removedPackage} (${removed.length} tests) from the visit`
+        : `Removed ${line.test_name} from the visit`,
+    });
+
+    return { removed: removed.length, packageName: removedPackage, testName: line.test_name };
+  }
+
   async addTestsToVisit(patientVisitId, testIds, requestingUser, packageIds = []) {
     await assertClientOwnsVisit(requestingUser, patientVisitId);
+
+    // ── A settled visit takes no more work ──────────────────────────────────────────────────
+    //
+    // Measured before this guard existed: pay a ₱190 visit, add a ₱190 Laboratory test, and the
+    // new row is created with status 'Processing' — released straight to the department worklist,
+    // because the visit is paid. The bill does not move, and POST /payments then refuses with
+    // "This visit has already been paid" (uq_payments_one_paid_per_visit allows one settled row
+    // per visit). So the clinic performs the test and has no way to charge for it.
+    //
+    // Refusing is the honest fix rather than re-opening billing: a second settled payment per
+    // visit is exactly what that unique index exists to prevent, and a receipt already handed to
+    // the patient should not silently acquire another line.
+    //
+    // Removal is refused on the same visits for the mirror reason — it would change a bill the
+    // patient holds a receipt for. A paid visit is finished in both directions.
+    if (await paymentRepository.hasPaidPayment(patientVisitId)) {
+      const error = new Error(
+        'This visit has already been paid, so tests can no longer be added to it. Open a new visit for the extra work, or reverse the payment first if the bill was wrong.'
+      );
+      error.statusCode = 409;
+      throw error;
+    }
 
     // Standalone callers (Reception's walk-in flow) get their own transaction. Previously this
     // looped bare db.query calls, so a failure partway through left a half-attached visit.

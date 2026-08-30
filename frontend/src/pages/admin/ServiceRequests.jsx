@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Panel, PanelBody } from '../../components/ui/panel';
 import PageHeader from '../../components/ui/page-header';
+import RefreshButton from '../../components/ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 import Toolbar, { SegmentedFilter } from '../../components/ui/toolbar';
 import EmptyState from '../../components/ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
@@ -200,6 +202,11 @@ const ServiceRequests = () => {
     };
   }, [detailRequest?.id, detailRequest?.card_file_path]);
 
+  // Reception logs a claim and an Admin decides it — two people, two screens, and this
+  // one used to fetch once and then sit. An admin who left it open after lunch was
+  // reading a queue as it stood before lunch, with nothing on screen to say so.
+  const updatedAt = useFreshness(loading, loadError);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -210,6 +217,13 @@ const ServiceRequests = () => {
         meta={(loadError || loading)
           ? undefined
           : <span><strong className="font-semibold text-slate-700">{total}</strong> request{total === 1 ? '' : 's'}</span>}
+        actions={
+          <RefreshButton
+            onRefresh={() => fetchRequests(page)}
+            loading={loading}
+            updatedAt={updatedAt}
+          />
+        }
       />
 
       <div>
@@ -372,7 +386,7 @@ const ServiceRequests = () => {
                     <img
                       src={card.url}
                       alt="Photo of the patient's HMO card"
-                      className="max-h-56 w-full rounded-xl border border-[#e6ebf1] bg-sunken object-contain"
+                      className="max-h-56 w-full rounded-xl border border-line bg-sunken object-contain"
                     />
                     <span className="text-micro font-semibold text-brand-700">Open full size</span>
                   </a>
@@ -384,7 +398,7 @@ const ServiceRequests = () => {
                       <iframe
                         title="Scan of the patient's HMO card"
                         src={card.url}
-                        className="h-56 w-full rounded-xl border border-[#e6ebf1] bg-white"
+                        className="h-56 w-full rounded-xl border border-line bg-surface"
                       />
                       <a href={card.url} target="_blank" rel="noopener noreferrer" className="text-micro font-semibold text-brand-700">
                         Open full size
@@ -433,7 +447,7 @@ const ServiceRequests = () => {
                   Approve button and nothing else, which is how a refusal gets recorded as an
                   approval. Undecided claims get both actions; decided ones get the record. */}
               {detailRequest?.status === 'Pending' ? (
-                <div className="rounded-xl border border-[#e6ebf1] bg-slate-50/80 p-3 space-y-2.5">
+                <div className="rounded-xl border border-line bg-slate-50/80 p-3 space-y-2.5">
                   <div>
                     <span className="field-label">Record the provider&apos;s decision</span>
                     <p className="m-0 text-fine text-slate-500">
@@ -504,7 +518,7 @@ const ServiceRequests = () => {
                   className={`rounded-xl border p-3 text-xs ${
                     detailRequest?.status === 'Approved'
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                      : 'border-[#e6ebf1] bg-slate-50/80 text-slate-700'
+                      : 'border-line bg-slate-50/80 text-slate-700'
                   }`}
                 >
                   <p className="m-0 font-semibold">
@@ -524,7 +538,7 @@ const ServiceRequests = () => {
                 <span className="field-label">Linked Tests</span>
                 <div className="max-h-64 space-y-1.5 overflow-y-auto">
                   {(detailRequest?.tests || []).map(t => (
-                    <div key={t.id} className="rounded-lg border border-[#e6ebf1] p-2.5">
+                    <div key={t.id} className="rounded-lg border border-line p-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <span className="block truncate text-note font-semibold text-slate-900">{t.test_name}</span>
@@ -559,7 +573,7 @@ const ServiceRequests = () => {
                           one moment the coordinator still has the provider's response in front of
                           them — an hour later it is a guess. */}
                       {rejecting === t.id && (
-                        <div className="mt-2 space-y-1.5 border-t border-[#e6ebf1] pt-2">
+                        <div className="mt-2 space-y-1.5 border-t border-line pt-2">
                           <label htmlFor={`reject-reason-${t.id}`} className="field-label">
                             Why did the HMO refuse this? <span className="text-rose-600">*</span>
                           </label>
@@ -597,7 +611,7 @@ const ServiceRequests = () => {
                           hover, because whoever opens this claim next is usually opening it to
                           answer exactly this question. */}
                       {t.approval_status === 'Rejected' && rejecting !== t.id && t.decision_reason && (
-                        <p className="mt-1.5 border-t border-[#e6ebf1] pt-1.5 text-fine text-slate-600 m-0">
+                        <p className="mt-1.5 border-t border-line pt-1.5 text-fine text-slate-600 m-0">
                           <span className="font-semibold text-slate-700">Refused:</span> {t.decision_reason}
                           {t.decided_by_first_name && (
                             <span className="text-slate-400">

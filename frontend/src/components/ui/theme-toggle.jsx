@@ -68,7 +68,7 @@ const ThemeToggle = React.forwardRef(({ className, ...props }, ref) => {
       title={`Theme: ${label} — switch to ${nextLabel}`}
       className={cn(
         // The header's icon-button shape, matching both burgers and the notification bell.
-        "flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900",
+        "flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-surface text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900",
         className
       )}
       {...props}

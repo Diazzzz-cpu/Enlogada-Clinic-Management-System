@@ -53,7 +53,7 @@ const TextScaleControl = ({ className, tone = 'light' }) => {
           'flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border transition-colors',
           dark
             ? 'border-white/15 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
-            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800',
+            : 'border-slate-200 bg-surface text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800',
           open && (dark ? 'bg-white/10 text-white' : 'border-slate-300 bg-slate-50 text-slate-800')
         )}
       >
@@ -64,7 +64,7 @@ const TextScaleControl = ({ className, tone = 'light' }) => {
         <div
           role="menu"
           aria-label="Text size"
-          className="animate-fade-in absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-[#e6ebf1] bg-white p-1 shadow-float"
+          className="animate-fade-in absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-float"
         >
           <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-[0.1em] text-slate-400">
             Text size

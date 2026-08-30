@@ -254,6 +254,16 @@ class HmoService {
   // Streams the card image back. Never a static path: an HMO card carries a name, a member
   // number and often a photo. Mirrors resultService.getResultFile, including the deliberate
   // handling of a row that says a file exists when the disk disagrees.
+  /**
+   * Streams the HMO card image back, ownership-checked.
+   *
+   * @param {number} requestId
+   * @param {object} requestingUser  Staff on `hmo:read`; a Client only for their own claim.
+   * @returns {Promise<object>} The stored path, original name and mime type.
+   *
+   * A card carries a member number, a name and usually a photograph, so it is never served
+   * statically and `pruneHmoCards.js` ages it out — it is insurance evidence, not a medical record.
+   */
   async getCardFile(requestId, requestingUser) {
     const row = await hmoRepository.findCardByRequestId(requestId);
     if (!row) {
@@ -304,6 +314,20 @@ class HmoService {
   // like this app's other sensitive actions (payment refunds, staff account changes), since
   // approving HMO coverage is exactly the kind of decision that should leave a trace of who
   // signed off and when.
+  /**
+   * Approves a whole HMO claim.
+   *
+   * @param {number} id
+   * @param {object} params
+   * @param {string} params.approvalCode  The insurer's own authorisation number — the evidence
+   *   the clinic bills against later, outside this system.
+   * @param {object} requestingUser  Needs `hmo:approve`; recorded as the decider.
+   * @returns {Promise<object>}
+   *
+   * Sets `hmo_requests.status` only. The per-test column is decided separately and BOTH decide the
+   * money — an HMO routinely clears a claim while refusing one line on it, so a report reading
+   * either column alone misstates what is billable.
+   */
   async approveRequest(id, { approvalCode }, requestingUser) {
     const request = await hmoRepository.findRequestById(id);
     if (!request) {

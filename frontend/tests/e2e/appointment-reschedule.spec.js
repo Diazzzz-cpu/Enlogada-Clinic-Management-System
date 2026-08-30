@@ -2,6 +2,7 @@
 import { test, expect, request } from 'playwright/test';
 import { loginAs } from './helpers/ticketRelease.js';
 import { selfPayProfile } from './helpers/patients.js';
+import { nthWorkingDay, dateStr } from './helpers/dates.js';
 
 // Moving a booking instead of cancelling and rebooking it.
 //
@@ -22,26 +23,17 @@ const CLIENT = { email: 'client@enlogada.com', password: PASSWORD };
 const RECEPTION = { email: 'receptionist@enlogada.com', password: PASSWORD };
 const LAB = { email: 'lab@enlogada.com', password: PASSWORD };
 
-const dstr = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
 /**
- * A weekday far enough out that no other spec and no seeded demo booking competes for it.
+ * Two days far enough out that no other spec and no seeded demo booking competes for them.
  *
- * Saturday is skipped as well as Sunday, and that is the whole point of this comment. The clinic
- * opens 08:00-17:00 Monday to Friday but only 08:00-12:00 on Saturday — 18 slots against 8. This
- * function skipped Sunday alone, so whenever today+150 happened to land on a Saturday the spec
- * quietly had less than half the capacity it needed, claimed its way through all 8 slots and
- * failed the last test with "no unclaimed slot left". Nothing in the app had changed; the
- * calendar had. A test that passes or fails on the day of the week is worse than one that always
- * fails, because the morning goes on looking for a regression that is not there.
+ * Counted as WORKING days rather than "today + N, pushed off a weekend" — see helpers/dates.js.
+ * That offset-then-skip shape has now failed this spec twice for two different reasons, most
+ * recently by collapsing DAY_A and DAY_B onto the same Monday whenever today+150 landed on a
+ * Sunday. Two constants meant to be different days silently became one, so "move this booking to
+ * another day" became "move it to the slot it already holds" and four tests failed on a correct
+ * 409. Counting makes the distinctness structural: nthWorkingDay(n) and nthWorkingDay(n + 1) are
+ * different days on every calendar.
  */
-function workingDay(offsetDays) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return dstr(d);
-}
 
 test.describe('Appointment reschedule (API)', () => {
   let ctx;
@@ -50,8 +42,8 @@ test.describe('Appointment reschedule (API)', () => {
   let labToken;
   let patientId;
 
-  const DAY_A = workingDay(150);
-  const DAY_B = workingDay(151);
+  const DAY_A = nthWorkingDay(150);
+  const DAY_B = nthWorkingDay(151);
 
   // Distinct slots per test, for the reason spelled out in booking-atomicity.spec.js: a dev
   // database with the cap lifted reports every slot as available however many bookings it holds,
@@ -160,7 +152,7 @@ test.describe('Appointment reschedule (API)', () => {
     // The next Sunday: closed in the seeded schedule.
     const sunday = new Date();
     sunday.setDate(sunday.getDate() + ((7 - sunday.getDay()) % 7 || 7));
-    const closed = await move(appt.id, dstr(sunday), '09:00');
+    const closed = await move(appt.id, dateStr(sunday), '09:00');
     expect(closed.status()).toBe(409);
   });
 

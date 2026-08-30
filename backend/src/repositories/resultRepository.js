@@ -121,11 +121,28 @@ class ResultRepository {
    * @param {string} categoryName
    * @param {{days?: number, limit?: number, offset?: number}} options
    */
-  async findReleasedByCategory(categoryName, { days = 90, limit = 200, offset = 0 } = {}) {
+  async findReleasedByCategory(categoryName, { days = 90, delivery = null, limit = 200, offset = 0 } = {}) {
     // Half-open range on the raw column so idx_test_results_released_at applies — a ::date cast
     // here would put the planner straight back on a sequential scan. See [1.18.0].
     const windowClause =
       days > 0 ? `AND tr.released_at >= (CURRENT_DATE - $2::int * INTERVAL '1 day')` : '';
+
+    /**
+     * Reports the patient has not been told about. [1.59.0]
+     *
+     * This is the reader idx_test_results_undelivered exists for, and the reason the column was
+     * worth adding at all: a technician can find every released report that never reached anyone
+     * instead of scanning the list by eye. It matters most after a mail outage, when the failures
+     * are a contiguous block nobody has any other way to identify.
+     *
+     * `sent` deliberately does NOT mean "has an address" — it means a send was recorded. A report
+     * to a patient with an email that failed at release belongs in `unsent`, which is exactly the
+     * pile someone needs to work through.
+     */
+    const deliveryClause =
+      delivery === 'unsent' ? 'AND tr.emailed_at IS NULL'
+        : delivery === 'sent' ? 'AND tr.emailed_at IS NOT NULL'
+          : '';
     const params = [categoryName];
     if (days > 0) params.push(days);
     params.push(limit, offset);
@@ -134,15 +151,34 @@ class ResultRepository {
       SELECT vt.id as visit_test_id, vt.status as test_status,
              t.name as test_name, tc.name as category_name,
              pv.id as visit_id, pv.queue_number,
-             p.id as patient_id, p.first_name, p.last_name,
-             tr.findings, tr.remarks as result_remarks, tr.file_path, tr.released_at,
+             -- The demographics a diagnostic report has to carry. [1.54.0] Age and sex decide the
+             -- reference range a clinician reads the findings against, and the visit date is the
+             -- date the examination was PERFORMED, which is not the date it was released. A report
+             -- naming none of them is a page of findings that cannot be attributed to anyone.
+             pv.created_at as visit_date,
+             pv.referring_physician, pv.referring_physician_prc,
+             p.id as patient_id, p.first_name, p.last_name, p.birthdate, p.sex,
+             tr.findings, tr.remarks as result_remarks, tr.file_path, tr.file_original_name,
+             tr.released_at,
              tr.version, tr.is_critical, tr.critical_acknowledged_at,
+             -- Whether this report actually reached the patient. [1.59.0] Without it the history
+             -- can say a result was released and cannot say whether anyone was told, which is
+             -- the question the technician is asked when a patient rings up.
+             tr.emailed_at, tr.emailed_to, tr.email_count,
+             -- The address the report WOULD go to on a re-send, so the screen can offer the
+             -- action honestly rather than discovering there is no email after the click.
+             -- Resolved the same way the send resolves it — see findPatientEmailByVisitTestId.
+             -- Two different answers here and there is a button that promises one address and
+             -- uses another.
+             COALESCE(NULLIF(p.email, ''), pu.email) as patient_email,
              u.first_name as released_by_first_name, u.last_name as released_by_last_name
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id
+      -- A walk-in has no account, so this is a LEFT join; p.email then supplies the address.
+      LEFT JOIN users pu ON p.user_id = pu.id
       -- is_current: a test can now carry several versions, and joining them all would repeat
       -- the row once per amendment and show superseded findings alongside the live ones.
       LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
@@ -150,6 +186,7 @@ class ResultRepository {
       WHERE tc.name = $1
         AND vt.status = 'Completed'
         ${windowClause}
+        ${deliveryClause}
       ORDER BY tr.released_at DESC NULLS LAST, pv.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `;
@@ -401,21 +438,73 @@ class ResultRepository {
     return result.rows;
   }
 
+  /**
+   * Everything the released-result email needs: who to send it to, and what the report SAYS.
+   * [1.61.0]
+   *
+   * It used to return the address and the test name alone, because the email only announced that
+   * a result existed. Now that the report itself travels, the findings, the attachment and the
+   * demographics come with it — age and sex band the reference range a clinician reads the
+   * findings against, and the visit date is the date the examination was PERFORMED, which is not
+   * the date it was released.
+   *
+   * Joined on `is_current`. Without it a test with an amendment returns one row per version and
+   * the email could carry superseded findings beside live ones — the general rule CLAUDE.md sets
+   * out for this table, with the sharpest possible consequence.
+   */
   async findPatientEmailByVisitTestId(visitTestId) {
     const queryText = `
-      -- contact_number is here for the critical-result callback: the staff member who has to
-      -- telephone the patient should not have to go and look it up while a panic value is
-      -- sitting unactioned. Recipients of that notification (Receptionist/Admin/SuperAdmin) are
-      -- already entitled to patient contact details.
-      SELECT u.email, p.first_name, p.last_name, p.contact_number, t.name as test_name
+      -- The patient record's own address first, the owning ACCOUNT's second. [1.60.0]
+      --
+      -- The order matters because one account owns several patient profiles — a parent booking
+      -- for dependents, which is why /patients/my-profiles is plural. The account address is the
+      -- right default for a dependent, since the parent is who booked; but an address typed onto
+      -- one patient's record is a deliberate statement about THAT patient and wins over an
+      -- inherited one.
+      SELECT COALESCE(NULLIF(p.email, ''), u.email) AS email,
+             p.first_name, p.last_name, p.contact_number,
+             -- contact_number is here for the critical-result callback: the staff member who has
+             -- to telephone the patient should not have to go and look it up while a panic value
+             -- sits unactioned.
+             p.birthdate, p.sex,
+             t.name as test_name, tc.name as category_name,
+             pv.created_at as visit_date, pv.queue_number,
+             pv.referring_physician, pv.referring_physician_prc,
+             tr.findings, tr.remarks, tr.released_at, tr.version, tr.is_critical,
+             tr.file_path, tr.file_original_name, tr.file_mime_type, tr.file_size_bytes
       FROM visit_tests vt
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id
       LEFT JOIN users u ON p.user_id = u.id
       JOIN tests t ON vt.test_id = t.id
+      JOIN test_categories tc ON t.category_id = tc.id
+      LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
       WHERE vt.id = $1
     `;
     const result = await db.query(queryText, [visitTestId]);
+    return result.rows[0];
+  }
+
+  /**
+   * Record that the CURRENT version of a report reached the patient. [1.59.0]
+   *
+   * Scoped to `is_current` for the reason CLAUDE.md gives about this table generally: without it
+   * an UPDATE rewrites every superseded version too, so a v1 that genuinely was emailed and a v2
+   * that was not would both claim the same delivery.
+   *
+   * Only ever called after a send actually succeeded — `emailed_at IS NULL` has to keep meaning
+   * "never reached them", with no second reading.
+   */
+  async recordEmailDelivery(visitTestId, address) {
+    const result = await db.query(
+      `UPDATE test_results
+          SET emailed_at = CURRENT_TIMESTAMP,
+              emailed_to = $2,
+              email_count = email_count + 1
+        WHERE visit_test_id = $1 AND is_current
+        RETURNING id, emailed_at, emailed_to, email_count`,
+      [visitTestId, address]
+    );
     return result.rows[0];
   }
 }

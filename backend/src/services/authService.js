@@ -71,6 +71,20 @@ class AuthService {
     };
   }
 
+  /**
+   * Signs a user in, or refuses in one of four distinguishable ways.
+   *
+   * @param {object} credentials
+   * @param {string} credentials.email
+   * @param {string} credentials.password
+   * @returns {Promise<object>} A JWT and the user. The token proves IDENTITY only — roles and
+   *   permissions are re-read from the database on every request, so a grant or a revoke takes
+   *   effect immediately rather than at token expiry.
+   * @throws {UnauthorizedError} Wrong credentials. Deliberately the same message for an unknown
+   *   email and a wrong password, so the response cannot be used to enumerate accounts.
+   * @throws {LockedError} Too many failed attempts (423).
+   * @throws {ForbiddenError} The account has been deactivated.
+   */
   async login({ email, password }) {
     // 1. Find user by email
     const user = await userRepository.findByEmail(email);
@@ -208,6 +222,18 @@ class AuthService {
     return { message: 'If that email is registered, a password reset link has been sent.' };
   }
 
+  /**
+   * Completes a password reset and ends every older session.
+   *
+   * @param {string} rawToken  The token from the email. Only its HASH is stored, so a leaked
+   *   database row cannot be replayed as a reset link.
+   * @param {string} newPassword
+   * @returns {Promise<object>}
+   *
+   * Stamps `password_changed_at`, which `verifyToken` compares against each JWT's `iat`. That is
+   * what makes a reset the real answer to a stolen token: without it the attacker keeps their
+   * session until it expires on its own.
+   */
   async resetPassword(rawToken, newPassword) {
     const tokenHash = hashToken(rawToken);
     const tokenRecord = await passwordResetRepository.findValidByTokenHash(tokenHash);
@@ -239,6 +265,16 @@ class AuthService {
     return this.getUserProfile(userId);
   }
 
+  /**
+   * Changes a signed-in user's own password.
+   *
+   * @param {number} userId
+   * @param {string} currentPassword  Re-checked even though the caller is authenticated — it is
+   *   the control against somebody walking up to an unlocked terminal.
+   * @param {string} newPassword
+   * @returns {Promise<object>} Includes a fresh token: stamping `password_changed_at` invalidates
+   *   every existing session, including the caller's own.
+   */
   async changePassword(userId, currentPassword, newPassword) {
     const passwordHash = await userRepository.findPasswordHashById(userId);
     if (!passwordHash) {

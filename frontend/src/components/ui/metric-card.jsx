@@ -93,7 +93,7 @@ const MetricCard = ({
         'group relative flex w-full flex-col overflow-hidden rounded-xl border p-3.5 text-left transition-all duration-200 sm:p-4',
         isDark
           ? 'border-white/10 bg-white/[0.06]'
-          : 'border-[#e6ebf1] bg-white',
+          : 'border-line bg-surface',
         clickable &&
           (isDark
             ? 'cursor-pointer hover:border-white/20 hover:bg-white/[0.1]'

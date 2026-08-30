@@ -3,9 +3,9 @@ import { FlaskConical, Scan, Stethoscope } from 'lucide-react';
  * One colour per diagnostic category, for the whole app. [1.28.0]
  *
  * These five categories were coloured twice, independently, and the two disagreed on every one
- * of them. The Service Volume chart had Laboratory green, Ultrasound blue, Xray amber, 2D Echo
- * violet, ECG cyan; the public Services page had Laboratory teal, Ultrasound sage, Xray indigo,
- * 2D Echo rose, ECG amber. A patient who browsed the services page and a manager who read the
+ * of them. The Service Volume chart had Laboratory green, Ultrasound blue, Xray amber and ECG
+ * cyan; the public Services page had Laboratory teal, Ultrasound sage, Xray indigo and ECG amber.
+ * A patient who browsed the services page and a manager who read the
  * report were looking at the same five things in two unrelated colour schemes, and Xray was
  * amber in one place and indigo in the other.
  *
@@ -26,7 +26,6 @@ export const CATEGORY_COLORS = {
   Laboratory: '#53843b',   // brand green, the clinic's primary service
   Ultrasound: '#2563eb',   // chart-only blue; navy fails the categorical lightness check
   Xray: '#d97706',         // amber
-  '2D Echo': '#7c3aed',    // violet
   ECG: '#0891b2',          // cyan
 };
 
@@ -37,13 +36,15 @@ export const UNMAPPED_CATEGORY_COLOR = '#94a3b8';
 /**
  * The order categories are shown in, offered first and busiest first.
  *
- * A DISPLAY order, not a list of what exists — 2D Echo and ECG are retired [1.47.0] and stay here
- * because a patient with a past 2D Echo still has to be able to filter to it. Anything that reads
- * this must decide from the data which of these to show; hardcoding the array itself into a filter
- * is how the portal came to advertise two services the clinic does not sell to every patient who
- * had never had one.
+ * A DISPLAY order, not a list of what exists. 'ECG' stays because its category row is still in the
+ * database — a patient with a past ECG has to be able to filter to it. '2D Echo' is gone entirely
+ * [1.50.0]: its category and tests were deleted once nothing referenced them.
+ *
+ * Anything reading this must decide from the DATA which of these to show. Hardcoding the array
+ * itself into a filter is how the portal came to advertise services the clinic does not sell to
+ * every patient who had never had one.
  */
-export const CATEGORY_ORDER = ['Laboratory', 'Ultrasound', 'Xray', '2D Echo', 'ECG'];
+export const CATEGORY_ORDER = ['Laboratory', 'Ultrasound', 'Xray', 'ECG'];
 
 // Pale tile + saturated glyph, for an icon beside a heading. Kept as Tailwind classes rather
 // than derived from the hex, because an opacity variant of the mark colour is exactly the
@@ -52,7 +53,6 @@ const CATEGORY_TINTS = {
   Laboratory: 'bg-brand-50 text-brand-700',
   Ultrasound: 'bg-blue-50 text-blue-700',
   Xray: 'bg-amber-50 text-amber-700',
-  '2D Echo': 'bg-violet-50 text-violet-700',
   ECG: 'bg-cyan-50 text-cyan-700',
 };
 
@@ -61,16 +61,13 @@ const UNMAPPED_TINT = 'bg-slate-100 text-slate-700';
 /**
  * How a category is written on screen, where that differs from how the database spells it.
  *
- * Two entries, both earned: the column stores 'Xray' and a radiographer reads "X-Ray", and
- * 'Ultrasound' covers 2D Echo as well — a technician looking at an Ultrasound worklist needs to
- * know the echo studies are in it. Anything not listed is already correct as stored.
- *
- * Here rather than inside the diagnostic console, which declared it as a local object rebuilt on
- * every render, so a second screen naming a category would have had to spell it a second time.
+ * One entry now, and it is earned: the column stores 'Xray' and a radiographer reads "X-Ray".
+ * Anything not listed is already correct as stored — 'Ultrasound' used to be listed as
+ * "Ultrasound (incl. 2D Echo)" and became a no-op mapping to itself when 2D Echo was removed
+ * [1.50.0], so it is gone rather than left as an entry that says nothing.
  */
 export const CATEGORY_LABELS = {
   Xray: 'X-Ray',
-  Ultrasound: 'Ultrasound (incl. 2D Echo)',
 };
 
 /**
@@ -97,7 +94,6 @@ export function categoryKey(name = '') {
   if (lower.includes('lab')) return 'Laboratory';
   if (lower.includes('ultra')) return 'Ultrasound';
   if (lower.includes('xray') || lower.includes('x-ray')) return 'Xray';
-  if (lower.includes('echo')) return '2D Echo';
   if (lower.includes('ecg')) return 'ECG';
   return null;
 }

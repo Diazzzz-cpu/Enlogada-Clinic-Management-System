@@ -109,10 +109,21 @@ const RECEPTION = [
   'patients:read_all_departments',
 ];
 
+// The cashier VERIFIES proofs of payment; they do not file them.
+//
+// `billing:submit_proof` was granted here and is NOT on either route that uses it — both name
+// SuperAdmin, Admin, Receptionist and Client — so a cashier holding it got a 403 from the role
+// gate and the tick did nothing. [1.63.0] resolved that by removing the grant rather than by
+// widening the routes, and the reason is separation of duties.
+//
+// Filing a proof and approving one are the two halves of this workflow. A cashier holds
+// `billing:process`, which is the approval half; granting them the submission half too would let
+// one person raise a claim and then settle it themselves — the same objection that keeps
+// `billing:process` off Admin, who reviews the cash-up. Reception files on a patient's behalf and
+// the cashier decides, which is the separation the routes already encoded.
 const CASHIER = [
   'patients:read', 'patients:read_all_departments', 'visits:read', 'visits:update',
   'billing:read', 'billing:process', 'billing:refund', 'billing:discount',
-  'billing:submit_proof',
   'hmo:read',
 ];
 
@@ -136,6 +147,23 @@ const ADMIN = [
   'billing:read', 'billing:refund', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve',
   'reports:view', 'audit:view', 'staff:manage',
+];
+
+/**
+ * Grants that must be actively removed, with the reason they were wrong.
+ *
+ * See the note at the DELETE below for why absence from the template is not enough. Every entry
+ * is a correction somebody reasoned about, not a tidy-up.
+ */
+const REVOKED = [
+  {
+    role: 'Cashier',
+    permission: 'billing:submit_proof',
+    reason:
+      'the cashier VERIFIES proofs; letting them file one too would allow raising a claim and ' +
+      'settling it themselves. Both routes already named only reception and the patient, so the ' +
+      'grant did nothing except make the matrix disagree with the API.',
+  },
 ];
 
 const ROLE_PERMISSIONS = {
@@ -199,6 +227,34 @@ const setupRbac = async () => {
            ON CONFLICT DO NOTHING`,
           [roleId, ids]
         );
+      }
+
+      // ── Corrections: grants that must be REMOVED, not merely absent from the template ───────
+      //
+      // The insert above is additive by design — `ON CONFLICT DO NOTHING`, no delete — so this
+      // script is a FLOOR rather than a mirror. That is the right default: a SuperAdmin's edits in
+      // the Access Control screen must survive a reseed, and a template that deleted anything not
+      // in it would silently undo them.
+      //
+      // The cost is that DELETING a permission from a role above does nothing to a database that
+      // already ran the old version. The matrix in source and the matrix in the database then
+      // disagree, which is the same class of problem as a matrix disagreeing with a route.
+      //
+      // So a correction has to be stated. Anything listed here is actively revoked on every run.
+      // Keep it short and keep the reason: this is the one place that can undo a deliberate grant,
+      // and an entry with no explanation is indistinguishable from a mistake.
+      for (const { role, permission, reason } of REVOKED) {
+        const result = await db.query(
+          `DELETE FROM role_permissions
+                 USING roles r, permissions p
+                 WHERE role_permissions.role_id = r.id
+                   AND role_permissions.permission_id = p.id
+                   AND r.name = $1 AND p.name = $2`,
+          [role, permission]
+        );
+        if (result.rowCount > 0) {
+          logger.info(`  revoked ${permission} from ${role} — ${reason}`);
+        }
       }
     });
 

@@ -143,6 +143,27 @@ class TestController {
     }
   }
 
+  async removeTestFromVisit(req, res, next) {
+    try {
+      const result = await testService.removeTestFromVisit(
+        parseInt(req.params.visitTestId, 10),
+        req.user
+      );
+      return res.status(200).json({
+        status: 'success',
+        // Names what was ACTUALLY removed: asking to remove one component of a package removes
+        // the bundle, and a screen that reports "removed" without saying so leaves the reader
+        // wondering why four rows disappeared.
+        message: result.packageName
+          ? `Removed ${result.packageName} — all ${result.removed} tests in the package.`
+          : `Removed ${result.testName}.`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getVisitTests(req, res, next) {
     try {
       const { visitId } = req.params;

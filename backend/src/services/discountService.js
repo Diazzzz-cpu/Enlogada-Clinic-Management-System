@@ -1,21 +1,28 @@
 const discountRepository = require('../repositories/discountRepository');
-const env = require('../config/environment');
 const visitRepository = require('../repositories/visitRepository');
 const paymentRepository = require('../repositories/paymentRepository');
 const auditService = require('./auditService');
-
-/**
- * Rounds to centavos, half-up.
- *
- * Money is NUMERIC(10,2) in the database, so a discount has to land on a real centavo before it
- * is stored or compared. Doing this once, here, keeps the cashier's screen, the authoritative
- * server-side total and the stored receipt agreeing to the last centavo — processPayment rejects
- * a submitted amount that differs by more than ₱0.01, so a rounding disagreement between those
- * three would show up as a payment the cashier cannot complete.
- */
-const toCentavos = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+// Aliased on import. A class method and a module function of the same name do not actually
+// collide — a method name is not a lexical binding — but a reader has to know that to be sure
+// which one `computeBreakdown(...)` calls inside the method body, and "you have to know a language
+// subtlety to see that this is not infinite recursion" is not a property worth having in the file
+// that decides what a senior citizen pays.
+const {
+  computeBreakdown: computeDiscountBreakdown,
+  describeStrategy: describeDiscountStrategy,
+  toCentavos,
+} = require('./discount');
+const { NotFoundError, ValidationError, ConflictError } = require('../errors');
 
 class DiscountService {
+  /**
+   * The discount types the clinic offers.
+   *
+   * @param {object} [params]
+   * @param {boolean} [params.includeInactive]  Staff screens need retired types so a historical
+   *   visit can still name the discount it was given.
+   * @returns {Promise<Array>}
+   */
   async getCatalogue({ includeInactive = false } = {}) {
     return await discountRepository.findAll({ includeInactive });
   }
@@ -51,32 +58,65 @@ class DiscountService {
    * `netDue + discountAmount + vatDeducted` always equals `gross` exactly. That matters because
    * processPayment rejects a submitted amount differing by more than a centavo — an arithmetic
    * disagreement here surfaces as a payment the cashier cannot complete.
+   *
+   * ── The rules themselves live in `./discount` [1.63.0] ──────────────────────────────────
+   *
+   * The whole calculation used to hang off one ternary here — `isStatutory &&
+   * env.CLINIC_VAT_REGISTERED ? extractVat(gross) : 0` — which is the most consequential line of
+   * arithmetic in the application and the least visible. It decides whether a senior citizen pays
+   * ₱714.29 or ₱800.00 on a ₱1,000 service, and CLAUDE.md records that the clinic's registration
+   * was believed to be the opposite of what it is for a full day.
+   *
+   * It is now four named strategies, each carrying the statute it implements, so the answer to
+   * "why does a senior pay this?" is a class a panel can be pointed at. This method stays as the
+   * service-layer entry point every caller already uses.
+   *
+   * Verified centavo-identical to the previous implementation across 16,320 field comparisons —
+   * `node src/scripts/verifyDiscountParity.js`, which replays the old algorithm verbatim against
+   * the new one over both VAT registration states.
+   *
+   * @param {object} params
+   * @param {number|string} params.subtotal     Sum of `visit_tests.price_at_time`, VAT-inclusive.
+   * @param {number|string} params.hmoCoverage  Approved HMO value, removed before discounting.
+   * @param {number|string} params.percentage   Discount rate, 0-100.
+   * @param {boolean} params.isStatutory        SC/PWD entitlement rather than a commercial rate.
+   * @returns {{gross:number, vatDeducted:number, discountBase:number, discountAmount:number, netDue:number}}
    */
+  // eslint-disable-next-line class-methods-use-this
   computeBreakdown({ subtotal, hmoCoverage, percentage, isStatutory }) {
-    const gross = toCentavos(Math.max(0, Number(subtotal) - Number(hmoCoverage)));
-    const pct = Number(percentage) || 0;
-
-    if (pct <= 0) {
-      return { gross, vatDeducted: 0, discountBase: gross, discountAmount: 0, netDue: gross };
-    }
-
-    const vatDeducted =
-      isStatutory && env.CLINIC_VAT_REGISTERED
-        ? toCentavos(gross - gross / (1 + env.VAT_RATE))
-        : 0;
-    const discountBase = toCentavos(gross - vatDeducted);
-    const discountAmount = toCentavos((discountBase * pct) / 100);
-    const netDue = toCentavos(discountBase - discountAmount);
-
-    return { gross, vatDeducted, discountBase, discountAmount, netDue };
+    return computeDiscountBreakdown({ subtotal, hmoCoverage, percentage, isStatutory });
   }
 
+  /**
+   * Which rule WOULD apply, without computing an amount — for audit lines and bill explanations.
+   *
+   * @param {object} params
+   * @param {number|string} params.percentage
+   * @param {boolean} params.isStatutory
+   * @returns {{label: string, basis: string, percentage: number}}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  describeStrategy({ percentage, isStatutory }) {
+    return describeDiscountStrategy({ percentage, isStatutory });
+  }
+
+  /**
+   * Records a statutory or commercial discount against a visit.
+   *
+   * @param {number} visitId
+   * @param {object} params
+   * @param {number} params.discountTypeId
+   * @param {string} params.idNumber  The OSCA/PWD number. Mandatory where the type requires it:
+   *   without it a statutory discount is an unsupported deduction, which is what an audit looks for.
+   * @param {object} requestingUser  Audited — a deduction names who authorised it.
+   * @returns {Promise<object>}
+   * @throws {ConflictError} The visit is already paid. The receipt and the statutory register
+   *   would otherwise disagree, and there is no re-bill path — a correction goes through a refund.
+   */
   async applyToVisit(visitId, { discountTypeId, idNumber }, requestingUser) {
     const visit = await visitRepository.findVisitById(visitId);
     if (!visit) {
-      const error = new Error('Visit not found');
-      error.statusCode = 404;
-      throw error;
+      throw new NotFoundError('Visit not found');
     }
 
     // Once money has changed hands the bill is settled. Changing the discount afterwards would
@@ -85,34 +125,26 @@ class DiscountService {
     // refund flow instead.
     const alreadyPaid = await paymentRepository.hasPaidPayment(visitId);
     if (alreadyPaid) {
-      const error = new Error(
+      throw new ConflictError(
         'This visit has already been paid. Refund the payment first if the discount needs to change.'
       );
-      error.statusCode = 409;
-      throw error;
     }
 
     const discount = await discountRepository.findById(discountTypeId);
     if (!discount) {
-      const error = new Error('Unknown discount type.');
-      error.statusCode = 400;
-      throw error;
+      throw new ValidationError('Unknown discount type.');
     }
     if (!discount.is_active) {
-      const error = new Error(`The "${discount.name}" discount is not currently active.`);
-      error.statusCode = 400;
-      throw error;
+      throw new ValidationError(`The "${discount.name}" discount is not currently active.`);
     }
 
     // The ID number is the evidence that the entitlement was checked. Without it a statutory
     // discount is an unsupported deduction, which is precisely what an audit looks for.
     const trimmedId = (idNumber || '').trim();
     if (discount.requires_id && !trimmedId) {
-      const error = new Error(
+      throw new ValidationError(
         `A ${discount.name} discount requires the holder's ID number (OSCA/PWD ID) to be recorded.`
       );
-      error.statusCode = 400;
-      throw error;
     }
 
     const applied = await discountRepository.applyToVisit(visitId, {
@@ -139,18 +171,14 @@ class DiscountService {
   async clearFromVisit(visitId, requestingUser) {
     const visit = await visitRepository.findVisitById(visitId);
     if (!visit) {
-      const error = new Error('Visit not found');
-      error.statusCode = 404;
-      throw error;
+      throw new NotFoundError('Visit not found');
     }
 
     const alreadyPaid = await paymentRepository.hasPaidPayment(visitId);
     if (alreadyPaid) {
-      const error = new Error(
+      throw new ConflictError(
         'This visit has already been paid. Refund the payment first if the discount needs to change.'
       );
-      error.statusCode = 409;
-      throw error;
     }
 
     const cleared = await discountRepository.clearFromVisit(visitId);

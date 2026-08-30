@@ -9,7 +9,7 @@ const Card = React.forwardRef(({ className, ...props }, ref) => (
     // page, it just blurs its own bottom edge — see the elevation note in index.css. Separation
     // comes from the hairline border; `shadow-raised` is available where something must actually
     // float. Prefer <Panel> for new work; this stays for the vendored primitives built on it.
-    className={cn("rounded-xl border border-[#e6ebf1] bg-card text-card-foreground", className)}
+    className={cn("rounded-xl border border-line bg-card text-card-foreground", className)}
     {...props} />
 ))
 Card.displayName = "Card"

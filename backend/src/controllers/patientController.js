@@ -60,7 +60,7 @@ const rejectBadBirthdate = (birthdate, res) => {
 class PatientController {
   async addProfile(req, res, next) {
     try {
-      const { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact } = req.body;
+      const { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact, email } = req.body;
       const isClient = req.user?.roles?.includes('Client');
       const linkedUserId = isClient ? req.user.userId : null;
 
@@ -81,7 +81,10 @@ class PatientController {
         sex,
         address,
         contactNumber,
-        emergencyContact
+        emergencyContact,
+        // Left undefined when the caller did not send it, which the service reads as "keep what
+        // is there" rather than as "clear it".
+        email
       });
 
       return res.status(201).json({
@@ -151,7 +154,7 @@ class PatientController {
   async updateProfile(req, res, next) {
     try {
       const { id } = req.params;
-      const { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact } = req.body;
+      const { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact, email } = req.body;
 
       if (!patientTypeId || !firstName || !lastName || !birthdate || !sex) {
         return res.status(400).json({
@@ -185,7 +188,10 @@ class PatientController {
         sex,
         address,
         contactNumber,
-        emergencyContact
+        emergencyContact,
+        // Left undefined when the caller did not send it, which the service reads as "keep what
+        // is there" rather than as "clear it".
+        email
       }, req.user);
 
       return res.status(200).json({
@@ -200,13 +206,43 @@ class PatientController {
 
   async search(req, res, next) {
     try {
-      const { q } = req.query;
-      const patients = await patientService.searchPatients(q, req.user);
+      const { q, from, to, page, limit, includeArchived, recordStatus } = req.query;
+
+      // Only someone who can archive may look at what has been archived. Reading the archive is
+      // reading records deliberately taken out of circulation, and the person who cannot put one
+      // back has no reason to be shown it.
+      const maySeeArchived = (req.user?.roles || []).some((r) => r === 'SuperAdmin' || r === 'Admin');
+
+      const result = await patientService.searchPatients(q, req.user, {
+        from, to, page, limit, recordStatus,
+        includeArchived: maySeeArchived && String(includeArchived) === 'true',
+      });
+
       // The UI says which departments a scoped result set was confined to, so a short list reads
       // as "your department" rather than "the clinic has no such patient".
       return res.status(200).json({
         status: 'success',
-        data: { patients, departmentScope: patientService.departmentScopeFor(req.user) }
+        data: {
+          ...result,
+          departmentScope: patientService.departmentScopeFor(req.user),
+          canArchive: maySeeArchived,
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async setArchived(req, res, next) {
+    try {
+      const archived = req.body?.archived !== false;
+      const patient = await patientService.setArchived(req.params.id, archived, req.user);
+      return res.status(200).json({
+        status: 'success',
+        message: archived
+          ? `${patient.first_name} ${patient.last_name} archived. Their visits, bills and results are unchanged.`
+          : `${patient.first_name} ${patient.last_name} restored to the active roster.`,
+        data: { patient },
       });
     } catch (err) {
       next(err);

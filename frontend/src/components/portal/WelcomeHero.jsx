@@ -33,6 +33,7 @@ export default function WelcomeHero({ profiles, results, bookings, reference }) 
               selectedProfileId={profiles.selectedId}
               selectedProfile={profiles.selected}
               testCatalog={reference.testCatalog}
+              packages={reference.packages}
               hmoProviders={reference.hmoProviders}
               onBooked={() => { results.reload(); bookings.reload(); }}
             />

@@ -41,7 +41,31 @@ test.describe('Patient records are confined to your department', () => {
     reception = await login('receptionist@enlogada.com');
   });
 
-  test.afterAll(async () => ctx.dispose());
+  /**
+   * Take the per-account exception back off the lab login.
+   *
+   * In an afterAll as well as inline, because an assertion that fails BETWEEN the grant and the
+   * inline cleanup leaves the exception in place — and a widened lab account then fails the first
+   * test in this file on the next run, which grants it again and strands it again. One
+   * interrupted run turned into a permanently red spec that way, and the failure pointed at
+   * scoping rather than at the residue causing it.
+   *
+   * A test that leaves authority behind is worse than one that fails: it changes what the next
+   * run is testing.
+   */
+  const clearLabOverrides = async () => {
+    const matrix = (await (await ctx.get(`${API}/rbac/matrix`, { headers: auth(superAdmin) })).json()).data;
+    const labAccount = matrix.accounts.find((a) => a.email === 'lab@enlogada.com');
+    if (!labAccount) return;
+    await ctx.put(`${API}/rbac/users/${labAccount.id}/overrides`, {
+      headers: auth(superAdmin), data: { overrides: [] },
+    });
+  };
+
+  test.afterAll(async () => {
+    await clearLabOverrides().catch(() => {});
+    await ctx.dispose();
+  });
 
   test('the search is scoped, and says which scope it applied', async () => {
     const asSuper = await search(superAdmin);
@@ -50,8 +74,16 @@ test.describe('Patient records are confined to your department', () => {
     expect(asSuper.departmentScope, 'oversight is unrestricted').toBeNull();
     expect(asLab.departmentScope, 'a lab account is confined to its own room').toEqual(['Laboratory']);
 
-    // Strictly fewer. Asserting a specific count would break on every reseed.
-    expect(asLab.patients.length).toBeLessThan(asSuper.patients.length);
+    // Strictly fewer, measured on the SERVER-SIDE TOTAL rather than on the page in hand.
+    //
+    // `patients.length` is capped by the endpoint's LIMIT, so once the roster grew past a single
+    // page the comparison became 20 < 20 and stopped discriminating — a scoped account and an
+    // unrestricted one returned identically full pages. Measured on 2026-08-28: both pages 20,
+    // while the totals were 27 against 54. Nothing in the application had changed; the data had.
+    //
+    // Asserting a specific count would break on every reseed, so the property is the inequality.
+    expect(asLab.total, 'a scoped account matches strictly fewer records')
+      .toBeLessThan(asSuper.total);
 
     // Not asserted as a set subset: both queries are LIMIT 20, so the unrestricted search returns
     // the first twenty alphabetically and a lab patient further down the alphabet legitimately is
@@ -112,14 +144,14 @@ test.describe('Patient records are confined to your department', () => {
     // Same token — authority is read from the database on every request.
     const after = await search(lab);
     expect(after.departmentScope, 'granted the escape hatch, no longer confined').toBeNull();
-    expect(after.patients.length).toBeGreaterThan(before.patients.length);
+    // The TOTAL again, for the reason given above: both pages come back full once the roster
+    // outgrows one page, and a full page compared against a full page proves nothing.
+    expect(after.total, 'widened, so more records match').toBeGreaterThan(before.total);
 
     // The X-Ray account is untouched: an exception is for one person, not their whole role.
     expect((await search(xray)).departmentScope).toEqual(['Xray']);
 
-    await ctx.put(`${API}/rbac/users/${labAccount.id}/overrides`, {
-      headers: auth(superAdmin), data: { overrides: [] },
-    });
+    await clearLabOverrides();
     expect((await search(lab)).departmentScope).toEqual(['Laboratory']);
   });
 });

@@ -1,10 +1,12 @@
 import React from 'react';
-import { History, Printer, Receipt, RefreshCw, Undo2 } from 'lucide-react';
+import { ExternalLink, History, Printer, Receipt, RefreshCw, Undo2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
-import Toolbar, { ToolbarSpacer } from '../ui/toolbar';
+import Toolbar, { ToolbarSpacer, SegmentedFilter } from '../ui/toolbar';
+import { SearchInput } from '../ui/search-input';
 import EmptyState from '../ui/empty-state';
 import { Badge } from '../ui/badge';
+import { COUNTER_PAYMENT_METHODS } from '../../lib/paymentMethods';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { StatusBadge } from '../ui/status-badge';
 import { SkeletonRows } from '../ui/skeleton';
@@ -15,6 +17,7 @@ import { isCrossDayReversal } from '../../lib/collections';
 import { BillingTotalsPanel, SalesByServicePanel } from '../reports/OperationsPanels';
 import { HISTORY_PAGE_SIZE } from '../../hooks/useTransactionHistory';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
+import DataBadge from '../ui/data-badge';
 
 /**
  * Receipts issued over a chosen range, for the daily cash-up.
@@ -34,10 +37,42 @@ export default function TransactionHistoryPanel({ history, receipt, refund, oper
             <RefreshCw className="h-3.5 w-3.5" />
             Apply
           </Button>
+          {/* One box for three things — a receipt number off the printed slip, a patient's
+              surname, or the GCash reference read out over the phone. Making the reader pick the
+              right field first is how a lookup fails for someone who has the right information.
+              Enter submits, so the keyboard path works without reaching for Apply. */}
+          <SearchInput
+            placeholder="Receipt #, patient or reference…"
+            value={history.search}
+            onChange={(e) => history.setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') history.reload(); }}
+            containerClassName="w-full sm:w-60"
+            aria-label="Search receipts"
+          />
           <ToolbarSpacer />
           <span className="whitespace-nowrap text-fine font-medium tabular-nums text-slate-500">
             {history.total} receipt{history.total === 1 ? '' : 's'}
           </span>
+        </Toolbar>
+
+        {/* The Payment Method column has been on this table since [1.0.0] with no way to ask for
+            one. Reconciling a drawer is exactly that question — "what came in as cash?" — and
+            without it the cashier counts by eye down a paged list.
+
+            The server has accepted `method` all along; nothing on screen ever sent it — and it
+            already narrows the peso totals to match, which is the point. A method IS a partition
+            of the drawer: "Cash collected ₱4,200" against the cash filter is the figure being
+            counted. That is why `search` deliberately does not narrow the totals and this does —
+            a name typed to find one receipt is a lookup, not a slice of the day. */}
+        <Toolbar attached className="border-t-0">
+          <SegmentedFilter
+            ariaLabel="Filter receipts by payment method"
+            options={['All', ...COUNTER_PAYMENT_METHODS].map(m => ({
+              value: m, label: m === 'All' ? 'All methods' : m,
+            }))}
+            value={history.method}
+            onChange={history.setMethod}
+          />
         </Toolbar>
 
         <Panel className="overflow-hidden rounded-t-none">
@@ -82,12 +117,14 @@ export default function TransactionHistoryPanel({ history, receipt, refund, oper
                 ) : history.transactions.length > 0 ? (
                   history.transactions.map(t => (
                     <TableRow key={t.id}>
-                      <TableCell label="Receipt #" className="whitespace-nowrap font-mono text-fine font-semibold text-slate-900">{t.receipt_number || `OR-${t.id}`}</TableCell>
+                      <TableCell label="Receipt #" className="whitespace-nowrap">
+                        <DataBadge variant="receipt" label="Receipt number" copyable>{t.receipt_number || `OR-${t.id}`}</DataBadge>
+                      </TableCell>
                       <TableCell label="Patient" className="font-semibold text-slate-900">{t.patient_first_name} {t.patient_last_name}</TableCell>
                       <TableCell label="Method">
                         <Badge variant="outline" className="text-slate-600">{t.payment_method}</Badge>
                         {t.reference_number && (
-                          <span className="mt-0.5 block font-mono text-fine text-slate-500">{t.reference_number}</span>
+                          <DataBadge variant="reference" label="Payment reference" className="mt-1">{t.reference_number}</DataBadge>
                         )}
                       </TableCell>
                       <TableCell
@@ -136,6 +173,22 @@ export default function TransactionHistoryPanel({ history, receipt, refund, oper
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Two different jobs, so two buttons. Reprint opens the dialog in
+                              place — fastest when the patient is standing at the counter. Open
+                              gives the receipt its own tab, which is what you want when you need
+                              to keep it up beside the till, or send the link to someone. */}
+                          {t.receipt_number && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              onClick={() => window.open(`?receipt=${encodeURIComponent(t.receipt_number)}`, '_blank', 'noopener')}
+                              title="Open this receipt in a new tab"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Open
+                            </Button>
+                          )}
                           <Button type="button" variant="outline" size="xs" onClick={() => receipt.reprint(t)}>
                             <Printer className="h-3 w-3" />
                             Reprint

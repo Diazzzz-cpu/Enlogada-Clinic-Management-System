@@ -310,6 +310,309 @@ class ReportRepository {
     const result = await db.query(queryText);
     return result.rows;
   }
+
+  /**
+   * What the clinic's HMO work is worth, per provider.
+   *
+   * ── An approved claim is NOT money in the drawer ────────────────────────────────────────────
+   *
+   * This is the whole reason the query is shaped this way. An approved HMO test is a RECEIVABLE:
+   * the clinic bills the insurer and is paid later, through a channel this system does not see.
+   * `payments` never contains it. So `approved` must never be added to, compared against, or
+   * presented as the same kind of number as `collected` — doing that reports the same peso twice,
+   * once as a claim and once as cash, and inflates revenue by exactly the amount the clinic is
+   * still waiting for.
+   *
+   * The four figures answer four different questions and are returned side by side, never netted:
+   *
+   *   approved   billable to the insurer — work done, decision favourable, cash not yet in
+   *   refused    the HMO said no, so it falls to the PATIENT — the counter conversation [1.27.0]
+   *   pending    undecided, and therefore at risk of becoming either of the two above
+   *   collected  what the patient actually paid at the counter on these visits. This one IS in
+   *              the cash-up already, and is here only so the two halves of an HMO visit can be
+   *              seen together
+   *
+   * ── Why the visit's date, not the decision's ────────────────────────────────────────────────
+   *
+   * Bucketed by `patient_visits.created_at`: "HMO work done in this period". A claim decided
+   * three weeks later would otherwise move a peso out of a period already reported — the closed-
+   * day restatement [1.30.0] exists to prevent, arriving by a different door. A period's figures
+   * are fixed by when the work happened; only the split between the columns changes as claims
+   * are decided, which is the honest behaviour.
+   *
+   * Half-open range on the raw column, never `created_at::date` — see CLAUDE.md.
+   */
+  async getHmoClaimTotals(startDate, endDate) {
+    const queryText = `
+      WITH claim_lines AS (
+        SELECT hp.name                AS provider_name,
+               vt.price_at_time,
+               pv.id                  AS patient_visit_id,
+               -- The effective decision on ONE test, read from BOTH levels.
+               --
+               -- A claim and its tests are decided independently and can legitimately disagree:
+               -- approveRequest sets hmo_requests.status alone, and PUT /hmo/request-test/:id
+               -- sets each test. That is not a bug — an HMO routinely clears a claim while
+               -- refusing one line on it — but it means a report reading either column BY ITSELF
+               -- misstates the money. Reading only the per-test column reported an approved claim
+               -- as ₱0 approved and its full value still Pending; reading only the claim column
+               -- would report a refused test as billable.
+               --
+               -- A refusal at either level wins, matching the partial unique index on this table
+               -- in schema.sql, whose predicate is approval_status <> 'Rejected' -- it treats a
+               -- rejected test as no longer a live claim on that work.
+               CASE
+                 WHEN hr.status = 'Rejected' OR hrt.approval_status = 'Rejected' THEN 'Rejected'
+                 WHEN hr.status = 'Approved'                                     THEN 'Approved'
+                 ELSE 'Pending'
+               END AS effective_status
+          FROM hmo_requests hr
+          JOIN hmo_providers hp     ON hp.id = hr.hmo_provider_id
+          JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id
+          JOIN visit_tests vt       ON vt.id = hrt.visit_test_id
+          JOIN patient_visits pv    ON pv.id = vt.patient_visit_id
+         WHERE pv.created_at >= $1::date AND pv.created_at < ($2::date + 1)
+      ),
+      -- Counter takings per visit, resolved BEFORE the join so a visit carrying three claimed
+      -- tests contributes its receipt once rather than three times. Summing payments alongside
+      -- the lines is how a two-test claim reports double the money that was actually taken.
+      visit_cash AS (
+        SELECT pay.patient_visit_id,
+               SUM(pay.amount)::numeric(12,2) AS collected
+          FROM payments pay
+         WHERE ${ISSUED_RECEIPT_CLAUSE}
+           AND pay.patient_visit_id IN (SELECT patient_visit_id FROM claim_lines)
+         GROUP BY pay.patient_visit_id
+      )
+      SELECT cl.provider_name,
+             COUNT(*)::int                                                                  AS tests_claimed,
+             COUNT(DISTINCT cl.patient_visit_id)::int                                       AS visits,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Approved'), 0)::numeric(12,2) AS approved,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Rejected'), 0)::numeric(12,2) AS refused,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Pending'),  0)::numeric(12,2) AS pending,
+             COALESCE((
+               SELECT SUM(vc.collected)
+                 FROM visit_cash vc
+                WHERE vc.patient_visit_id IN (
+                  SELECT cl2.patient_visit_id FROM claim_lines cl2
+                   WHERE cl2.provider_name = cl.provider_name
+                )
+             ), 0)::numeric(12,2)                                                           AS collected
+        FROM claim_lines cl
+       GROUP BY cl.provider_name
+       ORDER BY approved DESC, cl.provider_name
+    `;
+    const result = await db.query(queryText, [startDate, endDate]);
+    return result.rows;
+  }
+
+  /**
+   * Turnaround per department, measured against a target. [1.62.0]
+   *
+   * ── Two spans, deliberately, and neither is called just "turnaround" ────────────────────────
+   *
+   * There are two honest answers to "how long did that take", and this codebase already publishes
+   * one of them: `getDiagnosticThroughput` reports `median_turnaround_minutes` measured from
+   * PAYMENT to release, on the documented grounds that a visit registered at 8am and paid at 11am
+   * did not spend three hours in the lab.
+   *
+   * The other — registration to release — is what the PATIENT experienced, and it is the more
+   * useful number for a clinic asking where its capacity goes. Both belong here. What must not
+   * happen is a second query publishing a different figure under the SAME name as the first, on a
+   * screen sitting beside it: that is precisely how the cashier's strip and the operations report
+   * spent a day disagreeing about the same money in [1.32.0], and CLAUDE.md keeps the scar.
+   *
+   * So the columns say which is which:
+   *
+   *   median_turnaround_minutes  payment -> release. The DEPARTMENT-owned span, identical in
+   *                              basis to getDiagnosticThroughput, and the one the target is
+   *                              measured against — you cannot hold Ultrasound to a target for
+   *                              time the patient spent queueing at the till.
+   *   median_total_minutes       registration -> release. The whole visit, end to end.
+   *
+   * ── Why p90 as well as the median ───────────────────────────────────────────────────────────
+   *
+   * A median hides its own tail by construction: half the patients are above it and it says
+   * nothing about how far. A department can hold a 45-minute median while one report in ten takes
+   * four hours, and it is the four-hour patient who telephones. The 90th percentile names that
+   * case, and `within_target_rate` says how often the promise was actually kept — which is the
+   * figure an SLA is, as opposed to an average that no individual patient ever experiences.
+   *
+   * Targets are supplied by the caller rather than stored: they are a clinic policy, not a fact
+   * about the data, and inventing a table for three numbers nobody has agreed yet would be
+   * pretending otherwise. `$3::jsonb` carries them in as department -> minutes.
+   */
+  async getDepartmentTurnaroundPerformance(startDate, endDate, targets = {}) {
+    const queryText = `
+      WITH released AS (
+        SELECT tc.name AS category_name,
+               EXTRACT(EPOCH FROM (tr.released_at - pay.paid_at)) / 60      AS dept_minutes,
+               EXTRACT(EPOCH FROM (tr.released_at - pv.created_at)) / 60    AS total_minutes,
+               COALESCE(($3::jsonb ->> tc.name)::numeric, NULL)             AS target_minutes
+          FROM test_results tr
+          JOIN visit_tests vt     ON vt.id = tr.visit_test_id
+          JOIN tests t            ON t.id = vt.test_id
+          JOIN test_categories tc ON tc.id = t.category_id
+          JOIN patient_visits pv  ON pv.id = vt.patient_visit_id
+          -- Same LATERAL as getDiagnosticThroughput: the FIRST settled payment on the visit is
+          -- when the ticket actually reached the modality. A plain JOIN to payments would
+          -- multiply a visit's rows by its receipts and weight that visit's turnaround twice.
+          LEFT JOIN LATERAL (
+            SELECT MIN(p2.paid_at) AS paid_at
+              FROM payments p2
+             WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
+          ) pay ON TRUE
+         -- is_current, or an amended report is counted once per version and its correction time
+         -- is averaged in as though it were a second patient.
+         WHERE tr.is_current
+           AND tr.released_at IS NOT NULL
+           AND tr.released_at >= $1::date AND tr.released_at < ($2::date + 1)
+      )
+      SELECT category_name,
+             COUNT(*)::int                                                       AS released,
+             COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY dept_minutes), 0)::int  AS median_turnaround_minutes,
+             COALESCE(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY dept_minutes), 0)::int  AS p90_turnaround_minutes,
+             COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY total_minutes), 0)::int AS median_total_minutes,
+             MAX(target_minutes)::int                                            AS target_minutes,
+             COUNT(*) FILTER (
+               WHERE target_minutes IS NOT NULL AND dept_minutes <= target_minutes
+             )::int                                                              AS within_target,
+             -- NULLIF on the denominator, not a CASE: a department with a report released but no
+             -- payment behind it has no measurable span, and 0/0 must be NULL ("not measured")
+             -- rather than 0 ("never hit the target"). The CSV writes NULL as an empty cell.
+             ROUND(
+               100.0 * COUNT(*) FILTER (
+                 WHERE target_minutes IS NOT NULL AND dept_minutes <= target_minutes
+               ) / NULLIF(COUNT(*) FILTER (WHERE target_minutes IS NOT NULL AND dept_minutes IS NOT NULL), 0)
+             , 1)::float                                                         AS within_target_rate
+        FROM released
+       GROUP BY category_name
+       ORDER BY category_name
+    `;
+    const result = await db.query(queryText, [startDate, endDate, JSON.stringify(targets)]);
+    return result.rows;
+  }
+
+  /**
+   * Arrivals by hour of day, split walk-in against booked. [1.62.0]
+   *
+   * What it is for: the clinic staffs the front desk evenly across the day and has never had a
+   * picture of when patients actually turn up. A peak an hour after opening is a rota problem,
+   * and a rota problem is invisible in any figure aggregated to the day.
+   *
+   * `generate_series` supplies the hours the clinic is open, LEFT JOINed to the data, so an hour
+   * with no arrivals is a zero rather than a missing bar. That distinction is the whole point of
+   * the chart: a gap at 11am and a quiet 11am look identical once the row is simply absent, and
+   * only one of them is worth acting on.
+   *
+   * The window is the clinic's own operating span, read from clinic_operating_hours rather than
+   * hardcoded, so a schedule change moves the chart with it. COALESCE bounds it if the table is
+   * empty, and the range is clamped to whole hours because that is the axis.
+   *
+   * EXTRACT(HOUR FROM …) reads the SERVER's local hour, which is what CURRENT_DATE elsewhere in
+   * this file already assumes — deriving it in JavaScript would reintroduce exactly the UTC
+   * offset bug CLAUDE.md documents, one hour at a time.
+   */
+  async getHourlyPatientArrivals(startDate, endDate) {
+    const queryText = `
+      WITH bounds AS (
+        SELECT COALESCE(MIN(EXTRACT(HOUR FROM open_time))::int, 7)   AS first_hour,
+               COALESCE(MAX(EXTRACT(HOUR FROM close_time))::int, 17) AS last_hour
+          FROM clinic_operating_hours
+         WHERE is_open
+      ),
+      hours AS (
+        SELECT generate_series((SELECT first_hour FROM bounds), (SELECT last_hour FROM bounds)) AS hour
+      ),
+      arrivals AS (
+        SELECT EXTRACT(HOUR FROM pv.created_at)::int AS hour,
+               COUNT(*) FILTER (WHERE pv.visit_type = 'Walk in')::int    AS walk_in,
+               COUNT(*) FILTER (WHERE pv.visit_type = 'Appointment')::int AS online
+          FROM patient_visits pv
+         -- Half-open range on the raw column. Never created_at::date — a B-tree cannot serve a
+         -- predicate on an expression, and this is one of the fastest-growing tables here.
+         WHERE pv.created_at >= $1::date AND pv.created_at < ($2::date + 1)
+         GROUP BY EXTRACT(HOUR FROM pv.created_at)
+      )
+      SELECT h.hour,
+             COALESCE(a.walk_in, 0) AS walk_in,
+             COALESCE(a.online, 0)  AS online,
+             COALESCE(a.walk_in, 0) + COALESCE(a.online, 0) AS total
+        FROM hours h
+        LEFT JOIN arrivals a ON a.hour = h.hour
+       ORDER BY h.hour
+    `;
+    const result = await db.query(queryText, [startDate, endDate]);
+    return result.rows;
+  }
+
+  /**
+   * How often the front desk actually clears one patient. [1.62.0]
+   *
+   * ── This is a SERVICE RATE, not a wait ──────────────────────────────────────────────────────
+   *
+   * The distinction is the whole correctness of the queue estimate above it, and getting it wrong
+   * produces numbers that are not slightly off but absurd.
+   *
+   * `getReceptionThroughput` already reports a median WAIT — check-in to billed — and on this
+   * clinic's own data that is 36 to 96 minutes. Multiplying it by the number of people ahead, as
+   * the obvious reading of "patients ahead x median service duration" invites, tells the fourth
+   * person in a queue they have a four-hour wait. It is wrong because a wait already CONTAINS the
+   * queue: everyone waiting at once shares the same 40 minutes, they do not each add 40 to the
+   * next person.
+   *
+   * What multiplies correctly is the interval between consecutive patients being SERVED. If the
+   * desk settles one bill every six minutes and three people are ahead, the fourth waits about
+   * eighteen minutes. So: LAG over each day's settlements, and the median of those gaps.
+   *
+   * ── Why the gaps are bounded ────────────────────────────────────────────────────────────────
+   *
+   * Partitioned by day so the gap from the last patient of Monday to the first of Tuesday — some
+   * sixteen hours — is never a sample. Within a day the lunch lull produces the same distortion in
+   * miniature, so gaps over an hour are discarded as "the desk was idle, not busy": an idle period
+   * says nothing about how fast the clinic serves people, which is the only thing being measured.
+   * The floor of half a minute drops double-settlements of one visit, which are one transaction.
+   *
+   * PERCENTILE_CONT over AVG for the reason stated throughout this file: one patient who argued
+   * about a bill for forty minutes should not move everybody else's estimate.
+   */
+  async getMedianServiceMinutes(lookbackDays = 30) {
+    const queryText = `
+      WITH settled AS (
+        SELECT pay.paid_at,
+               pay.paid_at::date AS day,
+               LAG(pay.paid_at) OVER (PARTITION BY pay.paid_at::date ORDER BY pay.paid_at) AS previous_paid_at
+          FROM payments pay
+         WHERE ${ISSUED_RECEIPT_CLAUSE}
+           AND pay.paid_at >= (CURRENT_DATE - $1::int)
+           AND pay.paid_at < (CURRENT_DATE + 1)
+      ),
+      gaps AS (
+        SELECT EXTRACT(EPOCH FROM (paid_at - previous_paid_at)) / 60 AS minutes
+          FROM settled
+         WHERE previous_paid_at IS NOT NULL
+      )
+      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY minutes)::numeric(10,2) AS median_minutes,
+             COUNT(*)::int                                                       AS sample_size
+        FROM gaps
+       -- An idle desk is not a slow desk. Both bounds are about excluding periods when nobody
+       -- was being served, rather than about trimming outliers for neatness.
+       WHERE minutes BETWEEN 0.5 AND 60
+    `;
+    const result = await db.query(queryText, [lookbackDays]);
+    return result.rows[0] || { median_minutes: null, sample_size: 0 };
+  }
+
+  /**
+   * The same daily revenue series as getRevenueTrend, for an arbitrary range. [1.62.0]
+   *
+   * Exists so the trend chart can overlay a previous period without a second endpoint or a
+   * different basis — it delegates rather than re-deriving, because a comparison drawn from two
+   * differently-computed series is worse than no comparison at all.
+   */
+  async getRevenueTrendForRange(startDate, endDate) {
+    return this.getRevenueTrend(startDate, endDate);
+  }
 }
 
 module.exports = new ReportRepository();

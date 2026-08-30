@@ -10,7 +10,7 @@ const Navbar = ({ onNavigate, activeTab = 'dashboard' }) => {
   const { user, logout } = useAuth();
 
   return (
-    <header className="sticky top-0 z-50 flex w-full items-center justify-between gap-2 border-b border-[#e6ebf1] bg-white/85 px-4 py-2.5 backdrop-blur-md sm:px-6">
+    <header className="sticky top-0 z-50 flex w-full items-center justify-between gap-2 border-b border-line bg-surface/85 px-4 py-2.5 backdrop-blur-md sm:px-6">
       {/* Clinic Identity (Logo + Name).
           Shrinkable on purpose. Both sides of this header were flex-shrink-0, so at 390px neither
           would give and the bar overflowed by 15px — the patient's dashboard scrolled sideways on
@@ -44,7 +44,7 @@ const Navbar = ({ onNavigate, activeTab = 'dashboard' }) => {
             onClick={() => onNavigate?.('dashboard')}
             className={`cursor-pointer whitespace-nowrap rounded-[7px] border-0 px-3 py-1.5 text-fine font-semibold transition-colors ${
               activeTab === 'dashboard'
-                ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+                ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
                 : 'bg-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -55,7 +55,7 @@ const Navbar = ({ onNavigate, activeTab = 'dashboard' }) => {
             onClick={() => onNavigate?.('account')}
             className={`cursor-pointer whitespace-nowrap rounded-[7px] border-0 px-3 py-1.5 text-fine font-semibold transition-colors ${
               activeTab === 'account'
-                ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+                ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
                 : 'bg-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -84,7 +84,7 @@ const Navbar = ({ onNavigate, activeTab = 'dashboard' }) => {
               type="button"
               onClick={() => onNavigate?.('account')}
               aria-label="Manage account settings"
-              className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-fine font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 sm:px-2.5"
+              className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-fine font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 sm:px-2.5"
             >
               <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-brand-700">
                 <User className="h-3.5 w-3.5" />

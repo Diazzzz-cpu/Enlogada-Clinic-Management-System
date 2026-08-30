@@ -1,10 +1,13 @@
 import React from 'react';
+import LoadingState from '../ui/loading-state';
 import { Edit2, Plus, Package } from 'lucide-react';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import EmptyState from '../ui/empty-state';
+import RefreshButton from '../ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 import { formatCurrency } from '../../lib/currency';
 
 /**
@@ -16,6 +19,7 @@ import { formatCurrency } from '../../lib/currency';
  * and nobody would have noticed from the price alone.
  */
 export default function PackagesPanel({ packageAdmin }) {
+  const updatedAt = useFreshness(packageAdmin.loading, packageAdmin.error);
   return (
     <Panel className="overflow-hidden">
       <PanelHeader
@@ -23,10 +27,13 @@ export default function PackagesPanel({ packageAdmin }) {
         description="Fixed-price bundles. A patient pays the package price, not the sum of the tests inside it."
         icon={Package}
         actions={
-          <Button size="sm" onClick={packageAdmin.openAdd}>
-            <Plus className="h-3.5 w-3.5" />
-            Add Package
-          </Button>
+          <>
+            <RefreshButton compact onRefresh={packageAdmin.reload} loading={packageAdmin.loading} updatedAt={updatedAt} />
+            <Button size="sm" onClick={packageAdmin.openAdd}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Package
+            </Button>
+          </>
         }
       />
       <PanelBody flush>
@@ -39,10 +46,7 @@ export default function PackagesPanel({ packageAdmin }) {
             action={<Button variant="outline" size="sm" onClick={packageAdmin.reload}>Try again</Button>}
           />
         ) : packageAdmin.loading ? (
-          <div className="py-10 flex flex-col items-center justify-center space-y-3">
-            <div className="w-6 h-6 border-4 border-azure-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-fine font-semibold text-slate-500">Loading packages…</span>
-          </div>
+          <LoadingState label="Loading packages…" />
         ) : packageAdmin.packages.length === 0 ? (
           <EmptyState
             compact

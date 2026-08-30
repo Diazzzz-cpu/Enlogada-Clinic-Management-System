@@ -1,4 +1,5 @@
 import React from 'react';
+import PreparationField from './PreparationField';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -89,23 +90,10 @@ export default function ServiceFormDialog({ catalogue }) {
             {/* [1.24.0] The one field that stops a wasted trip. It reaches the patient in the
                 booking confirmation email and while they are choosing tests, so it is written
                 to them directly — "Nothing to eat…", not "Patient must fast". */}
-            <div className="space-y-1.5">
-              <label htmlFor="servicescatalog-patient-preparation-optional" className="text-xs font-semibold text-gray-700">
-                Patient Preparation
-                <span className="ml-1 font-normal text-slate-400">(optional)</span>
-              </label>
-              <textarea id="servicescatalog-patient-preparation-optional"
-                rows={2}
-                placeholder="e.g. Nothing to eat or drink except water for 8 hours before your appointment."
-                value={catalogue.form.preparation}
-                onChange={e => catalogue.setForm({...catalogue.form, preparation: e.target.value})}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-note leading-relaxed text-slate-800 placeholder:text-slate-400 focus-visible:border-brand-500"
-              />
-              <p className="m-0 text-micro leading-relaxed text-slate-500">
-                Written straight to the patient — this text appears in their confirmation email
-                and while they choose this test. Leave blank if no preparation is needed.
-              </p>
-            </div>
+            <PreparationField
+              value={catalogue.form.preparation}
+              onChange={(next) => catalogue.setForm({ ...catalogue.form, preparation: next })}
+            />
 
             {catalogue.editingTest && (
               <div className="flex items-center space-x-2 pt-1">
@@ -122,7 +110,7 @@ export default function ServiceFormDialog({ catalogue }) {
               </div>
             )}
 
-            <div className="flex justify-end space-x-2 pt-3 border-t border-[#e6ebf1]">
+            <div className="flex justify-end space-x-2 pt-3 border-t border-line">
               <Button type="button" variant="outline" onClick={catalogue.closeModal}>Cancel</Button>
               <Button
                 type="submit"

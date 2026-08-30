@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { DateField } from '../ui/date-field';
 import api from '../../config/api';
-import { todayStr, formatTime12 } from '../../lib/date';
-import { CalendarX2, Clock } from 'lucide-react';
+import { todayStr, formatTime12, toDateInput } from '../../lib/date';
+import { CalendarX2, Clock, Info } from 'lucide-react';
 
 /**
  * Pick a date, then a time the clinic actually has free.
@@ -35,7 +35,11 @@ const SlotPicker = ({
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dayIsOpen, setDayIsOpen] = useState(true);
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  // Closed dates, so the calendar can grey them BEFORE the patient picks one. Without this the
+  // only way to learn the clinic is shut on the 30th is to choose the 30th — and then guess again.
+  const [unavailable, setUnavailable] = useState({});
 
   const fetchAvailability = useCallback(async (forDate) => {
     setLoading(true);
@@ -45,11 +49,13 @@ const SlotPicker = ({
       const data = res.data.data;
       setSlots(data.slots || []);
       setDayIsOpen(data.isOpen !== false);
+      setNote(data.note || '');
     } catch {
       // Distinguished from "no slots": an empty grid after a failed request reads as a fully
       // booked day, which is a different thing to tell a patient than "we could not check".
       setSlots([]);
       setDayIsOpen(true);
+      setNote('');
       setError('Could not load available times. Check your connection and try again.');
     } finally {
       setLoading(false);
@@ -63,6 +69,44 @@ const SlotPicker = ({
     }
     fetchAvailability(date);
   }, [date, refreshKey, fetchAvailability]);
+
+  // The clinic's published diary: which weekdays it opens, and which upcoming dates differ.
+  // Fetched once — it changes when an administrator edits it, not while a patient fills a form.
+  // A failure here is silent on purpose: it costs a marked calendar, and the availability call
+  // still refuses a closed date. Blocking booking because a decoration would not load is worse.
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/schedule/public')
+      .then((res) => {
+        if (cancelled) return;
+        const { week = [], upcoming = [] } = res.data.data || {};
+        const map = {};
+
+        // Weekdays the clinic never opens, marked across the window the patient can browse.
+        const closedWeekdays = new Set(week.filter((d) => !d.isOpen).map((d) => d.dayOfWeek));
+        if (closedWeekdays.size) {
+          const cursor = new Date();
+          for (let i = 0; i < 180; i += 1) {
+            if (closedWeekdays.has(cursor.getDay())) {
+              map[toDateInput(cursor)] = 'Closed';
+            }
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        // Then the per-date overrides, which WIN — including reopening a day the weekly pattern
+        // calls closed. Applied second for exactly that reason: a clinic that opens specially on
+        // a Sunday must not have the weekday rule grey it out.
+        upcoming.forEach((o) => {
+          if (o.isOpen) delete map[o.date];
+          else map[o.date] = o.note || 'Closed';
+        });
+
+        setUnavailable(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // A slot chosen a moment ago can be taken by somebody else before submit. Clearing it here means
   // the form cannot carry a selection the server will refuse — the alternative is a 409 explaining
@@ -84,6 +128,7 @@ const SlotPicker = ({
         <DateField id="slotpicker-label"
           value={date || ''}
           min={minDate}
+          unavailable={unavailable}
           disabled={disabled}
           onChange={(e) => onDateChange(e.target.value)}
           required
@@ -104,14 +149,39 @@ const SlotPicker = ({
           ) : !dayIsOpen ? (
             <div className="alert alert-warning">
               <CalendarX2 />
-              <span>The clinic is closed on this date. Please choose another.</span>
+              {/* The reason, when the clinic gave one. "Closed" alone reads as a fault in the
+                  website; "Closed — Holy Week" reads as a clinic that is shut. */}
+              <span>
+                {note
+                  ? `The clinic is closed on this date — ${note}. Please choose another.`
+                  : 'The clinic is closed on this date. Please choose another.'}
+              </span>
             </div>
           ) : slots.length === 0 ? (
             <div className="py-2 text-fine font-semibold text-slate-400">
               No time slots are configured for this date.
             </div>
+          ) : slots.every((s) => !s.available) ? (
+            // Open, but every slot is spoken for. Rendering the grid struck through end to end
+            // leaves the patient hunting for a gap that is not there.
+            <div className="alert alert-warning">
+              <CalendarX2 />
+              <span>
+                {note
+                  ? `Fully booked on this date — ${note}. Please choose another day.`
+                  : 'Every time on this date is already booked. Please choose another day.'}
+              </span>
+            </div>
           ) : (
             <>
+              {/* Open, but the clinic has said something about this date — shortened hours, one
+                  radiographer. Shown above the grid, because it explains why the grid is small. */}
+              {note && (
+                <div className="alert alert-info">
+                  <Info />
+                  <span>{note}</span>
+                </div>
+              )}
               <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto p-0.5">
                 {slots.map((slot) => {
                   const isHeldByUs = date === currentDate && slot.time === currentTime;
@@ -135,8 +205,8 @@ const SlotPicker = ({
                           : isHeldByUs
                             ? 'border-brand-300 bg-brand-50 text-brand-700'
                             : selectable
-                              ? 'border-gray-200 bg-white text-slate-700 hover:border-brand-500'
-                              : 'cursor-not-allowed border-[#e6ebf1] bg-gray-100 text-gray-300 line-through'
+                              ? 'border-gray-200 bg-surface text-slate-700 hover:border-brand-500'
+                              : 'cursor-not-allowed border-line bg-gray-100 text-gray-300 line-through'
                       }`}
                     >
                       {formatTime12(slot.time)}

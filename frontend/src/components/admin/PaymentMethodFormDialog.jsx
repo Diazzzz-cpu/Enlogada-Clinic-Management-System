@@ -44,7 +44,7 @@ export default function PaymentMethodFormDialog({ paymentMethods }) {
                 value={form.kind}
                 onChange={(e) => paymentMethods.setField('kind', e.target.value)}
                 disabled={submitting}
-                className="flex h-9 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-note text-slate-900 transition-colors hover:border-slate-300 focus-visible:border-azure-400 focus-visible:ring-4 focus-visible:ring-azure-500/12"
+                className="flex h-9 w-full cursor-pointer rounded-lg border border-slate-200 bg-surface px-3 text-note text-slate-900 transition-colors hover:border-slate-300 focus-visible:border-azure-400 focus-visible:ring-4 focus-visible:ring-azure-500/12"
               >
                 {METHOD_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
@@ -143,7 +143,7 @@ export default function PaymentMethodFormDialog({ paymentMethods }) {
               accept="image/jpeg,image/png,image/webp"
               onChange={(e) => paymentMethods.setQrFile(e.target.files?.[0] || null)}
               disabled={submitting}
-              className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
+              className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-surface p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
             />
             {qrFile && (
               <p className="m-0 mt-1 flex items-center gap-1.5 text-fine font-semibold text-brand-700">

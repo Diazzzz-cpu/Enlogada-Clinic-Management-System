@@ -21,13 +21,17 @@ const buttonVariants = cva(
           "bg-brand-500 text-white shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-brand-600 active:bg-brand-700",
         destructive:
           "bg-destructive text-destructive-foreground shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-destructive-hover active:bg-destructive-active",
+        // `active:` on every variant, not only the filled ones. [1.54.0] outline and ghost had a
+        // hover state and no press state, so on a touch screen — where there IS no hover — they
+        // gave no feedback at all between the tap and whatever happened next. On the reception
+        // terminal that is most of the buttons.
         outline:
-          "border border-slate-200 bg-white text-slate-700 shadow-[0_1px_2px_rgb(15_23_42_/_0.04)] hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900",
+          "border border-slate-200 bg-surface text-slate-700 shadow-[0_1px_2px_rgb(15_23_42_/_0.04)] hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100",
         // The dark counterpart to `default`, for a second high-emphasis action beside it.
         secondary: "bg-emphasis text-emphasis-foreground shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-emphasis-hover active:bg-emphasis-active",
         subtle:
-          "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900",
-        ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+          "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:bg-slate-300",
+        ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200",
         link: "text-brand-600 underline-offset-4 hover:underline",
       },
       size: {

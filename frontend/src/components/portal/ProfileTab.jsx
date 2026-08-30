@@ -15,8 +15,8 @@ export default function ProfileTab({ profiles }) {
   return (
         <TabsContent value="profile" className="m-0 space-y-4 max-w-2xl">
           {profiles.selected && (
-            <Card className="border-[#e6ebf1] rounded-xl bg-white overflow-hidden">
-              <CardHeader className="bg-slate-50/80 border-b border-[#e6ebf1] py-3.5 flex-row items-center justify-between space-y-0">
+            <Card className="border-line rounded-xl bg-surface overflow-hidden">
+              <CardHeader className="bg-slate-50/80 border-b border-line py-3.5 flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
                   <User className="w-4 h-4 text-brand-600" />
                   <span>Patient Profile Summary</span>
@@ -57,7 +57,7 @@ export default function ProfileTab({ profiles }) {
           )}
 
           {/* HMO Coverage Info Card */}
-          <Card className="border-[#e6ebf1] bg-rail text-white rounded-2xl overflow-hidden p-5 space-y-3">
+          <Card className="border-line bg-rail text-white rounded-2xl overflow-hidden p-5 space-y-3">
             <div className="flex items-center space-x-2 text-brand-600">
               <ShieldCheck className="w-5 h-5" />
               <h3 className="font-bold text-sm text-white m-0">HMO Accreditation</h3>

@@ -26,6 +26,22 @@ const { isStaffUser } = require('../constants/roles');
  * idx_role_permissions_role, added in [1.11.0]). That is the right trade for authorization: a
  * cache here would reintroduce exactly the staleness window this removes, just shorter.
  */
+/**
+ * Establishes WHO is calling, then asks the database WHAT they may do.
+ *
+ * @param {import('express').Request} req   Requires an `Authorization: Bearer <jwt>` header.
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ * @returns {Promise<void>} Populates `req.user` with `{ userId, email, roles, permissions,
+ *   departments }` and calls `next()`, or responds 401/403 and calls neither.
+ *
+ * Four ways this refuses, and they are different failures: no/invalid token (401), the account has
+ * since been deleted (401), it has been deactivated (403), or the token predates a password change
+ * (401). The last is what makes "reset the password" a real response to a stolen token.
+ *
+ * `departments` is `null` for unrestricted (Admin/SuperAdmin) and that is deliberately NOT the
+ * same as `[]`. Collapsing the two inverts every downstream scope check.
+ */
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -114,6 +130,17 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+/**
+ * Gates a route on holding at least ONE of the named roles.
+ *
+ * @param {...string} allowedRoles  Role names, e.g. `('SuperAdmin', 'Admin', 'Client')`.
+ * @returns {import('express').RequestHandler} 403s a caller holding none of them.
+ *
+ * Retained only where a `Client` must be explicitly named — everywhere else `authorizeStaff` plus
+ * a permission decides, so the matrix can actually delegate. Run `verifyRbacWiring.js` after
+ * changing a list: CHECK 3 asserts every role named here holds the route's permission, and CHECK 5
+ * flags a role that holds it but is missing from the list.
+ */
 const authorizeRoles = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user || !req.user.roles) {
@@ -158,6 +185,17 @@ const authorizeRoles = (...allowedRoles) => {
  * Note this does NOT decide *whose* data they may touch. That is the department axis, enforced in
  * the service layer against req.user.departments — see resultService.assertStaffAllowedCategory.
  */
+/**
+ * "Is this a member of staff, of any kind?" — the one structural boundary.
+ *
+ * @param {import('express').Request} req  Requires `verifyToken` to have run first.
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ * @returns {void} 403s a `Client`-only account.
+ *
+ * Holds any role that is NOT `Client`, rather than an allow-list of staff role names, so adding a
+ * role later needs no edit here. No permission tick can cross this line.
+ */
 const authorizeStaff = (req, res, next) => {
   if (!isStaffUser(req.user)) {
     return res.status(403).json({
@@ -191,6 +229,16 @@ const authorizeStaff = (req, res, next) => {
  * nothing, which is precisely the "screen that lies about access" the previous note objected to.
  * The bypass remains for SuperAdmin alone because somebody has to be able to repair a matrix that
  * has been misconfigured into locking everyone out, and that role is the one that edits it.
+ */
+/**
+ * Gates a route on the fine-grained permission matrix. The delegable layer.
+ *
+ * @param {...string} requiredPermissions  ALL must be held; this is an AND, not an OR.
+ * @returns {import('express').RequestHandler} 403s naming the permissions it wanted.
+ *
+ * Reads `req.user.permissions`, which `verifyToken` already resolved to the EFFECTIVE set — role
+ * template plus the account's own grants, minus its revokes. SuperAdmin bypasses; Admin does not,
+ * and that single difference is what makes the matrix mean anything.
  */
 const authorizePermissions = (...requiredPermissions) => {
   return (req, res, next) => {

@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { formatTime12 } from '../../src/lib/date.js';
 
@@ -14,15 +15,6 @@ const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 
-async function signIn(page, email) {
-  await page.goto('/');
-  await page.getByText('Sign In', { exact: true }).first().click();
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await expect(page.getByText(/good day|welcome|queue|terminal|worklist/i).first())
-    .toBeVisible({ timeout: 15000 });
-}
 
 test('a patient reschedules from their own booking list', async ({ page }) => {
   // Seeded through the API so the test starts from a known booking rather than depending on

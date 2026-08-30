@@ -188,13 +188,13 @@ const LoginForm = ({ onNavigate }) => {
             deployment that does not configure Google at all. */}
         {isGoogleAuthConfigured && (
           <div className="relative flex py-2 items-center">
-            <div className="flex-grow border-t border-[#e6ebf1]"></div>
+            <div className="flex-grow border-t border-line"></div>
             {/* Just "or". The button directly beneath already says "Continue with Google" — that
                 wording comes from GSI's `text="continue_with"` and is fixed by Google's branding
                 rules, so spelling it out here too printed the same sentence twice, stacked. The
                 divider's job is to separate the two ways in, not to name the second one. */}
             <span className="mx-3 flex-shrink text-fine font-medium text-slate-400">or</span>
-            <div className="flex-grow border-t border-[#e6ebf1]"></div>
+            <div className="flex-grow border-t border-line"></div>
           </div>
         )}
 

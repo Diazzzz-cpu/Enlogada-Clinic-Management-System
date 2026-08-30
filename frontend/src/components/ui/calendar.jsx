@@ -73,9 +73,15 @@ function buildGrid(year, month) {
  * @param min/max    'YYYY-MM-DD' bounds, inclusive; days outside are unclickable and unfocusable
  * @param yearRange  when set, renders month + year dropdowns instead of a static caption. For
  *                   birthdates, where paging a month at a time to 1962 is ~770 clicks.
+ * @param unavailable  optional { 'YYYY-MM-DD': 'reason' } — days that exist but cannot be chosen.
+ *                   Distinct from min/max, which are a RANGE: this is a scatter of individual
+ *                   dates inside an otherwise valid range, and each carries its own reason so the
+ *                   reader is told why rather than left clicking a dead cell. Deliberately a plain
+ *                   map with no notion of what the reason is about — the clinic's closures are one
+ *                   caller, not the concept.
  */
 const Calendar = React.forwardRef(({
-  className, value, onSelect, min, max, yearRange, ...props
+  className, value, onSelect, min, max, yearRange, unavailable, ...props
 }, ref) => {
   const selected = parseISO(value);
   const today = new Date();
@@ -93,9 +99,18 @@ const Calendar = React.forwardRef(({
     if (next) setView({ y: next.getFullYear(), m: next.getMonth() });
   }, [value]);
 
+  const reasonFor = React.useCallback(
+    (stamp) => (unavailable ? unavailable[stamp] : undefined),
+    [unavailable]
+  );
+
   const isDisabled = React.useCallback((date) => (
-    (minDate && isBefore(date, minDate)) || (maxDate && isBefore(maxDate, date))
-  ), [minDate, maxDate]);
+    (minDate && isBefore(date, minDate))
+    || (maxDate && isBefore(maxDate, date))
+    // A key present with any value blocks the day; the value is the explanation, and an empty
+    // string is a legitimate "closed, no reason given".
+    || (unavailable ? toDateInput(date) in unavailable : false)
+  ), [minDate, maxDate, unavailable]);
 
   const shiftMonth = (delta) => setView(({ y, m }) => {
     const next = new Date(y, m + delta, 1);
@@ -144,7 +159,7 @@ const Calendar = React.forwardRef(({
               value={view.m}
               onChange={(e) => setView((v) => ({ ...v, m: Number(e.target.value) }))}
               aria-label="Month"
-              className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-fine font-semibold text-slate-900 hover:border-slate-300"
+              className="rounded-lg border border-slate-200 bg-surface px-1.5 py-1 text-fine font-semibold text-slate-900 hover:border-slate-300"
             >
               {MONTHS.map((name, i) => <option key={name} value={i}>{name}</option>)}
             </select>
@@ -152,7 +167,7 @@ const Calendar = React.forwardRef(({
               value={view.y}
               onChange={(e) => setView((v) => ({ ...v, y: Number(e.target.value) }))}
               aria-label="Year"
-              className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-fine font-semibold text-slate-900 hover:border-slate-300"
+              className="rounded-lg border border-slate-200 bg-surface px-1.5 py-1 text-fine font-semibold text-slate-900 hover:border-slate-300"
             >
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
@@ -184,6 +199,7 @@ const Calendar = React.forwardRef(({
           const stamp = toDateInput(date);
           const outside = date.getMonth() !== view.m;
           const disabled = isDisabled(date);
+          const reason = reasonFor(stamp);
           const isSelected = value === stamp;
 
           return (
@@ -196,6 +212,10 @@ const Calendar = React.forwardRef(({
               tabIndex={isSelected || (!value && stamp === todayStamp) ? 0 : -1}
               aria-current={stamp === todayStamp ? 'date' : undefined}
               aria-selected={isSelected}
+              // The reason reaches a screen reader too. A disabled cell announced as nothing but
+              // "31, dimmed" tells a blind reader less than the sighted one gets from hovering.
+              title={reason || undefined}
+              aria-label={reason ? `${stamp} — ${reason}` : undefined}
               onClick={() => onSelect(stamp)}
               className={cn(
                 "h-8 rounded-lg text-fine font-semibold tabular-nums transition-colors",
@@ -207,7 +227,10 @@ const Calendar = React.forwardRef(({
                     : "text-slate-700 hover:bg-brand-50",
                 // Today is marked, but never so strongly that it reads as the selection.
                 !isSelected && stamp === todayStamp && "ring-1 ring-inset ring-brand-300 text-brand-700",
-                disabled && "cursor-not-allowed text-slate-200 hover:bg-transparent"
+                disabled && "cursor-not-allowed text-slate-200 hover:bg-transparent",
+                // Out of range fades away; unavailable is struck through, because "this date is
+                // real and we are shut" is a different message from "this date is not in scope".
+                reason && "line-through decoration-slate-300"
               )}
             >
               {date.getDate()}

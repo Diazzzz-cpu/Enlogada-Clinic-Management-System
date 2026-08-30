@@ -14,7 +14,7 @@
 import {
   LayoutDashboard, Users, ClipboardList, FileText, CreditCard, Calendar,
   FolderKanban, BarChart3, Activity, ShieldCheck, UserPlus, QrCode, History,
-  Receipt, FlaskConical, Stethoscope, Scan, Wallet } from 'lucide-react';
+  Receipt, FlaskConical, Stethoscope, Scan, Wallet, CalendarCog } from 'lucide-react';
 
 // Which top-level screen component handles a destination. App.jsx maps these to real
 // components; this module stays free of component imports so it can be used from anywhere
@@ -69,6 +69,12 @@ export const MAIN_NAV_ITEMS = [
   // had work in the searcher's own department, and opening anyone else's record 404s. The screen
   // says which departments it is showing, so a short list reads as scope rather than absence.
   { id: 'patient-records', label: 'Patient Records', icon: FolderKanban, staffOnly: true, permission: 'patients:read', console: CONSOLE.ADMIN },
+  // Deliberately gated by ROLE alone, with no permission beside it. There is no `schedule:manage`
+  // in the matrix, and minting one would mean a permission held by nobody until somebody
+  // remembered to grant it — while the clinic's opening hours sat unchangeable, which is the state
+  // this feature exists to end. Deciding when the clinic opens is the same tier as pricing and
+  // staffing, both already Admin's. The API agrees: authorizeRoles('SuperAdmin', 'Admin').
+  { id: 'clinic-schedule', label: 'Clinic Schedule', icon: CalendarCog, roleRequired: ADMINS, console: CONSOLE.ADMIN },
   { id: 'reports', label: 'Reports', icon: BarChart3, roleRequired: ADMINS, permission: 'reports:view', console: CONSOLE.ADMIN },
   { id: 'activity', label: 'Activity Log', icon: Activity, roleRequired: ADMINS, permission: 'audit:view', console: CONSOLE.ADMIN },
   { id: 'superadmin', label: 'Super Admin', icon: ShieldCheck, roleRequired: ['SuperAdmin'], permission: 'rbac:manage', console: CONSOLE.ADMIN },

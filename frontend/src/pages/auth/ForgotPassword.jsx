@@ -42,7 +42,7 @@ const ForgotPassword = ({ onNavigate }) => {
 
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex items-center justify-center w-full">
         <div className="w-full max-w-md">
-          <Card className="border-[#e6ebf1] rounded-2xl bg-white overflow-hidden">
+          <Card className="border-line rounded-2xl bg-surface overflow-hidden">
             <CardHeader className="space-y-1.5 pt-6 pb-2 px-6">
               <div className="w-12 h-12 rounded-full border-2 border-brand-300 flex items-center justify-center bg-gray-50/30 mb-2">
                 <Logo className="w-8 h-8" />
@@ -97,7 +97,7 @@ const ForgotPassword = ({ onNavigate }) => {
               </form>
             </CardContent>
 
-            <CardFooter className="flex justify-center border-t border-[#e6ebf1] py-4 bg-slate-50/70">
+            <CardFooter className="flex justify-center border-t border-line py-4 bg-slate-50/70">
               <button
                 onClick={() => onNavigate('login')}
                 className="text-xs font-bold text-brand-600 hover:underline bg-transparent border-0 p-0 cursor-pointer flex items-center space-x-1"

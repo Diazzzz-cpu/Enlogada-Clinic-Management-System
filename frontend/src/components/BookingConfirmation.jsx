@@ -1,9 +1,11 @@
 import React from 'react';
+import { printElement } from '../lib/printArea';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from './ui/button';
 import { Printer, CheckCircle2, Wallet, ShieldCheck } from 'lucide-react';
-import { formatTime12 } from '../lib/date';
+import AppointmentTime from './ui/appointment-time';
 import { formatCurrency } from '../lib/currency';
+import DataBadge from './ui/data-badge';
 
 /**
  * What the patient sees the moment a booking succeeds.
@@ -30,6 +32,7 @@ const BookingConfirmation = ({
   patientName,
   scheduledDate,
   scheduledTime,
+  slotMinutes = null,
   amountDue = 0,
   isHmo = false,
   onClose,
@@ -56,7 +59,7 @@ const BookingConfirmation = ({
         </div>
       )}
 
-      <div className="print-area space-y-4 rounded-2xl border border-[#e6ebf1] bg-white p-5 text-center">
+      <div className="print-area space-y-4 rounded-2xl border border-line bg-surface p-5 text-center">
         <div className="space-y-0.5">
           <h3 className="m-0 text-sm font-extrabold uppercase tracking-wide text-slate-900">
             Enlogada Ultrasound &amp; Diagnostic Clinic
@@ -69,7 +72,7 @@ const BookingConfirmation = ({
             <div className="flex justify-center py-2">
               <div
                 data-testid="booking-pass-qr"
-                className="inline-block rounded-xl border border-gray-200 bg-white p-3"
+                className="inline-block rounded-xl border border-gray-200 bg-surface p-3"
               >
                 <QRCodeSVG value={referenceCode} size={144} />
               </div>
@@ -84,7 +87,7 @@ const BookingConfirmation = ({
              is simply no pass yet, and the screen says what produces one. */
           <div
             data-testid={isHmo ? 'booking-hmo-review' : 'booking-awaiting-payment'}
-            className="space-y-2 rounded-xl border border-[#e6ebf1] bg-slate-50 px-4 py-4 text-left"
+            className="space-y-2 rounded-xl border border-line bg-slate-50 px-4 py-4 text-left"
           >
             <p className="m-0 flex items-center gap-1.5 text-note font-bold text-slate-900">
               {isHmo ? (
@@ -112,10 +115,10 @@ const BookingConfirmation = ({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 border-t border-[#e6ebf1] pt-3">
+        <div className="grid grid-cols-2 gap-3 border-t border-line pt-3">
           <div className="space-y-0.5">
             <span className="field-label">Reference Code</span>
-            <span className="font-mono text-sm font-extrabold text-slate-900">{referenceCode}</span>
+            <DataBadge variant="reference" label="Reference code" copyable>{referenceCode}</DataBadge>
           </div>
           <div className="space-y-0.5">
             <span className="field-label">Queue Ticket</span>
@@ -124,7 +127,7 @@ const BookingConfirmation = ({
         </div>
 
         {awaitingPayment && (
-          <div className="grid grid-cols-2 gap-3 border-t border-[#e6ebf1] pt-3">
+          <div className="grid grid-cols-2 gap-3 border-t border-line pt-3">
             <div className="space-y-0.5">
               <span className="field-label">Amount Due</span>
               <span className="text-lg font-extrabold tabular-nums text-slate-900">
@@ -139,13 +142,16 @@ const BookingConfirmation = ({
         )}
 
         {(patientName || scheduledDate) && (
-          <div className="space-y-0.5 border-t border-[#e6ebf1] pt-3 text-xs text-gray-500">
+          <div className="space-y-0.5 border-t border-line pt-3 text-xs text-gray-500">
             {patientName && <p className="m-0 font-semibold">{patientName}</p>}
             {scheduledDate && (
-              <p className="m-0">
-                {scheduledDate}
-                {scheduledTime ? ` at ${formatTime12(scheduledTime)}` : ''}
-              </p>
+              <div className="m-0 space-y-1">
+                <p className="m-0 font-semibold text-ink">{scheduledDate}</p>
+                {/* Two named times, not one. [1.63.0] This said "at 9:00 AM" and a patient read
+                    that as when to turn up — so they arrived at 9:00, queued to check in, and
+                    their 9:00 slot started late through nobody's fault. */}
+                <AppointmentTime scheduledTime={scheduledTime} slotMinutes={slotMinutes} />
+              </div>
             )}
           </div>
         )}
@@ -155,7 +161,7 @@ const BookingConfirmation = ({
         <Button
           type="button"
           variant="outline"
-          onClick={() => window.print()}
+          onClick={() => printElement()}
           className="flex items-center space-x-1.5 text-xs font-bold"
         >
           <Printer className="h-3.5 w-3.5" />

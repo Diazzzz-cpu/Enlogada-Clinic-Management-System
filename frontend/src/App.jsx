@@ -19,6 +19,7 @@ import DiagnosticDashboard from './pages/clinic/DiagnosticDashboard';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ServicesCatalog from './pages/admin/ServicesCatalog';
 import StaffAccountSettings from './pages/StaffAccountSettings';
+import ReceiptView from './pages/ReceiptView';
 
 // Read a one-time deep-link param from the URL (e.g. an emailed password-reset link) without
 // introducing a router — this app deliberately has none (see PROJECT_STRUCTURE.md). Read once
@@ -29,9 +30,27 @@ const getInitialResetToken = () => {
   return params.get('reset_token');
 };
 
+/**
+ * `?receipt=RCT-…` — one receipt, on its own page, in its own tab. [1.52.0]
+ *
+ * The second deep link in the app, and it follows the first exactly. A receipt needs an ADDRESS:
+ * a cashier keeps one open beside the till while billing the next patient, and a patient ringing
+ * months later about a printed slip has to be findable by the number on it. A dialog has no
+ * address; a URL does.
+ *
+ * Only the receipt number travels in the URL. The session comes from localStorage, which is
+ * already shared across tabs of the same origin — putting a token in a link would carry it into
+ * browser history, a chat message and any screenshot of the address bar.
+ */
+const getInitialReceipt = () => {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('receipt');
+};
+
 const MainApp = () => {
   const { user, loading } = useAuth();
   const [resetToken] = useState(getInitialResetToken);
+  const [receiptNumber, setReceiptNumber] = useState(getInitialReceipt);
   const [currentTab, setCurrentTab] = useState(() => (getInitialResetToken() ? 'reset-password' : 'home')); // 'home', 'services', 'about', 'login', 'register', 'forgot-password', 'reset-password', 'dashboard', 'account'
   const [activeNav, setActiveNav] = useState(null); // Active nav in staff/admin sidebar
 
@@ -67,6 +86,33 @@ const MainApp = () => {
   const handleNavigate = (tab) => {
     setCurrentTab(tab);
   };
+
+  /**
+   * A receipt link, opened by anyone who may read billing.
+   *
+   * Rendered BEFORE the signed-out branch and before any console, because this page is the whole
+   * point of the tab — it must not land the reader on a dashboard they then have to navigate out
+   * of.
+   *
+   * Open to PATIENTS as well as staff [1.52.0]. Being able to print the receipt for money you paid
+   * is not a staff privilege — it is what a receipt is for, and it is what an HMO or an employer
+   * asks a patient to produce. paymentService.getReceipt decides who may read which one: staff on
+   * billing:read, a Client on ownership. Anyone else's receipt is a 403 the page reports plainly.
+   *
+   * Closing clears the param as well as the state, so a refresh of a tab the reader has closed
+   * out of does not silently reopen the receipt.
+   */
+  if (receiptNumber && user) {
+    return (
+      <ReceiptView
+        receiptNumber={receiptNumber}
+        onClose={() => {
+          setReceiptNumber(null);
+          window.history.replaceState({}, '', window.location.pathname);
+        }}
+      />
+    );
+  }
 
   // If user is NOT logged in
   if (!user) {
@@ -156,7 +202,7 @@ const MainApp = () => {
   // Fallback for unauthorized roles
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="space-y-2 rounded-xl border border-[#e6ebf1] bg-white p-6 text-center shadow-raised">
+      <div className="space-y-2 rounded-xl border border-line bg-surface p-6 text-center shadow-raised">
         <h2 className="text-lg font-bold text-red-500">Unauthorized Profile Access</h2>
         <p className="text-sm text-gray-500">Your account does not have any clinical roles assigned.</p>
       </div>

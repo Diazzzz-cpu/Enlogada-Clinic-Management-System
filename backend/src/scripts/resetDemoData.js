@@ -47,6 +47,15 @@ const TRANSACTIONAL_TABLES = [
   'hmo_request_tests',
   'hmo_requests',
   'test_results',
+  // BEFORE payments: payment_submissions.payment_id references it [1.48.0], and that FK is not
+  // ON DELETE CASCADE. Missing from this list, the whole reset aborted at `payments` with a
+  // constraint violation — and because the deletes run in one transaction, nothing was removed
+  // at all. A reset that stops halfway is survivable; one that reports failure and leaves the
+  // database exactly as it was is merely useless, which is what this was.
+  //
+  // purgeE2eData.js got the same fix when the table was added. This script did not, because no
+  // test exercises it — running it IS the check.
+  'payment_submissions',
   'payments',
   'visit_tests',
   'appointments',

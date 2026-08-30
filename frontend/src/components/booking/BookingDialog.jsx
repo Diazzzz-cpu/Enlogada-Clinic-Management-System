@@ -4,13 +4,13 @@ import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '../ui/dialog';
 import SlotPicker from './SlotPicker';
+import TestPicker from './TestPicker';
 import ReferringPhysicianFields from './ReferringPhysicianFields';
 import BookingConfirmation from '../BookingConfirmation';
 import api from '../../config/api';
-import { formatCurrency } from '../../lib/currency';
 import { formatAppointmentDate } from '../../lib/date';
 import { prepareCardImage } from '../../lib/cardImage';
-import { PlusCircle, AlertCircle, AlertTriangle } from 'lucide-react';
+import { PlusCircle, AlertCircle } from 'lucide-react';
 
 /**
  * Booking a diagnostic appointment, from the patient's own portal.
@@ -26,7 +26,7 @@ import { PlusCircle, AlertCircle, AlertTriangle } from 'lucide-react';
  * patient is selected, what the clinic sells, who it is accredited with, and a callback so the
  * page can refresh its lists once a booking exists.
  */
-const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoProviders, onBooked }) => {
+const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packages = [], hmoProviders, onBooked }) => {
   const [showBooking, setShowBooking] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [isBooking, setIsBooking] = useState(false);
@@ -39,6 +39,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
     scheduledTime: '',
     notes: '',
     testIds: [],
+    packageIds: [],
     hmoProviderId: '',
     hmoApprovalCode: '',
     referringPhysician: '',
@@ -120,10 +121,10 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
     setBookingConfirmation(null);
 
     const {
-      scheduledDate, scheduledTime, notes, testIds, hmoProviderId, hmoApprovalCode,
+      scheduledDate, scheduledTime, notes, testIds, packageIds, hmoProviderId, hmoApprovalCode,
       referringPhysician, referringPhysicianPrc,
     } = bookingData;
-    if (!scheduledDate || !scheduledTime || testIds.length === 0) {
+    if (!scheduledDate || !scheduledTime || (testIds.length === 0 && packageIds.length === 0)) {
       setBookingError('Date, Time, and at least one diagnostic test are required.');
       return;
     }
@@ -172,6 +173,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
         // The [] suffix matters: it makes a single test arrive as a one-element array rather
         // than a bare string, which a plain repeated field would not.
         testIds.forEach((id) => fd.append('testIds[]', String(parseInt(id, 10))));
+        packageIds.forEach((id) => fd.append('packageIds[]', String(parseInt(id, 10))));
         fd.append('hmo[providerId]', String(hmo.providerId));
         if (hmo.approvalCode) fd.append('hmo[approvalCode]', hmo.approvalCode);
         fd.append('referringPhysician', referringPhysician.trim());
@@ -191,6 +193,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
           scheduledTime,
           notes,
           testIds: testIds.map((id) => parseInt(id, 10)),
+          packageIds: packageIds.map((id) => parseInt(id, 10)),
           hmo: null,
           // Sent on this branch too: a referred self-payer still belongs on the record, and the
           // server requires it for a Private patient. The controller already read this field on
@@ -223,6 +226,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
         scheduledTime: '',
         notes: '',
         testIds: [],
+        packageIds: [],
         hmoProviderId: '',
         hmoApprovalCode: '',
         referringPhysician: '',
@@ -244,6 +248,15 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
     }
   };
 
+  const handlePackageSelection = (packageId) => {
+    setBookingData((prev) => ({
+      ...prev,
+      packageIds: prev.packageIds.includes(packageId)
+        ? prev.packageIds.filter((id) => id !== packageId)
+        : [...prev.packageIds, packageId],
+    }));
+  };
+
   const handleTestSelection = (testId) => {
     const isSelected = bookingData.testIds.includes(testId);
     setBookingData({
@@ -252,13 +265,6 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
         ? bookingData.testIds.filter(id => id !== testId) 
         : [...bookingData.testIds, testId]
     });
-  };
-
-  const calculateTotalPrice = () => {
-    return bookingData.testIds.reduce((total, id) => {
-      const found = testCatalog.find(t => t.id.toString() === id);
-      return total + (found ? parseFloat(found.price) : 0);
-    }, 0);
   };
 
   return (
@@ -316,7 +322,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
                         )}
 
                         {/* Step Indicators */}
-                        <div className="flex items-center justify-between border-b border-[#e6ebf1] pb-3">
+                        <div className="flex items-center justify-between border-b border-line pb-3">
                           <button 
                             type="button"
                             onClick={() => setBookingStep(1)}
@@ -345,43 +351,26 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
                               refreshKey={slotsRefreshKey}
                             />
 
+                            {/* The SAME picker reception uses. [1.54.0] This dialog carried its own
+                                flat list: 65 services in a 176px scroll box, ungrouped, unsearchable
+                                — and it never offered the clinic's PACKAGES at all, so a patient
+                                booking online could not buy the bundle that exists precisely to be
+                                cheaper than its parts. Reception could; the patient could not.
+
+                                Sharing the control fixes both at once and stops the two lists
+                                drifting again, which is how one of them came to be missing a whole
+                                product line. */}
                             <div className="space-y-1.5">
-                              <div className="flex justify-between items-center">
-                                <label className="field-label">Select Diagnostic Tests</label>
-                                <span className="text-xs font-extrabold text-brand-600">Total: {formatCurrency(calculateTotalPrice())}</span>
-                              </div>
-                              <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-xl p-2.5 space-y-2 bg-slate-50/70">
-                                {testCatalog.map(test => {
-                                  const selected = bookingData.testIds.includes(test.id.toString());
-                                  return (
-                                    <label key={test.id} className="flex items-start space-x-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors border border-transparent hover:border-[#e6ebf1]">
-                                      <input
-                                        type="checkbox"
-                                        checked={selected}
-                                        onChange={() => handleTestSelection(test.id.toString())}
-                                        className="mt-0.5 rounded text-brand-600 focus:ring-brand-500"
-                                      />
-                                      <div className="min-w-0 flex-1 text-xs">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="font-bold text-gray-800">{test.name} <span className="text-meta text-gray-400 font-medium">({test.category_name})</span></span>
-                                          <span className="flex-shrink-0 font-extrabold text-slate-900">{formatCurrency(test.price)}</span>
-                                        </div>
-                                        {/* [1.24.0] Shown only once the test is actually chosen. A
-                                            preparation note against every line in a scrolling list is
-                                            wallpaper; against the two you picked it is an instruction.
-                                            It is repeated in the confirmation email, which is what
-                                            they will still have on the morning. */}
-                                        {selected && test.preparation && (
-                                          <p className="m-0 mt-1 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-fine leading-relaxed text-amber-800 ring-1 ring-inset ring-amber-200">
-                                            <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
-                                            <span>{test.preparation}</span>
-                                          </p>
-                                        )}
-                                      </div>
-                                    </label>
-                                  );
-                                })}
-                              </div>
+                              <label className="field-label">Select Diagnostic Tests</label>
+                              <TestPicker
+                                tests={testCatalog}
+                                selectedIds={bookingData.testIds}
+                                onToggle={handleTestSelection}
+                                packages={packages}
+                                selectedPackageIds={bookingData.packageIds}
+                                onTogglePackage={handlePackageSelection}
+                                disabled={isBooking}
+                              />
                             </div>
 
                             <div className="flex justify-end pt-2">
@@ -469,7 +458,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
                                       <img
                                         src={hmoCardPreview}
                                         alt="The HMO card photo you attached"
-                                        className="max-h-64 w-full rounded-xl border border-[#e6ebf1] bg-sunken object-contain"
+                                        className="max-h-64 w-full rounded-xl border border-line bg-sunken object-contain"
                                       />
                                       <p className="m-0 text-fine text-slate-600">
                                         Can you read your member number in this photo? If not, take another.
@@ -513,7 +502,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, hmoPro
                               />
                             </div>
 
-                            <div className="flex justify-between pt-2 border-t border-[#e6ebf1]">
+                            <div className="flex justify-between pt-2 border-t border-line">
                               <Button type="button" variant="outline" onClick={() => setBookingStep(1)}>
                                 &larr; Back
                               </Button>

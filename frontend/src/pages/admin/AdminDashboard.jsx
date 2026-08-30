@@ -23,6 +23,7 @@ import PatientRecordsOversight from './PatientRecordsOversight';
 import ReportsOverview from './ReportsOverview';
 import SuperAdminManagement from './SuperAdminManagement';
 import ActivityLog from './ActivityLog';
+import ClinicSchedule from './ClinicSchedule';
 
 const NAV_TITLES = {
   dashboard: 'Management Console',
@@ -284,6 +285,8 @@ const AdminDashboard = ({ activeNav = 'dashboard', onSelectNav }) => {
         return <AppointmentsOversight />;
       case 'patient-records':
         return <PatientRecordsOversight />;
+      case 'clinic-schedule':
+        return <ClinicSchedule />;
       case 'reports':
         return <ReportsOverview />;
       case 'activity':

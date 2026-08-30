@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertCircle, History, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
-import Toolbar, { ToolbarSpacer } from '../ui/toolbar';
+import Toolbar, { ToolbarSpacer, SegmentedFilter } from '../ui/toolbar';
 import EmptyState from '../ui/empty-state';
 import { SkeletonRows } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
@@ -23,6 +23,12 @@ import { DateField, RANGE_PRESETS } from '../ui/date-field';
  * reached for, so what each view depends on is visible at its top instead of inferred by
  * scrolling.
  */
+// Mirrors chk_visits_type and chk_visits_status, which the server allow-lists against
+// (backend/src/constants/visits.js). A value here that the server does not accept is silently
+// dropped there, so the chip would appear to do nothing.
+const VISIT_TYPE_FILTERS = ['All', 'Walk in', 'Appointment'];
+const VISIT_STATUS_FILTERS = ['All', 'Pending', 'Processing', 'Completed', 'Cancelled'];
+
 export default function VisitHistoryPanel({ history, operations }) {
   return (
         <div>
@@ -44,6 +50,28 @@ export default function VisitHistoryPanel({ history, operations }) {
             <span className="whitespace-nowrap text-fine font-medium tabular-nums text-slate-500">
               {history.total} visit{history.total === 1 ? '' : 's'}
             </span>
+          </Toolbar>
+
+          {/* The table has named the visit type and the status in their own columns since [1.0.0]
+              and offered no way to ask for either. "Show me yesterday's walk-ins" — the ordinary
+              question at a front desk — meant reading 53 rows and counting by eye.
+
+              A second row rather than more chips in the first: the row above is the RANGE, which
+              needs an Apply, and these apply on click. Mixing controls that commit differently
+              into one strip is how a filter comes to look broken. */}
+          <Toolbar attached className="border-t-0">
+            <SegmentedFilter
+              ariaLabel="Filter visits by how they arrived"
+              options={VISIT_TYPE_FILTERS.map(v => ({ value: v, label: v === 'All' ? 'All types' : v }))}
+              value={history.visitType}
+              onChange={history.setVisitType}
+            />
+            <SegmentedFilter
+              ariaLabel="Filter visits by status"
+              options={VISIT_STATUS_FILTERS.map(v => ({ value: v, label: v === 'All' ? 'All statuses' : v }))}
+              value={history.status}
+              onChange={history.setStatus}
+            />
           </Toolbar>
 
           <Panel className="overflow-hidden rounded-t-none">

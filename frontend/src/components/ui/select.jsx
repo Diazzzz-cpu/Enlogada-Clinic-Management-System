@@ -14,7 +14,7 @@ const SelectTrigger = React.forwardRef(({ className, children, ...props }, ref) 
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-note text-slate-900 transition-colors data-[placeholder]:text-slate-400 hover:border-slate-300 focus:outline-none data-[state=open]:border-brand-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60 [&>span]:line-clamp-1",
+      "flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-note text-slate-900 transition-colors data-[placeholder]:text-slate-400 hover:border-slate-300 focus:outline-none data-[state=open]:border-brand-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60 [&>span]:line-clamp-1",
       className
     )}
     {...props}>
@@ -52,7 +52,7 @@ const SelectContent = React.forwardRef(({ className, children, position = "poppe
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-xl border border-[#e6ebf1] bg-white p-0 text-slate-900 shadow-float data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
+        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-xl border border-line bg-surface p-0 text-slate-900 shadow-float data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className

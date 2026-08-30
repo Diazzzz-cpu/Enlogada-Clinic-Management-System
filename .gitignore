@@ -38,3 +38,6 @@ yarn-debug.log*
 yarn-error.log*
 dist/
 build/
+
+# Playwright artefacts from a run started outside frontend/
+test-results/

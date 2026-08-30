@@ -67,7 +67,7 @@ const AuthPage = ({ initialMode = 'login', onNavigate }) => {
   const CLINIC = useClinic();
 
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="flex min-h-screen flex-col bg-surface">
       <PublicHeader currentTab={mode} onNavigate={onNavigate} />
 
       <main className="flex flex-1 items-stretch">
@@ -107,7 +107,7 @@ const AuthPage = ({ initialMode = 'login', onNavigate }) => {
                   is composited rather than laid out on every frame. */}
               <span
                 aria-hidden="true"
-                className="absolute inset-y-1 left-1 rounded-lg bg-white shadow-[0_1px_3px_rgb(15_23_42_/_0.10)] transition-transform duration-[220ms] ease-[cubic-bezier(0.22,0.9,0.28,1)]"
+                className="absolute inset-y-1 left-1 rounded-lg bg-surface shadow-[0_1px_3px_rgb(15_23_42_/_0.10)] transition-transform duration-[220ms] ease-[cubic-bezier(0.22,0.9,0.28,1)]"
                 style={{
                   width: 'calc(50% - 0.25rem)',
                   transform: `translateX(${activeIndex * 100}%)`,

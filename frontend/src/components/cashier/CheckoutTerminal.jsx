@@ -43,7 +43,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                     picking a method and counting cash, rather than reappearing at the end.
                     The button lives outside the form and reaches it by `form="checkout-form"`,
                     so submit behaviour and Enter-to-pay are unchanged. */}
-                <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf1] bg-white/95 px-6 py-4 backdrop-blur-sm">
+                <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white/95 px-6 py-4 backdrop-blur-sm">
                   <div className="min-w-0">
                     <span className="field-label">Now billing</span>
                     <h2 className="m-0 truncate text-lead font-bold tracking-tight text-slate-900">
@@ -74,7 +74,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                 {/* Itemized Tests Breakdown Table */}
                 <div className="space-y-2">
                   <span className="field-label">Itemised services</span>
-                  <div className="border border-[#e6ebf1] rounded-xl overflow-hidden">
+                  <div className="border border-line rounded-xl overflow-hidden">
                     <Table>
                       <TableHeader sticky>
                         <TableRow>
@@ -163,7 +163,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                     Deliberately sits between the bill and the payment form: the cashier checks
                     the ID against the person in front of them, and the total has to update
                     before any money is taken. */}
-                <div className="bg-white p-4 rounded-xl border border-gray-200/80 space-y-2.5">
+                <div className="bg-surface p-4 rounded-xl border border-gray-200/80 space-y-2.5">
                   <span className="field-label">Statutory / other discount</span>
                   {checkout.bill.discount ? (
                     <div className="flex items-center justify-between gap-3">
@@ -241,7 +241,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                           className={`cursor-pointer rounded-lg border px-3 py-2 text-fine font-semibold transition-colors ${
                             checkout.paymentMethod === method
                               ? 'border-brand-500 bg-brand-500 text-white'
-                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                              : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                           }`}
                         >
                           {method}
@@ -297,7 +297,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                   )}
 
                   {checkout.paymentMethod === 'Cash' ? (
-                    <div className="space-y-2 bg-white p-3 rounded-xl border border-gray-200">
+                    <div className="space-y-2 bg-surface p-3 rounded-xl border border-gray-200">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label htmlFor="cashierdashboard-cash-tendered" className="field-label">Cash tendered</label>
@@ -311,7 +311,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                             required
                           />
                         </div>
-                        <div className="space-y-1 bg-gray-50 p-2 rounded-lg border border-[#e6ebf1]">
+                        <div className="space-y-1 bg-gray-50 p-2 rounded-lg border border-line">
                           <span className="field-label">Change Due</span>
                           <span className="text-base font-extrabold text-emerald-600">{formatCurrency(checkout.changeDue())}</span>
                         </div>

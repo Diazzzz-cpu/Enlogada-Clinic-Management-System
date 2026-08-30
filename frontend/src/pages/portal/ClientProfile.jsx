@@ -48,7 +48,7 @@ const ClientProfile = ({ onNavigate }) => {
 
           {/* Right column: read-only role/permissions */}
           <div className="space-y-6">
-            <Card className="border-[#e6ebf1] bg-rail text-white rounded-2xl overflow-hidden p-5 space-y-2">
+            <Card className="border-line bg-rail text-white rounded-2xl overflow-hidden p-5 space-y-2">
               <div className="flex items-center space-x-2 text-brand-600">
                 <ShieldCheck className="w-5 h-5" />
                 <h3 className="font-bold text-sm text-white m-0">Account Security</h3>

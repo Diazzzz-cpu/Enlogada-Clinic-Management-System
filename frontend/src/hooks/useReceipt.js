@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../config/api';
+import { printElement } from '../lib/printArea';
 import { toastError } from '../lib/toast';
 
 /**
@@ -75,14 +76,7 @@ export function useReceipt() {
    * take it off again, so printing a diagnostic report afterwards still gets a normal sheet.
    * Removed in a `finally` so an aborted print dialog cannot leave it stuck on.
    */
-  const print = () => {
-    document.body.classList.add('printing-receipt');
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove('printing-receipt');
-    }
-  };
+  const print = () => printElement(null, 'printing-receipt');
 
   /** Forget the subject — what selecting a new patient to bill wants. */
   const reset = () => setPayment(null);

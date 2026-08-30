@@ -21,7 +21,7 @@ const ChartTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
   const point = payload[0];
   return (
-    <div className="bg-white border border-[#e6ebf1] rounded-lg shadow-float px-3 py-2 text-xs">
+    <div className="bg-surface border border-line rounded-lg shadow-float px-3 py-2 text-xs">
       <p className="font-bold text-slate-900 m-0">{point.payload.category_name}</p>
       <p className="text-gray-600 m-0">{point.value} test{point.value === 1 ? '' : 's'}</p>
     </div>

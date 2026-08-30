@@ -47,7 +47,7 @@ const AboutUs = ({ onNavigate }) => {
 
         {/* Our Story */}
         <div className="flex flex-col md:flex-row gap-8 items-center">
-          <div className="flex-shrink-0 bg-white rounded-2xl border border-[#e6ebf1] p-8">
+          <div className="flex-shrink-0 bg-surface rounded-2xl border border-line p-8">
             <Logo className="w-28 h-28" />
           </div>
           <div className="space-y-3">
@@ -66,7 +66,7 @@ const AboutUs = ({ onNavigate }) => {
           <h2 className="text-xl font-bold text-slate-900 m-0">Why Patients Choose Us</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {VALUES.map(({ icon: Icon, title, body }) => (
-              <div key={title} className="bg-white border border-[#e6ebf1] rounded-2xl p-5 space-y-2.5">
+              <div key={title} className="bg-surface border border-line rounded-2xl p-5 space-y-2.5">
                 <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center">
                   <Icon className="w-5 h-5" />
                 </div>

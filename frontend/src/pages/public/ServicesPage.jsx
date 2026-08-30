@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import LoadingState from '../../components/ui/loading-state';
 import PublicHeader from '../../components/PublicHeader';
 import PublicFooter from '../../components/PublicFooter';
 import PageShell from '../../components/ui/page-shell';
 import api from '../../config/api';
 import { formatCurrency } from '../../lib/currency';
-import { Activity, Stethoscope, FileText, Heart, Zap, Search, Info, Phone, CalendarCheck, X, Package, Check } from 'lucide-react';
+import { Activity, Stethoscope, FileText, Zap, Search, Info, Phone, CalendarCheck, X, Package, Check } from 'lucide-react';
 import { categoryKey, categoryTint } from '../../lib/categories';
 import { useClinic } from '../../lib/clinic';
 
@@ -89,7 +90,6 @@ const ServicesPage = ({ onNavigate }) => {
     Laboratory: Activity,
     Ultrasound: Stethoscope,
     Xray: FileText,
-    '2D Echo': Heart,
     ECG: Zap,
   };
 
@@ -171,15 +171,12 @@ const ServicesPage = ({ onNavigate }) => {
       <main className="flex-1 w-full">
         <PageShell className="py-10 sm:py-14">
           {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-24">
-              <div className="h-9 w-9 animate-spin rounded-full border-4 border-azure-500 border-t-transparent" />
-              <span className="text-note font-semibold text-slate-500">Loading services…</span>
-            </div>
+            <LoadingState size="lg" label="Loading services…" className="py-24" />
           ) : loadError ? (
             /* Deliberately says the list could not load and gives the clinic's phone number,
                rather than reporting an empty catalogue. A visitor who cannot see the price list
                can still ring up, which is the whole point of the page. */
-            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-rose-200 bg-white p-10 text-center">
+            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-rose-200 bg-surface p-10 text-center">
               <h3 className="m-0 text-lg font-bold text-rose-800">Our service list is unavailable</h3>
               <p className="m-0 text-note leading-relaxed text-rose-700">
                 This is a problem on our side, not a sign that we are closed. Please try again in a
@@ -188,20 +185,20 @@ const ServicesPage = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="mt-2 cursor-pointer rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-fine font-semibold text-rose-800 transition-colors hover:bg-rose-50"
+                className="mt-2 cursor-pointer rounded-lg border border-rose-200 bg-surface px-3 py-1.5 text-fine font-semibold text-rose-800 transition-colors hover:bg-rose-50"
               >
                 Try again
               </button>
             </div>
           ) : categories.length === 0 ? (
-            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-line bg-white p-10 text-center">
+            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-line bg-surface p-10 text-center">
               <h3 className="m-0 text-lg font-bold text-slate-800">No Active Services</h3>
               <p className="m-0 text-fine text-slate-500">
                 Diagnostic services will appear here once added by clinic administration.
               </p>
             </div>
           ) : visible.length === 0 ? (
-            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-line bg-white p-10 text-center">
+            <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-line bg-surface p-10 text-center">
               <h3 className="m-0 text-lg font-bold text-slate-800">Nothing matches that search</h3>
               <p className="m-0 text-fine leading-relaxed text-slate-500">
                 Try a shorter word, or call us on <strong>{CLINIC.phone}</strong> and we will tell
@@ -210,7 +207,7 @@ const ServicesPage = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                className="mt-2 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-fine font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                className="mt-2 cursor-pointer rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-fine font-semibold text-slate-700 transition-colors hover:bg-slate-50"
               >
                 Clear search
               </button>
@@ -305,7 +302,7 @@ const ServicesPage = ({ onNavigate }) => {
                       {cat.items.map((item) => (
                         <article
                           key={item.id}
-                          className="flex flex-col rounded-xl border border-line bg-white p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-azure-200 hover:shadow-raised"
+                          className="flex flex-col rounded-xl border border-line bg-surface p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-azure-200 hover:shadow-raised"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <h3 className="m-0 text-note font-semibold leading-snug text-slate-800">

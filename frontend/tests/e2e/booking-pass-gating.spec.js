@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 
 /**
  * The pass is a receipt, not a booking confirmation.
@@ -33,14 +34,6 @@ function farWorkingDay() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-async function signIn(page, email) {
-  await page.goto('/');
-  await page.getByText('Sign In', { exact: true }).first().click();
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await expect(page.getByText(/welcome|book laboratory/i).first()).toBeVisible({ timeout: 15000 });
-}
 
 test('a self-pay booking is confirmed without issuing the pass', async ({ page }) => {
   const ctx = await request.newContext();

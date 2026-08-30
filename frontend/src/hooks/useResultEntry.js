@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import api from '../config/api';
-import { toastSuccess, toastError, toastInfo } from '../lib/toast';
+import { toastSuccess, toastInfo, toastWarning } from '../lib/toast';
 import { TEMPLATE_TEXT } from '../lib/resultTemplates';
 
 // Mirrors backend/src/config/upload.js's own allowlist and size cap, so a mismatched file is
@@ -378,12 +378,25 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
 
       // What actually happened, not a blanket "released and notified". This used to claim
       // success even when sendEmail had failed or silently skipped on unconfigured SMTP.
+      // A WARNING, not an error. [1.54.0] The release SUCCEEDED — the report is out, the visit
+      // has moved on, and there is nothing to undo. Only the email did not go. Reporting that in
+      // red says the release failed, which sends a technician looking for a problem that is not
+      // there, and risks them releasing it a second time.
+      //
+      // The description carries the action, because the headline states an outcome and the
+      // reader's next question is "so what do I do".
       if (emailStatus === 'sent') {
         toastSuccess('Result released and the patient was notified by email.');
       } else if (emailStatus === 'failed') {
-        toastError('Result released — email notification failed, patient was not notified.');
+        toastWarning(
+          'Result released — but the email did not send.',
+          'The report is available in the portal. Telephone the patient if this one is urgent.'
+        );
       } else {
-        toastInfo('Result released. No email on file, so the patient was not notified.');
+        toastInfo(
+          'Result released. No email address on file.',
+          'The patient can still read it in their portal, or collect a printed copy.'
+        );
       }
 
       setConfirmingRelease(false);

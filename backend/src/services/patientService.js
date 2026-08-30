@@ -16,6 +16,10 @@ const AUDITED_FIELDS = [
   ['contact_number', 'Contact number'],
   ['address', 'Address'],
   ['emergency_contact', 'Emergency contact'],
+  // Audited like any other contact detail, and for a sharper reason than most: this is where a
+  // medical report gets sent. A wrong address here delivers someone's results to a stranger, and
+  // "what did it say before?" is the first question asked afterwards.
+  ['email', 'Email'],
 ];
 
 /** A DATE comes back as a Date object; everything else is a string or null. Compare as text. */
@@ -59,11 +63,35 @@ function departmentScopeFor(requestingUser) {
   return requestingUser?.departments ?? null;
 }
 
+/**
+ * An address a result can actually be sent to, or null. [1.60.0]
+ *
+ * Deliberately permissive about what an address may look like and strict about it being present:
+ * the check exists to catch a slip at the counter (a missing @, a trailing comma from a form),
+ * not to adjudicate RFC 5322. Rejecting an unusual but valid address would turn "we can email
+ * your results" into "we cannot", which is the worse failure.
+ *
+ * Blank normalises to NULL rather than '', so "no address" has exactly one representation and
+ * the COALESCE in resultRepository behaves. NULLIF there covers the rows that predate this.
+ */
+function normaliseEmail(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim().toLowerCase();
+  if (!trimmed) return null;
+  if (trimmed.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    const error = new Error('That email address does not look right. Check it, or leave it blank.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return trimmed;
+}
+
 class PatientService {
   async addPatientProfile(userId, patientData) {
     return await patientRepository.createPatient({
       userId,
-      ...patientData
+      ...patientData,
+      email: normaliseEmail(patientData.email),
     });
   }
 
@@ -110,7 +138,16 @@ class PatientService {
    */
   async updatePatientProfile(id, patientData, requestingUser) {
     const before = await this.getPatientById(id, requestingUser);
-    const updated = await patientRepository.updatePatient(id, patientData);
+
+    // An omitted field is not an instruction to erase. `updatePatient` writes every column
+    // unconditionally, so a caller sending only the fields it cares about would blank the rest —
+    // the same defect [1.54.0] found in the Services Catalogue, where a status toggle deleted a
+    // test's preparation. Here it would silently discard the address a patient's results go to.
+    const email = patientData.email === undefined
+      ? (before.email ?? null)
+      : normaliseEmail(patientData.email);
+
+    const updated = await patientRepository.updatePatient(id, { ...patientData, email });
 
     // Audited with a field-level diff, not a bare "patient updated". [1.24.0]
     //
@@ -135,14 +172,91 @@ class PatientService {
     return updated;
   }
 
-  async searchPatients(query, requestingUser) {
+  /**
+   * The roster, browsed or searched. [1.56.0]
+   *
+   * A query is no longer required. It used to be, so the screen opened on "search for a patient
+   * to begin" and there was no way to simply LOOK at the records — which is what somebody sitting
+   * down to review them wants. Two characters is still the floor when a query IS given, because a
+   * single letter matches most of a roster and is a scan wearing a search box.
+   */
+  async searchPatients(query, requestingUser, { from, to, includeArchived, recordStatus, page, limit } = {}) {
     const trimmed = (query || '').trim();
-    if (trimmed.length < 2) {
-      const error = new Error('Search query must be at least 2 characters.');
+    if (trimmed && trimmed.length < 2) {
+      const error = new Error('Search for at least 2 characters, or clear the box to browse.');
       error.statusCode = 400;
       throw error;
     }
-    return await patientRepository.searchPatients(trimmed, departmentScopeFor(requestingUser));
+
+    if ((from && !to) || (to && !from)) {
+      const error = new Error('Give both a start and an end date, or neither.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+
+    // Archived records are hidden from everyone by default and revealed only on request. Whether
+    // the CALLER may reveal them is the route's business, not this method's.
+    const { patients, total } = await patientRepository.findPatients({
+      query: trimmed || null,
+      departments: departmentScopeFor(requestingUser),
+      from: from || null,
+      to: to || null,
+      // Allow-listed. An unrecognised value must not reach SQL as a filter that matches nothing
+      // — an empty roster reads as "this clinic has no patients", which is a claim, not a result.
+      recordStatus: ['complete', 'open'].includes(recordStatus) ? recordStatus : null,
+      includeArchived: Boolean(includeArchived),
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+    });
+
+    return {
+      patients,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.max(1, Math.ceil(total / limitNum)),
+    };
+  }
+
+  /**
+   * Archive a record, or put it back. [1.56.0]
+   *
+   * Deliberately NOT a delete, and the service refuses to pretend otherwise: nothing is removed,
+   * the visits and bills and results all stay, and the record is simply out of the roster the
+   * front desk searches. Audited, because hiding somebody's medical record is an editorial act
+   * and "who did this" is the first question asked when a record cannot be found.
+   */
+  async setArchived(patientId, archived, requestingUser) {
+    const before = await patientRepository.findPatientById(patientId);
+    if (!before) {
+      const error = new Error('Patient not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (Boolean(before.archived_at) === Boolean(archived)) {
+      // Not an error — the caller and the record already agree. Returning the row keeps a
+      // double-click idempotent rather than turning it into a failure the reader has to read.
+      return before;
+    }
+
+    const updated = await patientRepository.setPatientArchived(patientId, {
+      archived: Boolean(archived),
+      actorId: requestingUser?.userId ?? null,
+    });
+
+    await auditService.log({
+      actorId: requestingUser?.userId,
+      action: archived ? 'patient.archived' : 'patient.restored',
+      entityType: 'patient',
+      entityId: Number(patientId),
+      description: `${before.first_name} ${before.last_name} (PT-${patientId}) ${archived ? 'archived — hidden from the active roster' : 'restored to the active roster'}`,
+    });
+
+    return updated;
   }
 
   /** What the caller is allowed to see, so the UI can say so rather than looking broken. */

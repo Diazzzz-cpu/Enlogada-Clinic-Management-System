@@ -26,7 +26,7 @@ import { toastSuccess } from '../../lib/toast';
  * — a log entry saying only "patient updated" does not answer the question that gets asked
  * afterwards, which is always what the record said before.
  */
-const FIELDS = ['patientTypeId', 'firstName', 'lastName', 'birthdate', 'sex', 'address', 'contactNumber', 'emergencyContact'];
+const FIELDS = ['patientTypeId', 'firstName', 'lastName', 'birthdate', 'sex', 'address', 'contactNumber', 'emergencyContact', 'email'];
 
 /** A DATE arriving as a UTC instant, as the calendar date an <input type="date"> wants. */
 const toDateInput = (value) => {
@@ -45,6 +45,7 @@ const fromPatient = (patient) => ({
   address: patient?.address || '',
   contactNumber: patient?.contact_number || '',
   emergencyContact: patient?.emergency_contact || '',
+  email: patient?.email || '',
 });
 
 const PatientEditDialog = ({ open, onOpenChange, patient, patientTypes = [], onSaved }) => {
@@ -89,6 +90,7 @@ const PatientEditDialog = ({ open, onOpenChange, patient, patientTypes = [], onS
         address: form.address.trim(),
         contactNumber: form.contactNumber.trim(),
         emergencyContact: form.emergencyContact.trim(),
+        email: form.email.trim(),
       });
       const saved = res.data.data.patient;
       onSaved?.(saved);
@@ -125,7 +127,7 @@ const PatientEditDialog = ({ open, onOpenChange, patient, patientTypes = [], onS
         <form onSubmit={submit} className="space-y-4">
           {/* Clinical fields first and fenced off, because they are the ones with consequences
               beyond this record. */}
-          <div className="space-y-3 rounded-xl border border-[#e6ebf1] bg-sunken p-3">
+          <div className="space-y-3 rounded-xl border border-line bg-sunken p-3">
             <p className="m-0 text-micro font-semibold uppercase tracking-[0.08em] text-slate-500">
               Used to interpret results
             </p>
@@ -203,6 +205,25 @@ const PatientEditDialog = ({ open, onOpenChange, patient, patientTypes = [], onS
             <Input id="patienteditdialog-home-address" value={form.address} disabled={saving} onChange={(e) => set('address')(e.target.value)} placeholder="Barangay, City, Province" />
           </div>
 
+          {/* Where this patient's RESULTS go. [1.60.0] Most patients here are walk-ins with no
+              web account, and before this there was nowhere to record an address for them — so
+              the clinic could release a report and had no way to send it. Optional: a patient
+              entitled to their result must never be turned away for not having email. */}
+          <div className="space-y-1">
+            <label htmlFor="patienteditdialog-email" className="field-label">Email for results</label>
+            <Input
+              id="patienteditdialog-email"
+              type="email"
+              value={form.email}
+              disabled={saving}
+              onChange={(e) => set('email')(e.target.value)}
+              placeholder="juan.delacruz@example.com"
+            />
+            <p className="m-0 text-micro text-slate-500">
+              Released reports are sent here. Leave blank if they will collect a printed copy.
+            </p>
+          </div>
+
           <div className="space-y-1">
             <label htmlFor="patienteditdialog-emergency-contact" className="field-label">Emergency Contact</label>
             <Input id="patienteditdialog-emergency-contact" value={form.emergencyContact} disabled={saving} onChange={(e) => set('emergencyContact')(e.target.value)} />
@@ -215,7 +236,7 @@ const PatientEditDialog = ({ open, onOpenChange, patient, patientTypes = [], onS
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-2 border-t border-[#e6ebf1] pt-3">
+          <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
             <span className="text-micro text-slate-500">
               {changed.length === 0
                 ? 'No changes yet'

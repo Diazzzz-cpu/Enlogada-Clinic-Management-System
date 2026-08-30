@@ -34,6 +34,27 @@ class VisitController {
     }
   }
 
+  /**
+   * GET /visits/queue-status — how busy the clinic is, for the public site. [1.63.0]
+   *
+   * Unauthenticated by design and aggregate-only: two counts and an estimate, with nothing that
+   * identifies a patient. See visitService.getPublicQueueStatus for why that is publishable and
+   * where the line is.
+   *
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   * @param {import('express').NextFunction} next
+   * @returns {Promise<void>}
+   */
+  async getPublicQueueStatus(req, res, next) {
+    try {
+      const status = await visitService.getPublicQueueStatus();
+      return res.status(200).json({ status: 'success', data: { queue: status } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getActiveVisits(req, res, next) {
     try {
       const { search, status, page, limit } = req.query;
@@ -49,8 +70,10 @@ class VisitController {
 
   async getVisitsByDateRange(req, res, next) {
     try {
-      const { startDate, endDate, search, page, limit } = req.query;
-      const result = await visitService.getVisitHistoryByDateRange({ startDate, endDate, search, page, limit });
+      const { startDate, endDate, search, visitType, status, page, limit } = req.query;
+      const result = await visitService.getVisitHistoryByDateRange({
+        startDate, endDate, search, visitType, status, page, limit,
+      });
       return res.status(200).json({
         status: 'success',
         // `visits` stays the key it always was so nothing that reads it has to change; the paging

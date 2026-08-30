@@ -10,6 +10,8 @@ import Pagination from '../ui/pagination';
 import BookingPass from '../BookingPass';
 import PayBookingPanel from './PayBookingPanel';
 import { formatAppointmentDate, formatTime12 } from '../../lib/date';
+import AppointmentTime from '../ui/appointment-time';
+import DataBadge from '../ui/data-badge';
 
 /**
  * Bookings this patient has, and the pass they present.
@@ -36,8 +38,8 @@ export default function AppointmentsTab({ bookings }) {
 
   return (
         <TabsContent value="appointments" className="m-0">
-          <Card className="border-[#e6ebf1] rounded-xl bg-white overflow-hidden">
-            <CardHeader className="bg-slate-50/80 border-b border-[#e6ebf1] py-3.5">
+          <Card className="border-line rounded-xl bg-surface overflow-hidden">
+            <CardHeader className="bg-slate-50/80 border-b border-line py-3.5">
               <CardTitle className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
                 <CalendarClock className="w-4 h-4 text-brand-600" />
                 <span>My Appointments</span>
@@ -91,14 +93,17 @@ export default function AppointmentsTab({ bookings }) {
                       key={appt.id}
                       data-testid="appointment-card"
                       data-reference={appt.appointment_reference}
-                      className="border border-[#e6ebf1] rounded-xl p-3 space-y-2 bg-slate-50/70"
+                      className="border border-line rounded-xl p-3 space-y-2 bg-slate-50/70"
                     >
                       <div className="flex justify-between items-start">
                         <div>
                           <span className="block text-xs font-extrabold text-slate-900">
                             {formatAppointmentDate(appt.scheduled_date)}
                           </span>
-                          <span className="block text-fine text-gray-500 font-medium">{formatTime12(appt.scheduled_time)}</span>
+                          {/* Inline variant — this is a dense list of cards, and the stacked
+                              two-line form belongs on the pass below rather than repeated in
+                              every row header. */}
+                          <AppointmentTime scheduledTime={appt.scheduled_time} variant="inline" />
                         </div>
                         <StatusBadge status={appt.status} />
                       </div>
@@ -109,9 +114,13 @@ export default function AppointmentsTab({ bookings }) {
                           queueNumber={appt.queue_number}
                           isPaid={appt.is_paid}
                           canPayOnline={bookings.gateway.available}
+                          receiptNumber={appt.receipt_number}
+                          estimatedWaitMinutes={appt.estimated_wait_minutes ?? null}
+                          patientsAhead={appt.patients_ahead ?? null}
+                          estimateIsCapped={appt.estimate_is_capped ?? false}
                         />
                       ) : (
-                        <span className="block font-mono text-micro text-slate-400">{appt.appointment_reference}</span>
+                        <DataBadge variant="reference" label="Booking reference" copyable>{appt.appointment_reference}</DataBadge>
                       )}
 
 

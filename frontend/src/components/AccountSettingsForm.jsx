@@ -86,8 +86,8 @@ const AccountSettingsForm = ({ className = '' }) => {
   return (
     <div className={`space-y-6 ${className}`}>
       {/* Account Information */}
-      <Card className="border-[#e6ebf1] rounded-xl bg-white overflow-hidden">
-        <CardHeader className="bg-slate-50/80 border-b border-[#e6ebf1] py-4">
+      <Card className="border-line rounded-xl bg-surface overflow-hidden">
+        <CardHeader className="bg-slate-50/80 border-b border-line py-4">
           <CardTitle className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
             <User className="w-4 h-4 text-brand-600" />
             <span>Account Information</span>
@@ -97,7 +97,7 @@ const AccountSettingsForm = ({ className = '' }) => {
         <CardContent className="p-5 space-y-5">
           <AvatarUpload />
 
-          <form onSubmit={handleSaveAccount} className="space-y-4 pt-4 border-t border-[#e6ebf1]">
+          <form onSubmit={handleSaveAccount} className="space-y-4 pt-4 border-t border-line">
             {accountError && (
               <div role="alert" className="alert alert-error">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -148,7 +148,7 @@ const AccountSettingsForm = ({ className = '' }) => {
               />
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-[#e6ebf1]">
+            <div className="flex justify-end pt-2 border-t border-line">
               <Button type="submit"  disabled={isSavingAccount}>
                 {isSavingAccount ? 'Saving…' : 'Save Changes'}
               </Button>
@@ -158,8 +158,8 @@ const AccountSettingsForm = ({ className = '' }) => {
       </Card>
 
       {/* Change Password */}
-      <Card className="border-[#e6ebf1] rounded-xl bg-white overflow-hidden">
-        <CardHeader className="bg-slate-50/80 border-b border-[#e6ebf1] py-4">
+      <Card className="border-line rounded-xl bg-surface overflow-hidden">
+        <CardHeader className="bg-slate-50/80 border-b border-line py-4">
           <CardTitle className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
             <KeyRound className="w-4 h-4 text-brand-600" />
             <span>Change Password</span>
@@ -207,7 +207,7 @@ const AccountSettingsForm = ({ className = '' }) => {
             </div>
             <p className="text-fine text-gray-400 m-0">Must be at least 8 characters.</p>
 
-            <div className="flex justify-end pt-2 border-t border-[#e6ebf1]">
+            <div className="flex justify-end pt-2 border-t border-line">
               <Button type="submit"  disabled={isSavingPassword}>
                 {isSavingPassword ? 'Saving…' : 'Change Password'}
               </Button>

@@ -378,12 +378,12 @@ const SidebarLayout = ({ title = 'Dashboard', activeNav = 'dashboard', onSelectN
           flex child refuses to shrink past its content, the column grows taller than the shell,
           and the overflow lands on the body instead — which is the rail scrolling away again. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-[#e6ebf1] bg-white/85 px-4 py-2.5 backdrop-blur-md lg:px-7">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-surface/85 px-4 py-2.5 backdrop-blur-md lg:px-7">
           <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation"
-              className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 lg:hidden"
+              className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-surface text-slate-600 hover:bg-slate-50 lg:hidden"
             >
               <Menu className="h-4 w-4" />
             </button>
@@ -465,7 +465,7 @@ const SidebarLayout = ({ title = 'Dashboard', activeNav = 'dashboard', onSelectN
                   'relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border transition-colors',
                   showNotifications
                     ? 'border-slate-300 bg-slate-100 text-slate-900'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    : 'border-slate-200 bg-surface text-slate-600 hover:bg-slate-50'
                 )}
               >
                 <Bell className="h-4 w-4" />
@@ -479,8 +479,8 @@ const SidebarLayout = ({ title = 'Dashboard', activeNav = 'dashboard', onSelectN
               </button>
 
               {showNotifications && (
-                <div className="animate-fade-in absolute right-0 mt-2 w-[21.25rem] overflow-hidden rounded-xl border border-[#e6ebf1] bg-white shadow-float">
-                  <div className="flex items-center justify-between border-b border-[#e6ebf1] px-4 py-2.5">
+                <div className="animate-fade-in absolute right-0 mt-2 w-[21.25rem] overflow-hidden rounded-xl border border-line bg-surface shadow-float">
+                  <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
                     <span className="text-note font-bold text-slate-900">
                       Notifications
                       {unreadCount > 0 && (

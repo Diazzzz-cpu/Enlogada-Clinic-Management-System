@@ -1,4 +1,5 @@
 import React from 'react';
+import { printElement } from '../../lib/printArea';
 import { AlertCircle, CheckCircle2, FileText, Printer, Send } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,7 +8,6 @@ import { ConfirmDialog } from '../ui/confirm-dialog';
 import { TEMPLATES_BY_CATEGORY } from '../../lib/resultTemplates';
 import MeasurementGrid from './MeasurementGrid';
 import ResultReport from '../ResultReport';
-import { printReport } from '../../lib/printReport';
 
 /**
  * Recording findings, and authorising the release that sends them to the patient.
@@ -42,7 +42,7 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
               <ResultReport result={entry.justReleased} measurements={entry.justReleased.measurements || []} signatories={entry.justReleased.signatories || []} fieldSet={entry.fieldSet} />
 
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={printReport} className="text-xs font-bold flex items-center space-x-1.5">
+                <Button type="button" variant="outline" onClick={() => printElement(null, 'printing-report')} className="text-xs font-bold flex items-center space-x-1.5">
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print Now</span>
                 </Button>
@@ -212,7 +212,7 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
               </span>
             </label>
 
-            <div className="flex justify-end space-x-2 pt-2 border-t border-[#e6ebf1]">
+            <div className="flex justify-end space-x-2 pt-2 border-t border-line">
               <Button type="button" variant="outline" onClick={entry.close}>Cancel</Button>
               <Button
                 type="submit"

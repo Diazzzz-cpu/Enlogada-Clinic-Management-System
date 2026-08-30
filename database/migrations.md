@@ -1,5 +1,574 @@
 # Database Migration & Schema History
 
+## [1.62.0] - 2026-08-28 (Take the figures with you, read the receipt, name the wait)
+
+**No schema change, and no migration script.** All four features are reads over tables that
+already existed — nothing to run on a live database, which is the reason they could all ship at
+once. New modules: `utils/csvExport.js`, `utils/reportCsv.js`, `services/receiptOcrService.js`,
+`services/queueEstimateService.js`, and three chart components. One new dependency,
+`tesseract.js`.
+
+### The reports could be read and not taken
+
+`/reports/summary`, `/reports/operations` and `/reports/hmo-claims` returned JSON to a screen, and
+the only way to get a figure off that screen was to retype it or print the page. A printed page
+cannot be reconciled against a drawer. `?format=csv` on any report endpoint — including
+`/reports/staff-workload` and the new `/reports/analytics` — now returns the same figures as a
+file.
+
+Three properties this deliberately has. The **JSON path is untouched**: `wantsCsv` is false for a
+missing parameter, an empty one, and anything that is not `csv`, so every existing caller gets
+byte-identical responses. The **service runs first**, unchanged, and the format decision happens
+after it returns — so a CSV export cannot see figures a JSON request could not, and the operations
+report's per-slice permission checks apply exactly as before. And **validation precedes any
+header**: a bad date range throws its 400 before `Content-Disposition` is written, because a
+response that has begun as a file download cannot then become an error page.
+
+Two decisions inside the serialiser look wrong at a glance and are not.
+
+**Money is written as a bare `1450.00`, not `₱1,450.00`.** Matching what the screen shows would put
+a currency symbol and a thousands separator in the cell, and Excel reads that as TEXT — the column
+cannot be summed, sorted or charted, which is the entire reason somebody exports a CSV rather than
+printing the page. The unit moves into the header instead: `Collected (PHP)`. This is the one place
+in the codebase that deliberately does not use `formatCurrency`.
+
+**The file opens with a UTF-8 BOM.** Excel on Windows assumes the system codepage for a `.csv`
+unless one is present, so without it every `ñ` in a patient's name and every `₱` in a header
+renders as mojibake — on the machines this clinic actually uses. `charset=utf-8` in the
+Content-Type does not reach Excel; the file is opened from disk long after the header is gone.
+
+`Content-Disposition` joined `ETag` in the CORS `exposedHeaders`. Without that the browser cannot
+read the server's filename and every export saves as the endpoint name.
+
+A NULL money column exports as an EMPTY cell, never `0.00`. `Number(null)` is 0 and
+`Number.isFinite(0)` is true, so the obvious implementation states that the clinic collected
+nothing rather than that nothing is recorded — the same false-confidence failure as the dashboard
+that read "Today's Revenue ₱0.00" over a day that took ₱8,344.
+
+### Reading the receipt so the patient does not have to type it
+
+`POST /payments/scan-receipt` runs Tesseract over a GCash or bank screenshot and offers back the
+reference number and amount, plus whether that reference has been seen before.
+
+**It never decides money, and the shape of the file enforces that** — there is no write anywhere in
+it. [1.48.0] settled that the amount a patient CLAIMS is evidence and never the amount charged; an
+OCR pass is a third, weaker source — a guess about a claim about a payment. Letting it write would
+quietly promote the least reliable number in the system to the most authoritative. What it actually
+saves is transcribing thirteen digits off a phone screenshot, which is where the errors were: a
+transposed digit is a payment nobody can later find.
+
+**The duplicate check is the half with real value.** A reference number is the clinic's only handle
+on a transfer that happened inside somebody else's system. The same screenshot submitted twice —
+forwarded to a second visit, or re-sent because the patient was unsure it went through — is
+indistinguishable from two genuine payments unless something looks, and nothing was looking,
+because looking meant reading a number off an image and searching for it. BOTH tables are searched:
+`payment_submissions` catches a claim already queued or decided, and `payments` catches one a
+cashier settled at the counter. Checking only the first would miss the case that costs money.
+
+The warning does not BLOCK. A repeated reference is usually a mistake but not always — a patient
+correcting a rejected submission is re-sending the same one on purpose, and blocking would strand
+them with no way forward. The cashier decides, as they already do for the amount.
+
+Two bugs found by testing against a rendered receipt rather than by reading the regex. The
+reference capture used `\s`, which matches a newline, so it ran off the end of the reference line
+and swallowed the next: `Ref. No. E2E-1787890589109` followed by a date came back as
+`E2E-1787890589109Aug28` — a plausible-looking reference matching no record, so the duplicate check
+returned clean on exactly the receipt it was meant to catch. And a digits-only capture truncated
+`GC-1787890589109` to its numeric tail, breaking the same check on every bank receipt. Horizontal
+whitespace only now, and a token-aware clean that joins an OCR-split digit run but stops at the
+next field otherwise.
+
+The scan writes NOTHING to disk — `memoryStorage`, alone among the upload paths. Disk storage would
+orphan a file for every scan including every abandoned one, which is most of them, mixed in with
+real proofs and indistinguishable from them. An upload with no reader does not need a retention
+policy; it needs to not exist.
+
+### "You are number 12" is not an answer
+
+The clinic has issued queue tickets since [1.0.0] and has never been able to answer the one
+question every person holding one asks. `GET /visits/active` and `GET /appointments/my-bookings`
+now both carry `patients_ahead` and `estimated_wait_minutes`, through one shared
+`queueEstimateService` so the receptionist's screen and the patient's cannot disagree.
+
+**The multiplier is a service RATE, not a wait**, and this is the whole correctness of it.
+`getReceptionThroughput` already reports a median wait — check-in to billed — and on this clinic's
+data that is 36 to 96 minutes. Multiplying it by the number of people ahead, which is the obvious
+reading of "patients ahead × service duration", tells the fourth person in a queue they have a
+four-hour wait. It is wrong because a wait already CONTAINS the queue: everyone waiting shares the
+same forty minutes, they do not each add forty to the next person. What multiplies correctly is the
+interval between consecutive patients being SERVED — `LAG` over each day's settlements, partitioned
+by day so an overnight gap is never a sample, bounded to 0.5–60 minutes because an idle desk is not
+a slow desk.
+
+**It refuses to guess when it does not know.** Below ten observed gaps the measured median is
+noise, and it falls back to a stated default with `estimate_basis: 'default'` in the payload. On
+the current database that is exactly what happens — two usable gaps — and publishing a median of
+two numbers to a waiting patient as "about 4 minutes" would be inventing precision the data cannot
+support.
+
+`patients_ahead` counts only PENDING predecessors. A 'Processing' visit has been billed and
+released to a department; that person is no longer between this patient and the desk, and counting
+them would inflate every estimate by the whole morning's completed work. A visit past the desk gets
+no estimate at all rather than a zero — zero reads as "no wait", which is a claim rather than an
+absence. Rounded to five minutes, floored at five, capped at ninety: "about 20 minutes" is an
+estimate a clinic can keep and "18 minutes" is a promise it cannot.
+
+### Two more questions the reports could not answer
+
+`GET /reports/analytics` — turnaround against a target, arrivals by hour, and the revenue trend's
+comparative overlay. Ungated at the route like `/operations`, with each slice gated inside the
+service on `results:read` / `visits:read` / `billing:read`, and a caller holding none of the three
+refused outright rather than handed an empty object.
+
+**Turnaround is reported on two spans and neither is called just "turnaround".**
+`getDiagnosticThroughput` already publishes a median measured from PAYMENT to release, on the
+documented grounds that a visit registered at 8am and paid at 11am did not spend three hours in the
+lab. Registration-to-release is what the PATIENT experienced and is the more useful figure for
+asking where capacity goes. Both belong. What must not happen is a second query publishing a
+different number under the SAME name on a screen beside the first — that is the [1.32.0] divergence
+arriving by another door. So: `median_turnaround_minutes` is the department-owned span, identical
+in basis to the existing report and verified equal to it; `median_total_minutes` is the whole
+visit. A p90 is reported beside the median because a median hides its own tail by construction, and
+a department can hold a 36-minute median while one report in ten takes two hours — it is the
+two-hour patient who telephones.
+
+Targets are a clinic SETTING, not a measurement: `TURNAROUND_TARGETS` in the environment, with
+stated defaults. A department with no target is measured but not judged against a promise nobody
+made, and its rate is NULL rather than 0 — "not measured" and "never hit the target" are different
+facts.
+
+Arrivals come from `generate_series` over the clinic's own operating hours, LEFT JOINed to the
+data, so an hour with nobody in it draws a zero rather than vanishing. That distinction is the
+point of the chart: a gap at 11am and a quiet 11am look identical once the row is simply absent,
+and only one is worth acting on. Split walk-in against booked because a peak made of walk-ins is a
+desk to staff and the same peak made of bookings is a schedule to change — opposite responses to an
+identical bar.
+
+The revenue overlay aligns the two periods by POSITION, not by date — day one against day one — so
+the previous period's real date is carried through and named in the tooltip, or the reader could
+not tell which day they were looking at.
+
+### The chart palette was validated rather than chosen
+
+`#53843b` and `#0a71a9`, the clinic's own two logo colours, run through a colour-blindness
+validator against both theme surfaces: ΔE 18.7 protan, 19.2 normal vision, all checks pass in light
+and dark. The instinct to lighten both for dark mode was tested and FAILS — the 400-level steps
+fall below the chroma floor and land at ΔE 13.6 for normal vision, two series a fully sighted
+reader cannot reliably separate. The same two steps are used in both themes, measured rather than
+guessed. Tritan separation is 5.2, the weak axis for green/blue, which is why every chart using the
+pair also carries a legend and names both series in its tooltip.
+
+Median and p90 share a hue at two lightnesses — they are one distribution, and a categorical pair
+would imply they are independent quantities. The target line is recessive slate, not amber: those
+are reserved for states somebody must act on, and a benchmark is not a problem.
+
+### Testing
+
+`report-export.spec.js` (9) and `receipt-scan-queue.spec.js` (8) — 295 passing, up from 278.
+
+One pre-existing flake fixed on the way. `booking-picker.spec.js` took the FIRST slot rather than
+the first BOOKABLE one, on a quasi-random date nothing claimed; when that slot had been taken it
+retried a disabled button for the full timeout. It failed once in a full-suite run and passed three
+times in isolation afterwards, because `Date.now() % 30` had moved the date on — the exact
+signature CLAUDE.md warns about under "a booking spec must claim its own slot", and a trap for
+anyone who reads it as a regression in whatever they changed most recently.
+
+
+## [1.61.0] - 2026-08-28 (Send the report, not a notice that one exists)
+
+No schema change. One new module, `services/resultEmailTemplate.js`.
+
+### The email announced a result instead of delivering one
+
+Verified live to a real inbox: the message arrives, lands in the Inbox rather than Spam, correctly
+branded. And it said only this — *"Your results are now available. You can view your results by
+logging in to your account or by visiting the clinic."* A patient who reads it still has to make a
+trip or a login to learn anything.
+
+The clinic's own data said the report was sitting right there: **41 current results, 41 with
+findings text, 40 with an uploaded PDF.**
+
+The report travels now. **Both** in the body and as an attachment, not one or the other — an
+attachment a patient cannot open on their phone is no report at all, and a body with no document
+is not something a referring physician will accept. Those figures settle it: either alone would
+have failed some patient.
+
+The body carries a letterhead, then patient / age / sex / examination / department / date of
+examination / date released / referring physician, then the findings and remarks. Age and sex are
+there because they band the reference range a clinician reads the findings against, and the date
+of the EXAMINATION because that is the clinically meaningful one — routinely not the day the
+report was released.
+
+### A critical value still does not travel
+
+The one deliberate exception, and it is clinical rather than technical. A panic value read alone,
+at night, with no clinician attached, is how a patient ends up frightened and unadvised — or worse,
+reassured by a number they have misread. That email carries **no findings and no attachment**: it
+says to contact the clinic, says plainly that the findings were left out on purpose and why, and
+the report stays in the portal and at the counter where somebody can explain it. The clinic
+telephones for these anyway, and `acknowledgeCritical` is the record that a human made contact.
+
+This is a policy decision the clinic may reverse; it is one branch in `deliverResultEmail`.
+
+### Three guards on the attachment, each of which has to hold
+
+| | |
+|---|---|
+| **containment** | the path is rebuilt from `UPLOAD_ROOT` and re-checked with `resolve()`, the same rule the download route follows. `file_path` is server-generated random hex, never client input — but a stored value is still an input, and the cost of being wrong is emailing an arbitrary file off disk. Verified: a traversal path is refused. |
+| **existence** | a row outlives its file after a restored database or a cleared uploads directory. Degrades to body-only rather than throwing and losing the send. |
+| **size** | Gmail refuses over 25MB and fails the message as a whole. A report that will not send is worse than one with no attachment, because the patient then gets nothing. Capped at 20MB. |
+
+Every failure returns null instead of throwing, for the same reason: the findings are in the body,
+so the patient still receives their report.
+
+The attachment is renamed for the PATIENT — `Blood Urea Nitrogen (BUN) - Juan Dela Cruz.pdf` rather
+than whatever the technician's machine called it. `laboratory-report-de jesus.pdf` tells the
+recipient nothing about which of their tests it is.
+
+### Two smaller things this needed
+
+**Everything interpolated is escaped.** Findings are free text written by a technician, and
+`< 0.5 mmol/L` is an ordinary thing to write. Unescaped it becomes markup the mail client tries to
+interpret, and the value silently disappears from the report.
+
+**The letterhead comes from the same values as the receipt.** `CLINIC_NAME` / `ADDRESS` / `PHONE` /
+`EMAIL` were set in `.env` and never exposed by `environment.js`, so the backend could not read
+them. They now default to exactly what `frontend/src/lib/clinic.js` falls back to. Three sources
+drifting apart is a document nobody can rely on — the reasoning `clinic.js` already sets out for
+the printed receipt. TIN and business permit are deliberately absent: a diagnostic report is not a
+BIR document.
+
+Suite unchanged at 274, all passing.
+
+
+## [1.60.0] - 2026-08-27 (An address to send it to)
+
+`patients.email`, plus one partial index. `migratePatientEmail.js` (`--rollback` reverses it).
+Folded into `schema.sql`; verified zero-drift at 271 columns, 127 indexes, 31 tables.
+
+### The delivery feature had nowhere to deliver
+
+[1.59.0] shipped the "Email Result" button and the record of what was sent. Measured immediately
+afterwards, across all three modalities:
+
+| | released results | with an address |
+|---|---|---|
+| Laboratory | 15 | **0** |
+| X-Ray | 12 | **0** |
+| Ultrasound | 13 | **0** |
+
+Forty released reports and nowhere to send a single one of them.
+
+The cause: the only address in the system was `users.email`, reached through `patients.user_id` —
+and `user_id` is NULLABLE *precisely because* reception registers walk-ins at the counter without a
+web account. That is how most of this clinic's patients arrive, so "no email on file" was never an
+edge case; it was the norm, and the feature was unusable for exactly the people it was built for.
+The migration measured it on the live database: **54 of 56 active patients had no address of any
+kind.**
+
+Forcing a walk-in to create a login before the clinic can email them a result is a worse clinic,
+not a better database. Somebody at the counter can say their address in four seconds; they cannot
+choose a password, confirm it and verify an inbox while a queue forms behind them.
+
+### Which address wins
+
+`COALESCE(NULLIF(p.email, ''), u.email)` — the patient record first, the owning account second.
+
+The order matters because one account owns several patient profiles: a parent booking for
+dependents, which is why `GET /patients/my-profiles` is plural. The account's address is the right
+default for a dependent, since the parent is the one who booked. But an address typed onto a
+specific patient's record is a deliberate statement about **that** patient and should win over an
+inherited one. Falling back rather than replacing means no existing client-owned patient loses the
+address they already had, and nothing was backfilled — copying `users.email` onto the row would
+freeze a value that should follow the account when it changes, and create two places to correct
+one typo.
+
+Both reads resolve it identically. Two different answers in the list query and the send query is a
+button that promises one address and uses another.
+
+Not unique and not required. A household shares an inbox more often than not — a mother and two
+children on one address is ordinary — and a UNIQUE would refuse the second child at the counter
+for no clinical reason. Nor is it mandatory: a patient entitled to their result is never turned
+away for not having email.
+
+Asked for at **walk-in registration**, because that is the only moment the patient is standing in
+front of somebody who can ask, and editable afterwards in **Patient Records**. An omitted field is
+not an instruction to erase — `updatePatient` writes every column unconditionally, so without the
+guard in the service a caller sending only the fields it cares about would blank the address a
+patient's results go to. Same defect [1.54.0] found in the Services Catalogue, with a sharper
+consequence.
+
+### A calendar bug in the suite, found by the run that verified this
+
+`appointment-reschedule.spec.js` failed four tests. Nothing in the application had changed; the
+date had.
+
+The spec computed two distinct days as `workingDay(150)` and `workingDay(151)` — "today + N, then
+push off a weekend". On 2026-08-27, today+150 was Sunday 2027-01-24, which pushed to Monday
+2027-01-25 — and today+151 *was* that Monday. `DAY_A === DAY_B`, so "move this booking to another
+day" became "move it to the slot it already holds", and the tests failed on a perfectly correct
+409.
+
+This is the **second** time that helper shape has broken this spec. The first was the Saturday
+case: the clinic opens 18 slots on a weekday and 8 on a Saturday, so a helper that skipped Sunday
+alone silently halved the capacity a spec was claiming its way through.
+
+`tests/e2e/helpers/dates.js` replaces all four copies with `nthWorkingDay(n)`, which counts
+working days instead of offsetting into them. `nthWorkingDay(n)` and `nthWorkingDay(n + 1)` are
+different days on every calendar — the property those specs were assuming and never had. Verified
+over 250 consecutive values: zero adjacent collisions.
+
+A test that passes or fails on the day of the week is worse than one that always fails, because
+the morning goes on looking for a regression that is not there.
+
+`result-delivery.spec.js` grows to 14 tests. Suite is 274.
+
+
+## [1.59.0] - 2026-08-26 (Send the patient their result, and be able to say that you did)
+
+`test_results.emailed_at` / `emailed_to` / `email_count`, plus one partial index.
+`migrateResultDelivery.js` (`--rollback` reverses it). Folded into `schema.sql`; verified
+zero-drift at 270 columns, 126 indexes, 31 tables.
+
+### The feature that existed and could not be used
+
+Releasing a result has emailed the patient since [1.0.0]. `releaseResult` builds the message,
+calls `sendEmail`, and hands the technician an `emailStatus` toast. Then the toast fades and the
+fact is gone, because **nothing was ever written down**. Three ordinary questions had no answer
+anywhere in the system:
+
+| | |
+|---|---|
+| "was this patient ever emailed?" | the release wrote `Completed` and `released_by`, and nothing about delivery |
+| "she says it never arrived" | release is the only path that emails, it fires once, and it cannot be repeated |
+| "which address did it go to?" | a patient who has since corrected their email had no way to be told |
+
+Re-releasing was the only workaround available, and it is the wrong one: it writes a fresh
+clinical authorisation for an event that did not happen a second time.
+
+`POST /results/:visitTestId/email` closes it, gated on **`results:release`** rather than a
+permission of its own -- whoever may authorise a report reaching a patient may put it in front of
+them again, and a fresh `results:email` would be held by nobody until somebody remembered to grant
+it, leaving the clinic with no answer to "I never got it". The service refuses anything not
+already released, so this cannot become a side door around authorisation. Every manual send is
+audited; the automatic one at release is not, because it is part of an act already recorded.
+
+**`emailed_at` records the last SUCCESSFUL send and nothing else**, so `IS NULL` means "this report
+has never reached the patient" with no second reading. Not backfilled, for the same reason [1.32.0]
+replaced a fabricated refund date with the real one: every existing released result *was* emailed
+by the code that has always done it, but we have no record of which succeeded, and writing a
+plausible timestamp would be inventing delivery evidence for a medical report.
+
+One row per VERSION turns out to be exactly right. An amendment creates a new `test_results` row,
+so a v2 correctly starts with `emailed_at` NULL -- the patient has been sent v1 and has **not** been
+sent v2, and the schema says so without anyone having to reason about it.
+
+### Found while testing this: the clinic's mail quota was exhausted
+
+The first live send failed. `verify()` proved the credentials and the connection were fine, so the
+error was captured directly:
+
+```
+550-5.4.5 Daily user sending limit exceeded
+```
+
+The cause is ours. The E2E suite registers every throwaway account under `@enlogada-e2e.test` -- a
+domain with **no MX record** -- and every booking confirmation and released result addressed to one
+was a real SMTP send from the clinic's real Gmail account to nowhere. Two consequences, and the
+second is worse than the first:
+
+- **The quota is finite.** A free Gmail account allows a few hundred recipients a day. A couple of
+  full suite runs and a demo seed exhaust it -- and a real patient's result fails to send with it.
+- **Bounces cost sender reputation.** Repeated delivery failures to a nonexistent domain are
+  exactly what spam filtering scores against a sender. That bill is not paid by the test suite; it
+  is paid months later by a patient whose results quietly land in their junk folder.
+
+`sendEmail` now suppresses any recipient on that domain and logs it. Scoped by RECIPIENT, not by
+`NODE_ENV`: the suite runs against the development server in development mode, so an environment
+check would not have caught it, and production behaviour is unchanged.
+
+### Patient Records is a clinical roster, not a debtors list
+
+The roster carried an amber "N unpaid" chip per patient. Whether a bill is settled is the Billing
+Queue's question, and a clinical records screen that answers it reads as a list of debtors -- which
+is exactly how it was reported. Removed from Patient Records; **kept in Reception's walk-in
+lookup**, where it belongs and where it was originally added: at CHECK-IN, about to register
+another visit, an outstanding balance is the point.
+
+A **record status filter** replaces it -- All / Complete / Still open, filtered at the server, with
+"complete" meaning all three at once: they have been in, every test has been seen through, and
+nothing is unsettled. A filter and **not** the default, because this roster is also how the desk
+finds a patient to correct a misspelt surname, how a record is archived, and how a technician
+checks whose result they are holding. Defaulting to complete-only would make the screen unable to
+find exactly the people the clinic is currently treating. The `open` clause is written as the
+literal negation of the `complete` clause so the two cannot drift into overlapping or leaving a
+gap; measured, 41 + 16 = 57.
+
+The roster itself is now a proper `Table` -- sticky header, `stack` on mobile, one column each for
+the patient, their details, the diagnostic work, the last visit and the last report -- matching the
+diagnostic Test History, which was the better-looking screen and is the right shape for this one.
+
+### Finding the ones nobody was told about
+
+`idx_test_results_undelivered` had no reader when it was created. `GET /results/released/:category`
+now takes `delivery=unsent|sent`, and the Test History carries the chips for it.
+
+That filter is the reason the column was worth adding. Scanning a released list by eye for reports
+that never went is not a thing anyone does, so without it the record would be a fact stored and
+never used. It matters most straight after a mail outage, when the failures are a contiguous block
+with no other way to identify them — which is exactly the state the clinic was in when the send
+quota ran out. `unsent` deliberately does not mean "has no address": a report to a patient with a
+perfectly good email that failed at release belongs in that pile, because that is the pile someone
+has to work through.
+
+The empty state speaks for the filter too. "No released results yet" over a department with plenty
+of them, filtered to a set that happens to be empty, is a screen making a false claim about the
+department — so `unsent` reads "Every released report has reached its patient", and `sent` says
+plainly that anything released before this was recorded shows as unsent, meaning *unknown* rather
+than *never told*.
+
+`result-delivery.spec.js` covers all of it: 9 tests. Suite is 269.
+
+
+## [1.58.0] - 2026-08-26 (Ask for a slice, and ask for it again)
+
+No schema change. One new backend constant file, one new UI primitive, one new hook.
+
+### Filtering on a column the table was already printing
+
+Visit History has shown **Visit Type** and **Status** in their own columns since [1.0.0] and never
+offered a way to ask for either. "Show me yesterday's walk-ins" — the ordinary question at a front
+desk — meant reading 53 rows and counting by eye. Transaction History had the identical gap on
+**Payment Method**, on the screen used to reconcile a cash drawer against a ticking clock.
+
+Both now filter **at the server**. That is the property, not the chips: both lists are paged at the
+database, so narrowing the 25 rows already fetched would filter one page and then print the count
+of the whole range beside it — a screen reading *"53 visits"* over a list of four. The COUNT runs
+on the same WHERE as the list.
+
+`method` was already accepted by `GET /payments/transactions`; nothing on screen had ever sent it.
+`visitType` and `status` are new all the way down, allow-listed in `visitService` against
+`constants/visits.js`, which mirrors `chk_visits_type` and `chk_visits_status`.
+
+**An unrecognised filter is dropped, not applied.** Passing a typo through to SQL matches nothing
+and renders an empty screen — and an empty screen is indistinguishable from a clinic that saw
+nobody. Payment method is the deliberate exception and returns 400: those are the cash-up buckets,
+and a caller naming one that does not exist has made a mistake worth reporting.
+
+**The money case has a rule of its own.** `summary` narrows with `method` and deliberately does not
+narrow with `search`. A method is a real partition of the drawer — "Cash collected ₱17,690" against
+the cash filter *is* the figure being counted — while a name typed to find one receipt is a lookup
+and must not move the day's totals. Measured: 17,690 + 7,840 + 8,270 = 33,800, and 24 + 11 + 12 =
+47, both reconciling exactly to the unfiltered day.
+
+### A screen that fetched once and then sat
+
+Four screens polled. The rest fetched on mount and showed that reading indefinitely — and nobody
+closes a browser between patients, so an admin was routinely reading a queue as it stood hours
+earlier, with nothing on screen to say so.
+
+`RefreshButton` + `useFreshness` now cover eleven screens. **The timestamp is the half that
+matters**: a screen that can be refreshed still cannot be trusted unless it says how old what you
+are reading is. `useFreshness` observes an existing hook's loading flag rather than owning a fetch,
+so no data hook changed — the alternative was adding `lastUpdated` to a dozen of them, where the
+one that later forgets to stamp it reports stale data as fresh. It stamps only on a *successful*
+read, because a confidently wrong "Updated 15:32" over a five-hour-old queue is the exact thing it
+exists to prevent.
+
+Two fixes fell out of the sweep:
+
+- **`ServicesCatalog`'s Refresh reloaded one of the three lists it shows.** A package or an HMO
+  provider added elsewhere stayed missing from a screen the reader had just deliberately
+  refreshed — worse than no button, because it answers the question wrongly.
+- **`PatientRecordsOversight`** — a refresh wired to the bare `load()` would have reset to page 1.
+  A refresh that loses your place is a navigation.
+
+### Two patient-facing screens were reporting a failure as an absence
+
+`useMyResultHistory` and `useMyPayments` both caught their error, called `console.error`, and
+returned an empty array — so a failed request rendered **"No diagnostic requests found"** to a
+patient who had just been emailed to say their result was ready, and **"No payments yet"** to a
+patient holding a receipt. This is the omission `failure-states.spec.js` was written about, in the
+two places it had been missed, and on the screens where it does the most damage. Both hooks now
+carry `loading` and `error`, and both tabs render `tone="error"` — which looks deliberately unlike
+empty — with a retry.
+
+`filters-and-refresh.spec.js` covers all of it: 9 tests. Suite is 260.
+
+
+## [1.57.0] - 2026-08-26 (The clinic can finally say when it is open)
+
+`clinic_schedule_overrides` — the per-DATE layer. `migrateScheduleOverrides.js` (`--rollback`
+reverses it). Folded into `schema.sql`; 31 tables now.
+
+### The table that could be read and never written
+
+`clinic_operating_hours` has existed since [1.0.0] and `appointmentService.getAvailableSlots` has
+always read it — open/closed, the hours, the slot interval, how many bookings a slot holds. There
+was no route and no screen. The clinic's own opening hours could be changed **only by someone with
+a database client**, which in practice meant they were never changed at all.
+
+So the honest answer to "can an administrator cap bookings for a date, or edit the availability
+times?" was **no**, on both counts, and had been for the life of the project.
+
+### Two layers, and the split is the design
+
+| | |
+|---|---|
+| the WEEKLY PATTERN | one row per weekday. What the clinic does most weeks. |
+| per-DATE OVERRIDES | what it does on one specific day instead. |
+
+Every override field except the date is NULLABLE, and NULL means *keep the weekday's answer*. A
+closure is therefore one row saying `is_open = false` and nothing else; halving capacity for one
+Saturday does not restate its opening hours.
+
+The mistake the split exists to prevent is closing next Thursday by editing the Thursday row — and
+closing every Thursday from now on. `clinic-schedule.spec.js` asserts exactly that: after an
+override closes one date, the same weekday seven days later is still open.
+
+### Three things that had to be got right
+
+**A capacity of 0 is a real value.** "Open, but taking no online bookings today" is a thing a
+clinic means. Every read of these columns is `??`, never `||` — with `||` that deliberate zero
+falls through to the weekday's number and every slot comes back free, which is the opposite of
+what was asked for.
+
+**The date is the date.** A DATE column arrives from node-postgres as a JS Date at *local*
+midnight, and `toISOString()` then reports the UTC date — the day before, in PHT. Measured while
+building this: closing `2026-11-24` replied *"2026-11-23 is now closed"*. The functional behaviour
+was already right; only the confirmation lied, which is the worse failure of the two, because the
+administrator reads it and believes the wrong day is shut. `override_date` is now formatted in SQL
+(`TO_CHAR`) and travels as a string, and the default "from" for the list is `CURRENT_DATE` decided
+by Postgres. This is the third recurrence of the rule in CLAUDE.md.
+
+**A closure warns; it does not refuse.** The clinic genuinely does need to close a day it has
+already taken bookings for — a radiographer falls ill. Refusing would leave them unable to say so
+in the system at all. What it must never do is close the day *silently*, so `setOverride` returns
+`affectedBookings` and both the API message and the toast name the count.
+
+### What the patient sees, and when
+
+`GET /api/schedule/public` is unauthenticated, like `GET /tests` and `GET /packages` — a clinic's
+opening hours are on its front door. It carries the week and the upcoming exceptions, and
+deliberately **not** capacity: how many patients an hour the clinic can take is operational, and
+what the patient needs is whether a slot is free, which the grid already answers slot by slot.
+
+`Calendar` gained a generic `unavailable` map (`{ 'YYYY-MM-DD': 'reason' }`) so closed dates are
+greyed and struck through **before** the patient picks one, each carrying its reason as `title` and
+`aria-label`. Overrides are applied after the weekday rule and win, so a clinic opening specially
+on a Sunday is not greyed out by its own pattern. `SlotPicker` then names the reason on the closed
+day, on a fully-booked day (previously eighteen struck-through buttons and no explanation), and
+above a shortened grid.
+
+### Authorization
+
+Reading is **any signed-in staff member** — reception is asked "are we open on the 30th?" all day,
+and making them guess because the answer lives behind an admin screen is how a patient gets told
+the wrong thing. Writing is **Admin and SuperAdmin, by role**, with no permission beside it:
+minting `schedule:manage` would mean a permission held by nobody until somebody remembered to grant
+it, while the opening hours sat unchangeable. Deciding when the clinic opens is the same tier as
+pricing and staffing, both already Admin's. Every write is audited.
+
 ## [1.53.0] - 2026-08-26 (What the review found)
 
 No new feature. An architecture review of `[1.50.0]`..`[1.52.0]` — commissioned before the work and

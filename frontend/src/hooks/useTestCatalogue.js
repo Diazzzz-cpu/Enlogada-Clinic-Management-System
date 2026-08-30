@@ -1,4 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+
+// Fifteen rows: a full screen without scrolling on a laptop, and enough that most categories fit
+// on one page so paging is invisible until the list is genuinely long.
+const CATALOGUE_PAGE_SIZE = 15;
 import api from '../config/api';
 
 /**
@@ -180,8 +184,32 @@ export function useTestCatalogue() {
     ? tests
     : tests.filter((t) => t.category_id.toString() === filterCategory);
 
+  /**
+   * The catalogue is paged client-side, deliberately.
+   *
+   * GET /tests returns the whole catalogue in one call and several screens depend on that — the
+   * public Services page, the booking wizard's test picker, the demo seeder. It is also bounded by
+   * what a clinic sells rather than by traffic: 67 rows today, and it grows when someone adds a
+   * service, not when a patient books. Server-side paging would mean a new endpoint and a second
+   * shape for the same data to buy nothing at this size.
+   *
+   * What it fixes is the SCREEN. Sixty-seven rows in one scroll is where an admin loses the row
+   * they were looking for, and the filter above only helps if they already know the category.
+   *
+   * Paging sits after the filter, so a category and a page compose the way a reader expects; the
+   * page resets whenever the filter changes, or page 4 of "All" becomes an empty page 4 of
+   * "Ultrasound".
+   */
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [filterCategory]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CATALOGUE_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * CATALOGUE_PAGE_SIZE, safePage * CATALOGUE_PAGE_SIZE);
+
   return {
     tests, categories, filtered, loading, error,
+    paged, page: safePage, totalPages, setPage,
     filterCategory, setFilterCategory,
     showModal, editingTest, form, setForm, modalError, modalSuccess, submitting,
     openAdd, openEdit, closeModal, save,

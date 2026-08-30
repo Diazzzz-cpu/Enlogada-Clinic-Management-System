@@ -53,6 +53,12 @@ function joinRouteCalls(source) {
 
 function extractRouteGuards(source) {
   const found = [];
+  // The `// rbac-narrowing:` opt-out is written ABOVE the route, because that is where a person
+  // naturally puts an explanation — and the joined router call does not include it. Carrying the
+  // preceding comment block along is what makes the marker actually work; without this the
+  // annotation reads correctly to a human and is invisible to the check, which is the worst of
+  // both worlds.
+  let pendingComment = '';
   // A router.<verb>( ... ) call, however many lines it is spread over.
   //
   // This used to read one LINE at a time, on the stated convention that every route fits on one.
@@ -61,7 +67,20 @@ function extractRouteGuards(source) {
   // against the catalogue. Caught when a route gated on a permission that did not exist was
   // reported as "All good", which is the one thing this script exists to make impossible.
   for (const line of joinRouteCalls(source)) {
-    if (!/^router\.(get|post|put|patch|delete)\(/.test(line.trim())) continue;
+    const trimmed = line.trim();
+    if (!/^router\.(get|post|put|patch|delete)\(/.test(trimmed)) {
+      // Accumulate an unbroken run of comment lines; anything else clears it, so a marker cannot
+      // drift onto a route it was not written for.
+      pendingComment = trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')
+        ? `${pendingComment}
+${trimmed}`
+        : '';
+      continue;
+    }
+
+    const leading = pendingComment;
+    pendingComment = '';
+
     const permMatch = line.match(/authorizePermissions\(([^)]*)\)/);
     if (!permMatch) continue;
 
@@ -70,8 +89,10 @@ function extractRouteGuards(source) {
     const roles = rolesMatch ? [...rolesMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : [];
     const spread = rolesMatch ? [...rolesMatch[1].matchAll(/\.\.\.([A-Z_]+)/g)].map((m) => m[1]) : [];
 
-    const pathMatch = line.match(/router\.\w+\('([^']*)'/);
-    found.push({ path: pathMatch ? pathMatch[1] : '?', perms, roles, spread, line: line.trim() });
+    // `\s*` after the paren: a route spread over several lines joins with whitespace there,
+    // and without this every multi-line route was reported as "?".
+    const pathMatch = line.match(/router\.\w+\(\s*'([^']*)'/);
+    found.push({ path: pathMatch ? pathMatch[1] : '?', perms, roles, spread, line: trimmed, leading });
   }
   return found;
 }
@@ -102,6 +123,8 @@ async function main() {
   );
 
   const problems = [];
+  // Reviewable rather than fatal — see CHECK 5.
+  const narrowings = [];
   let gated = 0;
   let staffGated = 0;
   const routePermissions = new Set();
@@ -152,6 +175,39 @@ async function main() {
           }
         }
       }
+
+      // CHECK 5 — the OTHER direction, which nothing was asking. [1.63.0]
+      //
+      // Check 3 asks "does every role NAMED on this route hold the permission?". It never asked
+      // "does every role that HOLDS the permission appear on this route?" — and that gap hid a
+      // real disagreement: the Cashier was granted `billing:submit_proof` in the matrix while both
+      // routes using it named only SuperAdmin, Admin, Receptionist and Client. A cashier holding
+      // the permission got a 403 from the role gate, and this script reported "All good".
+      //
+      // That is precisely the "matrix that lies" shape [1.20.0] removed from 45 routes: somebody
+      // ticks a box, it saves, it reports success, and nothing happens.
+      //
+      // ── Why a WARNING and not a failure ────────────────────────────────────────────────────
+      //
+      // Because a narrower role list is sometimes the whole point. `PATCH /patients/:id/archive`
+      // is gated on `patients:update` AND restricted to Admin: reception holds that permission for
+      // CORRECTING a record and must not be able to archive one. That is a deliberate narrowing,
+      // not a bug, and a check that failed on it would be turned off within a week.
+      //
+      // So these are listed for review, and a route can opt out by saying why:
+      //     // rbac-narrowing: reception may correct a record but not archive one
+      for (const [role, held] of Object.entries(matrix)) {
+        if (BYPASS.has(role) || role === 'Client') continue;
+        if (roles.includes(role)) continue;
+        if (/rbac-narrowing:/.test(route.line) || /rbac-narrowing:/.test(route.leading)) continue;
+        if (route.perms.length === 0) continue;
+        if (!route.perms.every((perm) => held.has(perm))) continue;
+
+        narrowings.push(
+          `${file} ${route.path} — "${role}" holds ${route.perms.map((p) => `"${p}"`).join(' + ')} ` +
+          `but is not named in authorizeRoles, so the grant does nothing`
+        );
+      }
     }
   }
 
@@ -175,6 +231,15 @@ async function main() {
   }
 
   logger.info(`Checked ${gated} permission-gated route(s) — ${staffGated} decided by permission alone.`);
+
+  // Listed before the verdict, and never fatal. A grant that does nothing is not a broken route —
+  // it is a matrix saying something the API does not honour, which somebody has to decide about.
+  if (narrowings.length > 0) {
+    logger.warn(`${narrowings.length} grant(s) that the route's role list overrides — review, do not ignore:`);
+    for (const n of narrowings) logger.warn(`   ${n}`);
+    logger.warn('   Either name the role on the route, drop the grant, or add a `// rbac-narrowing:` note saying why.');
+  }
+
   if (problems.length === 0) {
     logger.info('All good — every gated route is reachable by the roles that should reach it.');
     process.exit(0);

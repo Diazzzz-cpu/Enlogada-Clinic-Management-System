@@ -112,7 +112,7 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-[60vh] overflow-hidden rounded-lg border border-[#e6ebf1] bg-slate-50">
+        <div className="min-h-[60vh] overflow-hidden rounded-lg border border-line bg-slate-50">
           {state.status === 'loading' && (
             <div className="space-y-3 p-6">
               <Skeleton className="h-4 w-1/3" />

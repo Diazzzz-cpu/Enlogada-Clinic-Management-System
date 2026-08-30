@@ -1,5 +1,6 @@
 const { sendEmail } = require('../config/email');
 const { formatTime12 } = require('../constants/clockFormat');
+const { ARRIVAL_LEAD_MINUTES, arrivalTimeFor } = require('../constants/scheduling');
 const logger = require('../config/logger');
 
 /**
@@ -60,8 +61,11 @@ const detailTable = ({ reference, date, time, queueNumber }) => `
         <td style="padding:4px 0;"><strong>${esc(reference)}</strong></td></tr>
     <tr><td style="padding:4px 16px 4px 0;color:#64748b;">Date</td>
         <td style="padding:4px 0;"><strong>${esc(readableDate(date))}</strong></td></tr>
-    <tr><td style="padding:4px 16px 4px 0;color:#64748b;">Time</td>
+    <tr><td style="padding:4px 16px 4px 0;color:#64748b;">Scheduled service time</td>
         <td style="padding:4px 0;"><strong>${esc(readableTime(time))}</strong></td></tr>
+    ${arrivalTimeFor(time) ? `<tr><td style="padding:4px 16px 4px 0;color:#64748b;">Recommended arrival</td>
+        <td style="padding:4px 0;"><strong>${esc(readableTime(arrivalTimeFor(time)))}</strong>
+        <span style="color:#64748b;">for front-desk check-in</span></td></tr>` : ''}
     ${queueNumber ? `<tr><td style="padding:4px 16px 4px 0;color:#64748b;">Queue</td>
         <td style="padding:4px 0;"><strong>${esc(queueNumber)}</strong></td></tr>` : ''}
   </table>
@@ -170,9 +174,11 @@ class AppointmentEmailService {
            <strong>${esc(readableDate(date))}</strong> at <strong>${esc(readableTime(time))}</strong>.</p>
         ${detailTable({ reference, date, time, queueNumber })}
         ${preparationBlock(tests)}
-        <p style="font-size:14px;">Please arrive about 10 minutes early and bring a valid ID. If
-           you can no longer make it, cancelling from your account frees the slot for someone
-           else.</p>
+        <p style="font-size:14px;">Please arrive by
+           <strong>${esc(readableTime(arrivalTimeFor(time)) || readableTime(time))}</strong>
+           (${ARRIVAL_LEAD_MINUTES} minutes before your scheduled time) for front-desk check-in,
+           and bring a valid ID. If you can no longer make it, cancelling from your account frees
+           the slot for someone else.</p>
       `),
     });
   }

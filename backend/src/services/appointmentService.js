@@ -10,6 +10,7 @@ const scheduleRepository = require('../repositories/scheduleRepository');
 const testRepository = require('../repositories/testRepository');
 const patientService = require('./patientService');
 const notificationService = require('./notificationService');
+const queueEstimateService = require('./queueEstimateService');
 const testService = require('./testService');
 const packageService = require('./packageService');
 const hmoService = require('./hmoService');
@@ -134,6 +135,16 @@ function formatDateOnly(value) {
 }
 
 class AppointmentService {
+  /**
+   * Bookable times for one date, from the weekly pattern plus any override for that date.
+   *
+   * @param {string} date  'YYYY-MM-DD', the clinic's LOCAL date.
+   * @returns {Promise<object>} Every slot in the day, each flagged available or not — not only the
+   *   free ones, so the picker can show a taken slot as taken rather than omitting it.
+   *
+   * A per-date override wins over the weekday pattern, which is how a public holiday closes or a
+   * Saturday runs shorter hours without anybody editing the weekly schedule.
+   */
   async getAvailableSlots(date) {
     // A day that has already passed is closed, whatever the operating hours say. [1.33.0]
     //
@@ -151,14 +162,34 @@ class AppointmentService {
     const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
     const hours = await scheduleRepository.findOperatingHoursForDay(dayOfWeek);
 
-    if (!hours || !hours.is_open) {
-      return { date, isOpen: false, slots: [] };
+    // ── What the clinic has said about THIS date, over the weekly pattern [1.57.0] ───────────
+    //
+    // The pattern cannot express "not this Thursday". Before overrides, a Holy Week closure or a
+    // day with one sonographer instead of two had to be handled by telephoning every patient who
+    // took a slot the clinic could not honour.
+    //
+    // Every field on an override is nullable and NULL means "keep the weekday's answer", so
+    // closing a day is one row saying is_open=false and nothing else. `??` rather than `||`
+    // throughout: a deliberate capacity of 0 is a real value and `||` would silently discard it
+    // in favour of the weekday's.
+    const override = await scheduleRepository.findOverrideForDate(date);
+
+    const isOpen = override ? override.is_open : Boolean(hours?.is_open);
+    if (!hours || !isOpen) {
+      return {
+        date,
+        isOpen: false,
+        slots: [],
+        // Why, when the clinic has said. A closed day with no reason reads as a broken website;
+        // "Closed — Holy Week" reads as a clinic that is shut.
+        note: override?.note || null,
+      };
     }
 
-    const openMinutes = timeToMinutes(hours.open_time);
-    const closeMinutes = timeToMinutes(hours.close_time);
-    const interval = hours.slot_interval_minutes;
-    const maxConcurrent = hours.max_concurrent_bookings;
+    const openMinutes = timeToMinutes(override?.open_time ?? hours.open_time);
+    const closeMinutes = timeToMinutes(override?.close_time ?? hours.close_time);
+    const interval = override?.slot_interval_minutes ?? hours.slot_interval_minutes;
+    const maxConcurrent = override?.max_concurrent_bookings ?? hours.max_concurrent_bookings;
 
     const bookings = await scheduleRepository.countBookingsByTimeForDate(date);
     const bookedCounts = {};
@@ -178,7 +209,9 @@ class AppointmentService {
       slots.push({ time, available: bookedCount < maxConcurrent && !isPast });
     }
 
-    return { date, isOpen: true, slots };
+    // `note` rides along on an OPEN day too: "Half day — staff training" is exactly the sort of
+    // thing a patient should read before choosing a time, not after arriving.
+    return { date, isOpen: true, slots, note: override?.note || null };
   }
 
   // Books an appointment and everything that belongs to it in ONE transaction.
@@ -389,6 +422,15 @@ class AppointmentService {
     return outcome;
   }
 
+  /**
+   * Looks up a booking by the reference its QR encodes. This is the check-in scan.
+   *
+   * @param {string} reference
+   * @returns {Promise<object|null>}
+   *
+   * The QR carries this string and nothing else, precisely so a scan and a typed reference are the
+   * same lookup — packing a second value into the code would stop check-in working.
+   */
   async verifyByReference(reference) {
     const appointment = await appointmentRepository.findByReference(reference);
     if (!appointment) {
@@ -399,8 +441,26 @@ class AppointmentService {
     return appointment;
   }
 
+  /**
+   * The patient's own bookings, each carrying a wait estimate when it is in today's queue.
+   *
+   * [1.62.0] The estimate is applied through the SAME `queueEstimateService` the staff queue uses,
+   * with the same rate and the same rounding. Two independent calculations of "how long until I am
+   * seen" would disagree within a minute of each other, and the patient would be looking at one
+   * while the receptionist read the other — which is worse than neither screen having a number.
+   */
   async getClientBookings(userId) {
-    return await appointmentRepository.findByPatientUserId(userId);
+    const bookings = await appointmentRepository.findByPatientUserId(userId);
+    if (!bookings.length) return bookings;
+
+    // One rate for the whole list. Rows with a null `patients_ahead` are not in today's queue and
+    // are returned untouched, without an estimate.
+    const rate = await queueEstimateService.getServiceRate();
+    return bookings.map((booking) => (
+      booking.patients_ahead === null || booking.patients_ahead === undefined
+        ? booking
+        : { ...booking, ...queueEstimateService.estimateFor(booking.patients_ahead, rate) }
+    ));
   }
 
   async getAllAppointments({ status, dateFrom, dateTo, page, limit } = {}) {
@@ -425,6 +485,14 @@ class AppointmentService {
     };
   }
 
+  /**
+   * Cancels a booking and frees its slot.
+   *
+   * @param {number} id
+   * @param {object} requestingUser  A Client may cancel only their own. Ownership is checked per
+   *   patient PROFILE, since one account may own several.
+   * @returns {Promise<object>}
+   */
   async cancelAppointment(id, requestingUser) {
     const appointment = await appointmentRepository.findById(id);
     if (!appointment) {

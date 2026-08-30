@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS discount_types CASCADE;
 DROP TABLE IF EXISTS audit_log CASCADE;
 DROP TABLE IF EXISTS notification_reads CASCADE;
 DROP TABLE IF EXISTS notification_events CASCADE;
+DROP TABLE IF EXISTS clinic_schedule_overrides CASCADE;
 DROP TABLE IF EXISTS clinic_operating_hours CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS role_permissions CASCADE;
@@ -155,10 +156,32 @@ CREATE TABLE patients (
     address TEXT,
     contact_number VARCHAR(20),
     emergency_contact VARCHAR(100),
+    -- Where this patient's RESULTS are sent. [1.60.0] The only address used to be users.email,
+    -- reached through the NULLABLE user_id -- and reception registers walk-ins at the counter
+    -- with no web account, which is how most patients here arrive. Measured the day this was
+    -- added: 54 of 56 active patients had no address of any kind, so the delivery feature
+    -- [1.59.0] had nowhere to send 40 released reports.
+    --
+    -- Not unique and not required. A household shares an inbox more often than not, and a UNIQUE
+    -- would refuse the second child at the counter for no clinical reason; a patient entitled to
+    -- their result is never turned away for not having email. Reads COALESCE this over the
+    -- owning account's address -- see findPatientEmailByVisitTestId.
+    email VARCHAR(255),
+    -- Archived, not deleted. [1.56.0] NULL means active, which is every row without a backfill.
+    -- A patient row is the parent of their visits, bills and results; deleting one would either
+    -- fail on the foreign keys or take a clinical and financial history with it. Diagnostic
+    -- records are retained for years, and a receipt already issued must stay explicable.
+    --
+    -- archived_by is who decided. Hiding a record from the roster the front desk searches all day
+    -- is an editorial act on somebody's medical record, and "who did this" is the first question
+    -- asked when a record cannot be found.
+    archived_at TIMESTAMP,
+    archived_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_patients_user FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_patients_type FOREIGN KEY (patient_type_id) REFERENCES patient_types(id),
+    CONSTRAINT fk_patients_archived_by FOREIGN KEY (archived_by) REFERENCES users(id),
     CONSTRAINT chk_patients_sex CHECK (sex IN ('Male', 'Female'))
 );
 
@@ -282,6 +305,44 @@ CREATE TABLE tests (
     CONSTRAINT uq_tests_category_name UNIQUE (category_id, name)
 );
 
+-- ── Package deals [1.45.0] ───────────────────────────────────────────────────────────────────
+--
+-- A package is NOT a `tests` row and cannot be: a row has one category_id, and that is what routes
+-- work to a department worklist. Every bundle the clinic sells spans Laboratory AND Ultrasound, so
+-- as a single row half the work would never reach the department that has to perform it.
+--
+-- At booking, packageService.attachPackages expands a package into one visit_tests row per
+-- component, with the fixed price spread across them in proportion to their list prices and the
+-- remainder on the largest — so the parts sum to the package price EXACTLY. That column is what
+-- the visit subtotal, the discount base, the drawer and the per-department revenue report read.
+CREATE TABLE test_packages (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    name VARCHAR(150) NOT NULL,
+    price NUMERIC(10,2) NOT NULL,
+    description TEXT,
+    -- Retiring is not deleting: booked visits keep their price, the bundle just stops being
+    -- offered. The server refuses to book a retired one.
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_test_packages_price CHECK (price >= 0)
+);
+
+CREATE TABLE test_package_items (
+    id SERIAL PRIMARY KEY,
+    package_id INT NOT NULL,
+    test_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_package_items_package FOREIGN KEY (package_id) REFERENCES test_packages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_package_items_test FOREIGN KEY (test_id) REFERENCES tests(id),
+    -- One line per test per bundle. Listing a test twice would double its allocated share.
+    CONSTRAINT uq_package_items UNIQUE (package_id, test_id)
+);
+
+CREATE INDEX idx_package_items_package ON test_package_items (package_id);
+CREATE INDEX idx_package_items_test ON test_package_items (test_id);
+
 CREATE TABLE visit_tests (
     id SERIAL PRIMARY KEY,
     patient_visit_id INT NOT NULL,
@@ -289,10 +350,14 @@ CREATE TABLE visit_tests (
     status VARCHAR(50) DEFAULT 'Pending',
     price_at_time NUMERIC(10,2) NOT NULL, -- Captures price of the test at the moment of booking/visit
     remarks TEXT,
+    -- Which bundle this line came from, when it came from one. [1.45.0] NULL for a test picked
+    -- individually. What makes the allocated share traceable back to the package that set it.
+    package_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_visit_tests_visit FOREIGN KEY (patient_visit_id) REFERENCES patient_visits(id),
     CONSTRAINT fk_visit_tests_test FOREIGN KEY (test_id) REFERENCES tests(id),
+    CONSTRAINT fk_visit_tests_package FOREIGN KEY (package_id) REFERENCES test_packages(id),
     -- 'Waiting for Release': the modality has performed the exam and recorded findings, but the
     -- result has not yet been authorised/released to the patient. Sits between 'Processing'
     -- (released to the modality, exam not yet done) and 'Completed' (result released).
@@ -436,6 +501,20 @@ CREATE TABLE test_results (
     critical_acknowledged_by INT,
     critical_acknowledgement_note TEXT,
 
+    -- Whether this report actually reached the patient. [1.59.0] Release has emailed the patient
+    -- since the first version and recorded nothing about it, so "was she ever told?" had no
+    -- answer anywhere. One row per VERSION turns out to be exactly right here: an amendment
+    -- creates a new row, so a v2 correctly starts with emailed_at NULL -- the patient has been
+    -- sent v1 and has NOT been sent v2, and the schema says so without anyone reasoning about it.
+    --
+    -- emailed_at records the last SUCCESSFUL send and nothing else, so IS NULL means "this report
+    -- has never reached the patient" with no second reading. A failed attempt is reported to the
+    -- technician at the time and recorded in audit_log; it must not touch a column whose whole
+    -- value is being unambiguous.
+    emailed_at TIMESTAMP,
+    emailed_to VARCHAR(255),
+    email_count INT NOT NULL DEFAULT 0,
+
     CONSTRAINT fk_results_superseded_by FOREIGN KEY (superseded_by) REFERENCES test_results(id),
     CONSTRAINT fk_results_critical_ack_by FOREIGN KEY (critical_acknowledged_by) REFERENCES users(id),
     CONSTRAINT fk_results_visit_test FOREIGN KEY (visit_test_id) REFERENCES visit_tests(id),
@@ -444,6 +523,37 @@ CREATE TABLE test_results (
 );
 
 -- 7. Billing and Payments
+-- ── Manual proof of payment [1.48.0] ─────────────────────────────────────────────────────────
+--
+-- The clinic takes online payment WITHOUT a gateway. SuperAdmin publishes its own GCash/bank
+-- details and QR here; the patient pays, uploads a screenshot with the reference, and a cashier
+-- verifies it. Approval runs the EXISTING paymentService.processPayment, so it gets a real receipt
+-- number, the visit release and the cash-up entry — never a parallel money writer.
+--
+-- `kind` is constrained to the three buckets `payments` accepts, because that is what the approved
+-- submission settles into. The clinic's own naming goes in `label`.
+--
+-- Publishing an account number is SuperAdmin ONLY and audited: it is where a patient's money is
+-- sent, and a wrong number redirects real payments with no error anywhere.
+CREATE TABLE payment_methods (
+    id SERIAL PRIMARY KEY,
+    kind VARCHAR(50) NOT NULL,
+    label VARCHAR(120) NOT NULL,
+    account_name VARCHAR(150),
+    account_number VARCHAR(100),
+    bank_name VARCHAR(120),
+    instructions TEXT,
+    qr_file_path VARCHAR(255),
+    qr_original_name TEXT,
+    qr_mime_type VARCHAR(100),
+    qr_size_bytes INT,
+    is_active BOOLEAN DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_payment_methods_kind CHECK (kind IN ('Cash', 'GCash', 'Bank'))
+);
+
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
     patient_visit_id INT NOT NULL,
@@ -498,6 +608,53 @@ CREATE TABLE payments (
 CREATE INDEX idx_payments_gateway_session ON payments(gateway_session_id);
 
 -- 8. Clinic Availability
+-- The patient's claim that they have paid, and the cashier's decision on it. [1.48.0]
+--
+-- `amount_claimed` is EVIDENCE, never an instruction. Approval bills the recomputed visit total,
+-- so a patient typing 50 on a ₱1,450 visit cannot produce a ₱50 payment even if a cashier
+-- approves it — which is why the review queue shows amount_due beside amount_claimed.
+--
+-- `payment_id` links to the receipt approval produced. NULL until then, and NULL forever on a
+-- rejection.
+CREATE TABLE payment_submissions (
+    id SERIAL PRIMARY KEY,
+    patient_visit_id INT NOT NULL,
+    payment_method_id INT,
+    reference_number VARCHAR(100) NOT NULL,
+    amount_claimed NUMERIC(10,2) NOT NULL,
+    proof_file_path VARCHAR(255),
+    proof_original_name TEXT,
+    proof_mime_type VARCHAR(100),
+    proof_size_bytes INT,
+    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+    submitted_by INT,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_by INT,
+    reviewed_at TIMESTAMP,
+    review_note TEXT,
+    payment_id INT,
+    CONSTRAINT fk_paysub_visit FOREIGN KEY (patient_visit_id) REFERENCES patient_visits(id),
+    CONSTRAINT fk_paysub_method FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id),
+    CONSTRAINT fk_paysub_submitted_by FOREIGN KEY (submitted_by) REFERENCES users(id),
+    CONSTRAINT fk_paysub_reviewed_by FOREIGN KEY (reviewed_by) REFERENCES users(id),
+    CONSTRAINT fk_paysub_payment FOREIGN KEY (payment_id) REFERENCES payments(id),
+    CONSTRAINT chk_paysub_status CHECK (status IN ('Pending', 'Verified', 'Rejected')),
+    CONSTRAINT chk_paysub_amount CHECK (amount_claimed >= 0)
+);
+
+-- One LIVE claim per visit, so two cashiers cannot take the same money twice. Partial, because a
+-- rejected submission must not block the patient from trying again.
+CREATE UNIQUE INDEX uq_paysub_one_live_per_visit
+    ON payment_submissions (patient_visit_id) WHERE status = 'Pending';
+
+CREATE INDEX idx_paysub_visit ON payment_submissions (patient_visit_id);
+CREATE INDEX idx_paysub_method ON payment_submissions (payment_method_id);
+CREATE INDEX idx_paysub_submitted_by ON payment_submissions (submitted_by);
+CREATE INDEX idx_paysub_reviewed_by ON payment_submissions (reviewed_by);
+CREATE INDEX idx_paysub_payment ON payment_submissions (payment_id);
+-- The cashier's queue: pending only, newest first.
+CREATE INDEX idx_paysub_pending ON payment_submissions (submitted_at) WHERE status = 'Pending';
+
 CREATE TABLE clinic_operating_hours (
     id SERIAL PRIMARY KEY,
     day_of_week SMALLINT NOT NULL UNIQUE, -- 0=Sunday .. 6=Saturday
@@ -511,6 +668,44 @@ CREATE TABLE clinic_operating_hours (
       is_open = FALSE OR (open_time IS NOT NULL AND close_time IS NOT NULL AND open_time < close_time)
     )
 );
+
+-- What the clinic does on ONE specific date, instead of what its weekday says. [1.57.0]
+--
+-- The weekly pattern above cannot express "closed this Thursday" or "half capacity on the 30th",
+-- and editing the weekday row to say so would change every Thursday forever. So: one row per
+-- overridden date, with every field except the date NULLABLE. NULL means "keep the weekday's
+-- answer", which is why closing a day is a single row carrying is_open=false and nothing else,
+-- and why every read of these columns uses ?? rather than || -- a capacity of 0 is a real,
+-- deliberate value meaning "open, but taking no online bookings today".
+--
+-- `note` is shown to the PATIENT on the booking screen. A closed day with no reason reads as a
+-- broken website; "Closed -- Holy Week" reads as a clinic that is shut.
+CREATE TABLE clinic_schedule_overrides (
+    id SERIAL PRIMARY KEY,
+    override_date DATE NOT NULL UNIQUE,
+    is_open BOOLEAN NOT NULL DEFAULT TRUE,
+    open_time TIME,
+    close_time TIME,
+    slot_interval_minutes INT,
+    max_concurrent_bookings INT,
+    note VARCHAR(200),
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_schedule_override_creator FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT chk_schedule_override_interval CHECK (slot_interval_minutes IS NULL OR slot_interval_minutes BETWEEN 5 AND 240),
+    CONSTRAINT chk_schedule_override_capacity CHECK (max_concurrent_bookings IS NULL OR max_concurrent_bookings >= 0),
+    -- Both times or neither. Half a range is not a schedule, and the slot builder would read the
+    -- missing half from the weekday and produce a window nobody chose.
+    CONSTRAINT chk_schedule_override_times CHECK (
+      (open_time IS NULL AND close_time IS NULL)
+      OR (open_time IS NOT NULL AND close_time IS NOT NULL AND close_time > open_time)
+    )
+);
+
+-- Serves the admin list, which reads forward from today. The per-date lookup on the booking path
+-- is already served by the UNIQUE on override_date.
+CREATE INDEX idx_schedule_overrides_date ON clinic_schedule_overrides (override_date DESC);
 
 -- 9. Notifications (Module 18). Split into two tables rather than one flat, per-recipient
 -- table: an event (title/message/type) is a fact that exists once and never changes; who has
@@ -577,11 +772,13 @@ INSERT INTO patient_types (name) VALUES
 ('Private'),
 ('Self Pay');
 
+-- [1.50.0] '2D Echo' removed: the clinic does not offer it. 'ECG' is likewise not offered and its
+-- tests are deactivated by seedRealCatalogue.js, but the CATEGORY row stays because historical
+-- visit_tests may still point at it — a past visit has to keep being able to say what it was for.
 INSERT INTO test_categories (name) VALUES
 ('Laboratory'),
 ('Xray'),
 ('Ultrasound'),
-('2D Echo'),
 ('ECG');
 
 INSERT INTO hmo_providers (name) VALUES
@@ -604,11 +801,8 @@ INSERT INTO tests (category_id, name, price) VALUES
 (3, 'Abdominal Ultrasound', 1500.00),
 (3, 'Thyroid Ultrasound', 1000.00),
 (3, 'Breast Ultrasound', 1200.00),
--- 2D Echo Tests
-(4, 'Plain 2D Echo with Doppler', 2580.00),
-(4, 'Pediatric 2D Echo', 3080.00),
 -- ECG Tests
-(5, '12 Lead ECG', 480.00);
+(4, '12 Lead ECG', 480.00);
 
 -- Seed Clinic Operating Hours (Mon-Fri 08:00-17:00, Sat 08:00-12:00, Sun closed, 30-min slots)
 INSERT INTO clinic_operating_hours (day_of_week, is_open, open_time, close_time, slot_interval_minutes, max_concurrent_bookings) VALUES
@@ -731,6 +925,11 @@ CREATE INDEX IF NOT EXISTS idx_payments_discount_type
 -- original in place.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_test_results_current_per_test
     ON test_results (visit_test_id) WHERE is_current;
+
+-- Released reports the patient has not been sent. Partial, because that set is the minority and
+-- always will be: the index covers the rows worth chasing, not the whole table.
+CREATE INDEX IF NOT EXISTS idx_test_results_undelivered
+    ON test_results (visit_test_id) WHERE is_current AND emailed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_test_results_visit_test_version
     ON test_results (visit_test_id, version DESC);
 
@@ -742,3 +941,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_receipt_number
 -- alongside its one live payment, but never two settled charges.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_one_paid_per_visit
     ON payments (patient_visit_id) WHERE payment_status = 'Paid';
+
+-- ── Indexes the later migrations added, folded back [1.54.0] ─────────────────────────────────
+--
+-- These existed only inside migrateQueryPerformance.js, migrateIndexHygiene.js and the feature
+-- migrations that introduced their columns, so a database rebuilt from THIS file came up
+-- functionally correct and measurably slower — with no error to say why. Ten of them were
+-- missing; the whole point of the file being the source of truth is that this list matches.
+--
+-- Every one is on a raw column, never an expression: a B-tree cannot serve a predicate on
+-- `col::date`, which is why the money and queue queries use half-open ranges. See CLAUDE.md.
+
+-- The date-ranged screens: the cashier's cash-up, the reports, the visit history.
+CREATE INDEX IF NOT EXISTS idx_payments_paid_at ON payments (paid_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payments_status_paid_at ON payments (payment_status, paid_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patient_visits_status_created ON patient_visits (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_visit_tests_created_at ON visit_tests (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_test_results_released_at ON test_results (released_at DESC);
+
+-- Foreign keys that grew with later features and had no index of their own.
+CREATE INDEX IF NOT EXISTS idx_test_results_recorded_by ON test_results (recorded_by);
+CREATE INDEX IF NOT EXISTS idx_hmo_requests_card_verified_by ON hmo_requests (card_verified_by);
+
+-- Partial, because the rows that matter are a small minority of the table.
+-- A held slot is released after 15 minutes [1.35.0]; the sweeper reads only rows that hold one.
+CREATE INDEX IF NOT EXISTS idx_appointments_held_until
+    ON appointments (held_until) WHERE held_until IS NOT NULL;
+-- Most visits are self-pay walk-ins with no referrer [1.23.0].
+CREATE INDEX IF NOT EXISTS idx_patient_visits_referring_physician
+    ON patient_visits (referring_physician) WHERE referring_physician IS NOT NULL;
+-- Most visit_tests are picked individually rather than as part of a bundle [1.45.0].
+CREATE INDEX IF NOT EXISTS idx_visit_tests_package
+    ON visit_tests (package_id) WHERE package_id IS NOT NULL;
+-- Archived records are the minority and always will be, so this covers the rows the roster query
+-- EXCLUDES rather than the whole table. [1.56.0]
+CREATE INDEX IF NOT EXISTS idx_patients_archived
+    ON patients (archived_at) WHERE archived_at IS NOT NULL;
+
+-- Lookup by address, lowercased to match how the service stores it. Partial: only rows that have
+-- one, which is the minority today and always the point of the index.
+CREATE INDEX IF NOT EXISTS idx_patients_email
+    ON patients (LOWER(email)) WHERE email IS NOT NULL;

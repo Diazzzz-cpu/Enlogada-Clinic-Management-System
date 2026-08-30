@@ -41,7 +41,7 @@ export default function HmoProviderFormDialog({ hmoAdmin }) {
                 autoFocus
               />
             </div>
-            <div className="flex justify-end space-x-2 pt-3 border-t border-[#e6ebf1]">
+            <div className="flex justify-end space-x-2 pt-3 border-t border-line">
               <Button type="button" variant="outline" onClick={hmoAdmin.closeModal}>Cancel</Button>
               <Button type="submit" disabled={hmoAdmin.submitting} className="bg-brand-500 hover:bg-primary-hover text-white">
                 {hmoAdmin.submitting ? 'Saving…' : hmoAdmin.editing ? 'Save Changes' : 'Add Provider'}

@@ -2,7 +2,7 @@ import React from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
 import PageHeader from '../../components/ui/page-header';
 import { Button } from '../../components/ui/button';
-import { Layers, Plus, RefreshCw } from 'lucide-react';
+import { Layers, Plus } from 'lucide-react';
 import ServicesTablePanel from '../../components/admin/ServicesTablePanel';
 import ServiceFormDialog from '../../components/admin/ServiceFormDialog';
 import HmoProvidersPanel from '../../components/admin/HmoProvidersPanel';
@@ -13,6 +13,8 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { useTestCatalogue } from '../../hooks/useTestCatalogue';
 import { useHmoProviderAdmin } from '../../hooks/useHmoProviderAdmin';
 import { usePackageAdmin } from '../../hooks/usePackageAdmin';
+import RefreshButton from '../../components/ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 
 /**
  * What the clinic sells, and who it bills.
@@ -25,6 +27,18 @@ const ServicesCatalog = ({ activeNav = 'services-cat', onSelectNav }) => {
   const hmoAdmin = useHmoProviderAdmin();
   const packageAdmin = usePackageAdmin();
 
+  // One control, three lists. It used to reload only the services, so a package or a provider
+  // added by someone else stayed missing from a screen the reader had just deliberately
+  // refreshed — which is worse than no button, because it answers the question wrongly.
+  const anyLoading = catalogue.loading || packageAdmin.loading || hmoAdmin.loading;
+  const anyError = catalogue.error || packageAdmin.error || hmoAdmin.error;
+  const updatedAt = useFreshness(anyLoading, anyError);
+  const reloadAll = () => {
+    catalogue.reload();
+    packageAdmin.reload();
+    hmoAdmin.reload();
+  };
+
   return (
     <SidebarLayout title="Services Catalog Management" activeNav={activeNav} onSelectNav={onSelectNav}>
       <div className="space-y-6">
@@ -36,10 +50,7 @@ const ServicesCatalog = ({ activeNav = 'services-cat', onSelectNav }) => {
           description="The diagnostic services the clinic offers and what they cost. Edits appear immediately on the public website and in the patient booking form."
           actions={
             <>
-              <Button variant="outline" onClick={catalogue.reload}>
-                <RefreshCw className="h-3.5 w-3.5" />
-                Refresh
-              </Button>
+              <RefreshButton onRefresh={reloadAll} loading={anyLoading} updatedAt={updatedAt} />
               <Button onClick={catalogue.openAdd}>
                 <Plus className="h-4 w-4" />
                 Add New Service

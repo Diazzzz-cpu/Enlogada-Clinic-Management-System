@@ -20,6 +20,7 @@
  * plain "use this if it is non-empty" and never has to distinguish absent from blank.
  */
 const env = (name) => (process.env[name] || '').trim();
+const { ARRIVAL_LEAD_MINUTES } = require('../constants/scheduling');
 
 class ClinicController {
   async getIdentity(req, res, next) {
@@ -51,6 +52,14 @@ class ClinicController {
             // The statutory identifiers. Blank unless configured, and deliberately given no
             // fallback anywhere: an invented TIN on a document a patient files for reimbursement
             // is a false record, which is worse than an obviously provisional one.
+            // How early a patient should be at the desk, in minutes. [1.63.0] Served here rather
+            // than duplicated as a frontend constant because the same figure appears on the
+            // booking confirmation, the confirmation email, the booking pass and the day-before
+            // reminder — and four copies is three places a clinic changes the policy and one it
+            // misses. A string, like every other field, so it merges through the same
+            // use-it-if-non-empty rule.
+            arrivalLeadMinutes: String(ARRIVAL_LEAD_MINUTES),
+
             tin: env('CLINIC_TIN'),
             businessPermit: env('CLINIC_PERMIT'),
             accreditation: env('CLINIC_ACCREDITATION'),

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Check, X, Eye, AlertTriangle, Wallet, History } from 'lucide-react';
+import LoadingState from '../ui/loading-state';
+import { AlertTriangle, Check, Eye, History, ShieldAlert, Wallet, X } from 'lucide-react';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
+import ProofReviewDialog from './ProofReviewDialog';
+import DataBadge from '../ui/data-badge';
 import { Textarea } from '../ui/textarea';
 import EmptyState from '../ui/empty-state';
 import { formatCurrency } from '../../lib/currency';
-import api from '../../config/api';
 
 /**
  * Online payments waiting for a cashier to look at the screenshot. [1.48.0]
@@ -22,58 +23,11 @@ import api from '../../config/api';
  * difference a tired eye slides over at the end of a shift.
  */
 
-/** The uploaded screenshot, fetched with the session's auth header. */
-function ProofViewer({ submissionId, onClose }) {
-  const [src, setSrc] = useState('');
-  const [failed, setFailed] = useState(false);
-  const [isPdf, setIsPdf] = useState(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    let objectUrl = '';
-    // A bare <img src> would 401: the route is authenticated because this is a patient's banking
-    // screen. Fetched as a blob through the configured axios instance, which carries the token.
-    api.get(`/payment-submissions/${submissionId}/proof`, { responseType: 'blob' })
-      .then((res) => {
-        if (cancelled) return;
-        setIsPdf(res.data.type === 'application/pdf');
-        objectUrl = URL.createObjectURL(res.data);
-        setSrc(objectUrl);
-      })
-      .catch(() => setFailed(true));
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [submissionId]);
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Proof of payment</DialogTitle>
-        </DialogHeader>
-        {failed ? (
-          <EmptyState
-            tone="error"
-            compact
-            title="The file could not be opened"
-            description="It may have been removed from storage. Decide from the reference number, or ask the patient to send it again."
-          />
-        ) : !src ? (
-          <div className="h-80 animate-pulse rounded-lg bg-skeleton" aria-hidden="true" />
-        ) : isPdf ? (
-          <iframe src={src} title="Proof of payment" className="h-[70vh] w-full rounded-lg border border-line" />
-        ) : (
-          <img src={src} alt="Proof of payment" className="max-h-[70vh] w-full rounded-lg border border-line object-contain" />
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export default function OnlinePaymentsPanel({ review }) {
-  const [viewing, setViewing] = useState(null);
+  // The whole submission, not just its id. [1.63.0] The review dialog shows the claim BESIDE the
+  // evidence — reference, both amounts, the duplicate warning — so it needs the row, and passing
+  // an id would mean re-finding it or fetching it again.
+  const [reviewing, setReviewing] = useState(null);
 
   return (
     <div className="space-y-5">
@@ -100,10 +54,7 @@ export default function OnlinePaymentsPanel({ review }) {
               action={<Button variant="outline" size="sm" onClick={review.reload}>Try again</Button>}
             />
           ) : review.loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-12">
-              <div className="h-6 w-6 animate-spin rounded-full border-4 border-azure-500 border-t-transparent" />
-              <span className="text-fine font-semibold text-slate-500">Loading…</span>
-            </div>
+            <LoadingState label="Loading payments to check…" />
           ) : review.submissions.length === 0 ? (
             <EmptyState
               compact
@@ -127,7 +78,16 @@ export default function OnlinePaymentsPanel({ review }) {
                         </p>
                         <p className="m-0 text-fine text-slate-500">
                           {s.method_label || s.method_kind || 'Online'} · ref{' '}
-                          <span className="font-mono font-semibold text-slate-700">{s.reference_number}</span>
+                          <DataBadge variant="reference" label="Payment reference">{s.reference_number}</DataBadge>
+                          {/* Flagged on the ROW, not only inside the dialog: a cashier working a
+                              queue should see which one needs a second look before choosing which
+                              to open. */}
+                          {Number(s.duplicate_count) > 0 && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide text-rose-800 ring-1 ring-inset ring-rose-300">
+                              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                              Reference reused
+                            </span>
+                          )}
                           {s.appointment_reference ? ` · ${s.appointment_reference}` : ''}
                         </p>
                       </div>
@@ -164,14 +124,18 @@ export default function OnlinePaymentsPanel({ review }) {
                     )}
 
                     <div className="mt-3 flex flex-wrap gap-2">
+                      {/* Opens the evidence and the claim TOGETHER. The old viewer put the
+                          screenshot on top of the two figures the cashier has to compare it
+                          against, so they read the image, closed it, and then decided from a row
+                          they were remembering rather than reading. Never disabled now: without a
+                          proof there is still a reference and two amounts to weigh. */}
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setViewing(s.id)}
-                        disabled={!s.has_proof}
+                        onClick={() => setReviewing(s)}
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        {s.has_proof ? 'View proof' : 'No proof attached'}
+                        Review
                       </Button>
                       <Button size="sm" loading={busy} onClick={() => review.verify(s)}>
                         <Check className="h-3.5 w-3.5" />
@@ -230,7 +194,7 @@ export default function OnlinePaymentsPanel({ review }) {
                       variant="ghost"
                       size="sm"
                       disabled={!s.has_proof}
-                      onClick={() => setViewing(s.id)}
+                      onClick={() => setReviewing(s)}
                     >
                       <Eye className="h-3.5 w-3.5" />
                       Proof
@@ -243,7 +207,15 @@ export default function OnlinePaymentsPanel({ review }) {
         </Panel>
       )}
 
-      {viewing && <ProofViewer submissionId={viewing} onClose={() => setViewing(null)} />}
+      {reviewing && (
+        <ProofReviewDialog
+          submission={reviewing}
+          onClose={() => setReviewing(null)}
+          onVerify={(sub) => { setReviewing(null); review.verify(sub); }}
+          onReject={(sub) => { setReviewing(null); review.askReject(sub); }}
+          busy={review.acting === reviewing.id}
+        />
+      )}
 
       <ConfirmDialog
         open={!!review.rejecting}

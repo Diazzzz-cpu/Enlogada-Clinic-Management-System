@@ -24,9 +24,10 @@ class ResultController {
       // days/limit/offset are optional; the service clamps them. Defaults to the last 90 days,
       // which is what the screen actually shows — this list used to return every completed test
       // in the clinic's history, findings text included, on every load.
-      const { days, limit, offset } = req.query;
+      const { days, limit, offset, delivery } = req.query;
       const released = await resultService.getReleasedByCategory(category, req.user, {
         days,
+        delivery,
         limit,
         offset
       });
@@ -227,6 +228,30 @@ class ResultController {
       const { visitTestId } = req.params;
       const fieldSet = await resultService.getFieldSetForVisitTest(visitTestId, req.user);
       return res.status(200).json({ status: 'success', data: { fieldSet: fieldSet || null } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Send a released report to the patient again. [1.59.0]
+   *
+   * Separate from release on purpose: releasing is a clinical authorisation that happens once,
+   * and re-sending is a delivery problem that can happen any number of times. Folding the second
+   * into the first would mean re-authorising a result to fix an email bounce.
+   */
+  async emailResult(req, res, next) {
+    try {
+      const { visitTestId } = req.params;
+      const sent = await resultService.emailResult({ visitTestId }, req.user);
+
+      return res.status(200).json({
+        status: 'success',
+        // Names the address. A patient who has changed their email needs whoever is on the phone
+        // to be able to say where it actually went.
+        message: `Report sent to ${sent.emailedTo}.`,
+        data: { delivery: sent },
+      });
     } catch (err) {
       next(err);
     }

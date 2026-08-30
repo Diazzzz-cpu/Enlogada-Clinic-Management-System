@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 
@@ -14,13 +15,6 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 const PASSWORD = 'Password123!';
 const API = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
 
-async function signIn(page, email) {
-  await page.goto('/');
-  await page.getByText('Sign In', { exact: true }).first().click();
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-}
 
 
 /**
@@ -175,7 +169,6 @@ test('an upcoming booking tells the patient what to do beforehand', async ({ pag
   await ctx.dispose();
 
   await signIn(page, 'client@enlogada.com');
-  await expect(page.getByText(/welcome/i).first()).toBeVisible({ timeout: 15000 });
 
   await page.getByRole('tab', { name: 'Appointments' }).click();
   await expect(page.locator('[data-testid="appointment-card"]').first()).toBeVisible({ timeout: 15000 });

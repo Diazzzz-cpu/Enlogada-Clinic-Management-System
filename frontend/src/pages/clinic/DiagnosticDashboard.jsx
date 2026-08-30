@@ -13,6 +13,7 @@ import ResultEntryDialog from '../../components/diagnostic/ResultEntryDialog';
 import CriticalCallbackDialog from '../../components/diagnostic/CriticalCallbackDialog';
 import { useResultEntry } from '../../hooks/useResultEntry';
 import { usePatientResultHistory } from '../../hooks/usePatientResultHistory';
+import { useResultDelivery } from '../../hooks/useResultDelivery';
 import { categoryLabel as categoryLabelFor, categoryIcon } from '../../lib/categories';
 
 // A ticket only reaches this console once the receptionist/cashier has released it, at which
@@ -59,6 +60,10 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav }) => {
 
   const criticals = useCriticalCallbacks({ enabled: mode === 'worklist', paused: entry.open });
 
+  // Re-reads the released list after a send, so the "Sent to patient" column shows the delivery
+  // that just happened rather than the state it was fetched with.
+  const delivery = useResultDelivery({ onDelivered: worklist.refresh });
+
 
 
 
@@ -94,6 +99,7 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav }) => {
             entry={entry}
             operations={operations}
             onViewResult={setViewingResult}
+            delivery={delivery}
           />
         )}
 

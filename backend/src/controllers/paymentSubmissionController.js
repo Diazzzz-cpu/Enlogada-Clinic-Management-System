@@ -1,4 +1,5 @@
 const paymentSubmissionService = require('../services/paymentSubmissionService');
+const receiptOcrService = require('../services/receiptOcrService');
 
 class PaymentSubmissionController {
   /** A patient claiming they have paid: reference number, amount and a screenshot. */
@@ -97,6 +98,35 @@ class PaymentSubmissionController {
       const { absolute, mimeType } = await paymentSubmissionService.getProofFile(req.params.id, req.user);
       res.type(mimeType || 'application/octet-stream');
       return res.sendFile(absolute);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /payments/scan-receipt — read a screenshot and SUGGEST what it says. [1.62.0]
+   *
+   * Creates nothing. It is a read against an image the caller is holding, plus one lookup for a
+   * duplicate reference, and its entire output is a suggestion the person then edits or ignores.
+   * The submit endpoint above is unchanged and remains the only way a claim is ever recorded.
+   *
+   * 200 even when nothing was recognised, and that is deliberate rather than sloppy: "I could not
+   * read this image" is a successful answer to "what can you read here". A 4xx or 5xx would make
+   * the frontend's error branch fire and would read to the patient as their upload having failed,
+   * when in fact they simply have to type the reference in as they always did.
+   */
+  async scanReceipt(req, res, next) {
+    try {
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ status: 'error', message: 'An image of the receipt is required.' });
+      }
+
+      const scan = await receiptOcrService.scan(req.file.buffer, req.file.originalname);
+
+      return res.status(200).json({
+        status: 'success',
+        data: { scan },
+      });
     } catch (err) {
       next(err);
     }

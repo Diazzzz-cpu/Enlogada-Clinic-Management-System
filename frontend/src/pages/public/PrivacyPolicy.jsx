@@ -54,7 +54,7 @@ const PrivacyPolicy = ({ onNavigate }) => {
 
       <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full space-y-6">
         {SECTIONS.map(({ icon: Icon, title, body }) => (
-          <div key={title} className="bg-white border border-[#e6ebf1] rounded-2xl p-6 space-y-3">
+          <div key={title} className="bg-surface border border-line rounded-2xl p-6 space-y-3">
             <div className="flex items-center space-x-2.5">
               <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0">
                 <Icon className="w-4.5 h-4.5" />

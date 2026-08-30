@@ -83,7 +83,7 @@ export default function ElevatedAccountsPanel({ elevated }) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex justify-end space-x-2 pt-2 border-t border-[#e6ebf1]">
+            <div className="flex justify-end space-x-2 pt-2 border-t border-line">
               <Button type="button" variant="outline" onClick={elevated.closeAdd} disabled={elevated.submitting}>Cancel</Button>
               <Button type="submit" className="font-bold" disabled={elevated.submitting}>
                 {elevated.submitting ? 'Creating…' : 'Create Account'}

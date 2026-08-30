@@ -1,7 +1,9 @@
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const paymentGatewayController = require('../controllers/paymentGatewayController');
+const paymentSubmissionController = require('../controllers/paymentSubmissionController');
 const { verifyToken, authorizeStaff, authorizeRoles, authorizePermissions } = require('../middlewares/auth');
+const { uploadReceiptScanMiddleware } = require('../config/upload');
 
 const router = express.Router();
 
@@ -28,7 +30,47 @@ router.get('/transactions', verifyToken, authorizeStaff, authorizePermissions('b
 router.patch('/:id/status', verifyToken, authorizeStaff, authorizePermissions('billing:refund'), paymentController.updateStatus);
 
 // View payments for a specific visit
+// One receipt by number, viewable and printable.
+//
+// Authorization is in paymentService.getReceipt, not here, because the two callers need DIFFERENT
+// questions answered: staff are judged on `billing:read` (Cashier, Admin, SuperAdmin — looking up
+// a receipt is not taking money, so deliberately not billing:process), and a Client is judged on
+// whether the receipt is THEIRS. One middleware can only ask one of those. Same shape as the
+// ownership scoping in resultService and hmoService.
+//
+// This is why the route carries no authorizePermissions call: verifyRbacWiring.js only checks
+// routes that name one, and a permission here would be the wrong gate for half the callers.
+router.get('/receipt/:receiptNumber', verifyToken, paymentController.getReceipt);
+
 router.get('/visit/:visitId', verifyToken, authorizeStaff, authorizePermissions('billing:read'), paymentController.getVisitPayments);
+
+// --- Receipt scanning (OCR assist for manual proof of payment) -----------------------------
+
+// [1.62.0] Read a GCash/bank screenshot and suggest the reference number and amount, plus whether
+// that reference has been submitted or settled before.
+//
+// Mounted here rather than under /payment-submissions because it belongs to no submission — it
+// runs BEFORE one exists, on an image the caller is still deciding whether to send. The handler
+// lives in paymentSubmissionController because that is the domain it serves; a route file's
+// address and a controller's subject are allowed to differ, and forcing them to agree here would
+// mean a scan endpoint sitting under a resource it does not touch.
+//
+// Gated on `billing:submit_proof` — the same permission as submitting the proof itself, and
+// deliberately not a new one. Scanning is strictly weaker than submitting: it writes nothing and
+// reveals nothing the caller does not already hold in their hand. A separate permission would
+// have to be granted alongside the first every time, and the first omission produces a patient
+// who may upload a receipt but not have it read.
+//
+// The role list matches POST /payment-submissions exactly, for the same reason it exists there:
+// 'Client' is on it, so it must be stated rather than left to authorizeStaff.
+router.post(
+  '/scan-receipt',
+  verifyToken,
+  authorizeRoles('SuperAdmin', 'Admin', 'Receptionist', 'Client'),
+  authorizePermissions('billing:submit_proof'),
+  uploadReceiptScanMiddleware,
+  paymentSubmissionController.scanReceipt
+);
 
 // --- Online payment gateway (GCash / Maya) ------------------------------------------------
 

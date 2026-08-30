@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  */
 export default function ProfileBar({ profiles, reference }) {
   return (
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white border border-[#e6ebf1] rounded-xl p-4 gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-surface border border-line rounded-xl p-4 gap-4">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center font-bold">
             <User className="w-5 h-5" />

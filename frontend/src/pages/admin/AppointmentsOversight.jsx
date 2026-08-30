@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Panel, PanelBody } from '../../components/ui/panel';
 import PageHeader from '../../components/ui/page-header';
+import RefreshButton from '../../components/ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 import Toolbar, { SegmentedFilter } from '../../components/ui/toolbar';
 import EmptyState from '../../components/ui/empty-state';
 import { Button } from '../../components/ui/button';
@@ -64,6 +66,10 @@ const AppointmentsOversight = () => {
   // `appointments` IS the page — the server sent exactly these rows.
   const pagedAppointments = appointments;
 
+  // Bookings arrive from the patient portal while this screen is open, so a list fetched on
+  // mount is out of date the moment somebody books.
+  const updatedAt = useFreshness(loading, loadError);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -77,6 +83,9 @@ const AppointmentsOversight = () => {
             {statusFilter === 'All' ? 'total' : statusFilter.toLowerCase()}
           </span>
         )}
+        actions={
+          <RefreshButton onRefresh={() => fetchAppointments(page)} loading={loading} updatedAt={updatedAt} />
+        }
       />
 
       {/* Toolbar and table are one object, so they are wrapped in a bare div — the page's

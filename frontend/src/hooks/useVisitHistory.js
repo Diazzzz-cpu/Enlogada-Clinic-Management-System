@@ -31,11 +31,15 @@ export function useVisitHistory({ enabled = false } = {}) {
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(todayStr());
   const [page, setPage] = useState(1);
+  // 'All' is the absence of a filter, kept as a real value so the segmented control always has a
+  // selected option — an empty string would render as nothing being chosen.
+  const [visitType, setVisitType] = useState('All');
+  const [status, setStatus] = useState('All');
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loadedOnce, setLoadedOnce] = useState(false);
 
-  const fetch = useCallback(async (from, to, term, nextPage = 1) => {
+  const fetch = useCallback(async (from, to, term, nextPage = 1, type = 'All', visitStatus = 'All') => {
     setLoading(true);
     setError('');
     try {
@@ -44,6 +48,11 @@ export function useVisitHistory({ enabled = false } = {}) {
           startDate: from,
           endDate: to,
           search: term || undefined,
+          // Filtered at the SERVER, alongside the dates and the search. Doing it here would
+          // narrow the 25 rows already in hand and leave the footer's count describing the
+          // range, so the screen would say "53 visits" over a list of four.
+          visitType: type === 'All' ? undefined : type,
+          status: visitStatus === 'All' ? undefined : visitStatus,
           page: nextPage,
           limit: HISTORY_PAGE_SIZE,
         },
@@ -65,7 +74,7 @@ export function useVisitHistory({ enabled = false } = {}) {
   useEffect(() => {
     if (enabled && !loadedOnce) {
       setLoadedOnce(true);
-      fetch(startDate, endDate, search);
+      fetch(startDate, endDate, search, 1, visitType, status);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
@@ -76,10 +85,18 @@ export function useVisitHistory({ enabled = false } = {}) {
     startDate, setStartDate,
     endDate, setEndDate,
     page, total, totalPages,
+    visitType, status,
+    /**
+     * Chosen from a chip, so it applies at once rather than waiting for Apply — a filter that
+     * needs a second click to take effect reads as broken. Page resets to 1: staying on page 3
+     * of a list that just became four rows long shows an empty table over a non-empty result.
+     */
+    setVisitType: (next) => { setVisitType(next); fetch(startDate, endDate, search, 1, next, status); },
+    setStatus: (next) => { setStatus(next); fetch(startDate, endDate, search, 1, visitType, next); },
     /** Re-run for the filters currently chosen — what Apply and the retry link both do. */
-    reload: () => fetch(startDate, endDate, search),
-    /** Jump to a page, keeping the chosen range and search term. */
-    goToPage: (next) => fetch(startDate, endDate, search, next),
+    reload: () => fetch(startDate, endDate, search, 1, visitType, status),
+    /** Jump to a page, keeping the chosen range, search term and filters. */
+    goToPage: (next) => fetch(startDate, endDate, search, next, visitType, status),
   };
 }
 

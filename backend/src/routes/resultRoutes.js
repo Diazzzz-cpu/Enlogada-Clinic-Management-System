@@ -33,6 +33,13 @@ router.get('/:visitTestId/file', verifyToken, resultController.downloadResultFil
 // Department staff releases result and triggers email notification
 router.post('/:visitTestId/release', verifyToken, authorizeStaff, authorizePermissions('results:release'), resultController.releaseResult);
 
+// Re-send a released report to the patient. Gated on `results:release` rather than a permission
+// of its own: whoever may authorise a report reaching a patient may put it in front of them
+// again, and a separate `results:email` would be held by nobody until somebody remembered to
+// grant it — leaving the clinic with no way to answer "I never got it". The service refuses
+// anything not already released, so this cannot become a side door around authorisation.
+router.post('/:visitTestId/email', verifyToken, authorizeStaff, authorizePermissions('results:release'), resultController.emailResult);
+
 // View patient result history (staff or client viewing own patient)
 router.get('/history/:patientId', verifyToken, authorizeRoles('SuperAdmin', 'Admin', 'Laboratory Staff', 'Xray Staff', 'Ultrasound Staff', 'Client'), authorizePermissions('results:read'), resultController.getPatientHistory);
 

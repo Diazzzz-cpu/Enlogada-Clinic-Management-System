@@ -6,11 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Enlogada Clinic Management System — an enterprise diagnostic healthcare platform for human diagnostic services only (**Ultrasound, Laboratory, Digital X-Ray**). Veterinary/pet functionality was fully removed; do not reintroduce it.
 
-**2D Echo and ECG are not offered.** `[1.47.0]` The clinic confirmed this. Their tests are
-deactivated and they are gone from all public copy — but the `test_categories` rows, the
-`modality.js` mappings, the category colours and the portal's result filters all REMAIN, because 18
-historical `visit_tests` point at them and a past visit has to keep being able to say what it was
-for. Do not "finish the job" by deleting the categories.
+**2D Echo and ECG are not offered.** `[1.47.0]` The clinic confirmed this.
+
+**2D Echo is now GONE entirely** `[1.50.0]` — category, tests, `modality.js` mappings, category
+colour and the portal filter. [1.47.0] kept the category because 18 historical `visit_tests`
+pointed at it; that count reached zero, so the reason expired. `migrateRemove2dEcho.js` does the
+deletion and **re-counts the references itself before touching anything**, exiting without a
+change if any remain — a developer database and the clinic's live database are not the same
+database, and the whole argument for deleting rests on a number only true of one of them.
+`--rollback` restores the category and both tests, inactive.
+
+**ECG is different: deactivate, do not delete.** Its tests are inactive and it is gone from public
+copy, but the `test_categories` row, its colour and `CATEGORY_ORDER` entry REMAIN so a past visit
+can still say what it was for. The portal's filter chips are derived from what each patient
+actually has `[1.49.0]`, so nobody is offered an ECG filter unless they had one.
 
 Stack: React 19 (Vite, Tailwind CSS v4) frontend + Node.js/Express 5 backend + PostgreSQL.
 
@@ -84,6 +93,11 @@ node src/scripts/migrateResultPrecision.js      # [1.53.0] a suppressed TSH no l
 # Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
 node src/scripts/seedResultFieldSets.js            # report only
 node src/scripts/seedResultFieldSets.js --confirm  # apply
+node src/scripts/migratePatientArchive.js      # [1.56.0] archive a patient record without deleting a clinical history (--rollback reverses it)
+node src/scripts/migrateScheduleOverrides.js   # [1.57.0] close a DATE, or change its hours/capacity, without touching the weekly pattern (--rollback reverses it)
+node src/scripts/migrateResultDelivery.js      # [1.59.0] record that a released report actually reached the patient (--rollback reverses it)
+node src/scripts/migratePatientEmail.js        # [1.60.0] an address on the patient record, so a walk-in can be sent their result (--rollback reverses it)
+node src/scripts/migrateRemove2dEcho.js       # [1.50.0] remove the 2D Echo category and its tests; REFUSES if any visit_tests still reference them (--rollback restores)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -131,7 +145,31 @@ The E2E suite creates a throwaway client, patient, visit and payment on every ru
 
 The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRoles` writes one row per recipient per event, so its size is events × staff, not events. Because the suite also created staff and elevated accounts that were never cleaned up (137 Cashiers, 89 Admins, 45 SuperAdmins had accumulated), both factors grew at once and the table reached 255,540 rows across 4,309 events in five days — average fan-out 60, peak 181, with 99.4% never read by anyone. After a reset the same fan-out is 3. Production will not see the runaway staff count, but it has no retention either: 20 staff × 200 events/day is ~1.5M rows a year, growing forever. Schedule `pruneNotifications.js` (default: read 30d, unread 90d) in any environment that runs longer than a demo.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 36 Playwright specs (225 tests, ~300s) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. There are no unit tests; the backend has no test script.
+**There are now two test tiers, and they answer different questions.** `[1.63.0]`
+
+```bash
+cd backend  && npm test        # 64 unit tests, node:test, ZERO dependencies, ~0.4s
+cd frontend && npm run test:unit # 30 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 330 Playwright E2E, ~7m, needs both dev servers
+```
+
+The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
+discount strategies (asserted against RA 9994 and the clinic's own non-VAT invoice, not merely
+against the previous implementation), CSV serialisation (RFC 4180 escaping, the UTF-8 BOM, the
+empty-cell-not-zero rule, filename header-injection), the error hierarchy's compatibility with the
+~166 legacy `error.statusCode =` sites, arrival-time arithmetic, queue-estimate floors/rounding/
+caps, the OCR reference and amount parsers, and abnormal-value detection.
+
+`node --test` on the backend is deliberate: Node 24 has a test runner built in, so the backend
+gained a whole tier without a single new dependency. Vitest on the frontend shares the existing
+Vite config. `playwright.config.js` scopes `testDir` to `tests/e2e`, so the tiers cannot collect
+each other's files.
+
+**Which tier a new test belongs in:** if it needs a database, a server or a browser, it is E2E. If
+it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
+7-minute suite is not where you want to discover that a rounding rule changed.
+
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 54 Playwright specs (330 tests, ~7m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history and critical values (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344), and that a reversed receipt is both still listed and not counted (`cashup-reversals.spec.js` — see the note under Architecture; the log and the money are two different questions, and this spec fails if either half is answered with the other), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -181,6 +219,21 @@ retry schedule while the money has already moved.
 start releasing their slot after 15 minutes ([1.35.0] — HMO and staff bookings stay permanent), and
 the client's booking cards begin offering GCash instead of "pay at the counter".
 
+**Outbound email is configured and working.** `[1.50.0]` The clinic sends from
+`enlogada2011@gmail.com` via Gmail SMTP — released results, booking confirmations, password
+resets. `SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` in `backend/.env` (gitignored, untracked);
+`EMAIL_USER`/`EMAIL_APP_PASSWORD`/`EMAIL_FROM` are accepted as aliases because that is how Google
+names them. The App Password lives **only** in that file — never in source, git, logs or docs.
+`sendEmail` now requires BOTH halves and names the missing one: checking the username alone let a
+half-configured clinic past the guard and fail inside nodemailer once per released result, which
+reads as a mail outage rather than an unfinished setting.
+
+`TURNAROUND_TARGETS` (optional, e.g. `Laboratory:90,Xray:30`) sets the per-department turnaround
+benchmarks the analytics chart draws its reference line against. `[1.62.0]` They are a clinic
+POLICY, not a measurement, and the built-in values are plausible defaults nobody has agreed — which
+is why they are a setting rather than a table. A department absent from the map is measured and not
+judged, with a NULL rate rather than 0.
+
 Env files: `backend/.env` and `frontend/.env`, based on the respective `.env.example`. Backend needs `DATABASE_URL`, `JWT_SECRET`, SMTP settings (for result-release emails), and Google OAuth credentials. Frontend needs `VITE_GOOGLE_CLIENT_ID` and `VITE_API_BASE_URL` (the latter is inlined at **build** time, so it must be set before `npm run build` — setting it on the server afterwards has no effect). The backend refuses to start if `JWT_SECRET` is blank, shorter than 32 characters, or a known example value; generate one with `openssl rand -hex 32`.
 
 ## Architecture
@@ -213,6 +266,17 @@ This layering is enforced convention in this codebase (checked by the "Project A
   on a permission that did not exist was reported as "All good", which is the one thing that script
   exists to prevent. Joined on balanced parentheses now.
 - **Adding a permission to a route, or a nav item?** Run `node src/scripts/verifyRbacWiring.js`. Four checks: the permission exists; at least one staff role holds it (otherwise only SuperAdmin can reach the route); for routes that keep an explicit role list, every named role holds it; and every `permission:` in `frontend/src/config/navigation.js` is one the API actually enforces. That last check is what now guarantees the sidebar and the API agree — they used to agree by sharing a hardcoded role list, and no longer do.
+- **A screen the sidebar is right to show can still offer actions the API refuses.** `[1.53.0]`
+  Access is permission-driven, so a screen is reachable by whoever holds the right permission —
+  which means it can be legitimately VISIBLE to someone holding only SOME of the permissions its
+  controls need. A Cashier holds `visits:read` and so reaches the Active Queue legitimately
+  (knowing who is waiting is half of running a till), but not `visits:create`, `tests:assign` or
+  `hmo:request` — and the screen offered all three anyway, each a 403. Gate every ACTION on the
+  permission its own endpoint demands, not just the route. A control that cannot work is worse
+  than a missing one: the person clicks it, gets an error that reads as a fault rather than a
+  boundary, and stops trusting the parts that do work. `borrowed-screen-actions.spec.js` holds
+  both directions — the Cashier is offered none of them, the Receptionist keeps all of them, and
+  the API's 403s are asserted beside the UI so the two can only move together.
 - Navigation gates on the same three axes (`canSee` in `frontend/src/config/navigation.js`: `staffOnly`, `permission`, `department`), so the sidebar cannot advertise a screen the API will refuse. `AuthContext` re-reads `/auth/me` every 60s and on tab focus, so a change reaches a signed-in user without a re-login.
 - Roles/permissions are DB-driven (`roles`, `permissions`, `user_roles`, `user_permissions`, `user_departments`), seeded via `setupRbac.js`.
 - Google OAuth: `POST /api/auth/google` verifies an ID token via `google-auth-library`, then logs in or auto-creates a Client user.
@@ -262,11 +326,57 @@ Public (unauthenticated) pages: `Home`, `ServicesPage` (dynamically fetches acti
 
 Schema lives in `database/schema.sql` (source of truth, applied wholesale by `migrateDb.js`); human-readable change log in `database/migrations.md`.
 
+**It is actually the source of truth again as of `[1.54.0]`, and it had stopped being one.** Four
+tables (`test_packages`, `test_package_items`, `payment_methods`, `payment_submissions`), the
+`visit_tests.package_id` column and its FK, and **ten indexes** lived only inside the additive
+migration scripts. A database rebuilt from this file came up with no package deals and no online
+payment — the app failed the moment anyone opened the Services Catalogue — and, more quietly,
+measurably slower, with no error to say why.
+
+If you add a migration script, fold its DDL back into this file in the same commit. Verify the way
+[1.54.0] did rather than by reading: build a throwaway database from `schema.sql` and diff it
+against the live one on tables, columns, indexes AND constraints. All four matched exactly — 30
+tables, 254 columns, 121 indexes, 240 constraints, zero differences:
+
+```bash
+psql -d postgres -c "CREATE DATABASE enlogada_schemacheck"
+psql -d enlogada_schemacheck -v ON_ERROR_STOP=1 -f database/schema.sql
+# then diff pg_class / information_schema.columns / pg_indexes / pg_constraint against the live DB
+```
+
+The one legitimate difference to expect: a constraint a migration added `NOT VALID` (to avoid
+validating existing rows) is fully valid in a fresh build, which has no rows to validate.
+
 **Transactions:** `db.withTransaction(fn)` in `src/config/database.js` makes every query issued underneath it — at any call depth, through any repository — run on one connection and commit as a unit. It uses `AsyncLocalStorage`, so repositories need no `client` argument and cannot accidentally write outside the transaction. Nested calls join the transaction already in progress. **Never call `db.pool.connect()` directly**: a self-managed client inside a `withTransaction` opens a second, independent transaction that commits on its own, and with a bounded pool it deadlocks once every connection is held by a transaction waiting for another connection. Any service method performing 2+ writes that must succeed together belongs in `withTransaction`; keep bcrypt hashing and outbound email/HTTP *outside* it so a pooled connection is not held during slow work. No code under `src/services` or `src/repositories` manages its own client any more — the only `pool.connect()` calls left are inside `withTransaction` itself and in one-shot migration scripts, which run alone.
 
 **`createAppointment` is the shape to copy for "commit, then do the after-work".** It writes the visit, the appointment, the tests and any HMO claim in one `withTransaction`, and everything that must only happen *after* a successful commit — the staff notification, discarding an unused card upload — sits after the `try`, not inside it. The version this replaced tracked a `committed` boolean so its own `catch` would know whether the COMMIT had already run; a post-commit throw would otherwise have issued ROLLBACK on a committed transaction and reported a real booking as failed. Structuring it this way removes the flag rather than maintaining it.
 
 **An uploaded file is never named from what the client sent, and never served statically.** All three upload paths (`src/config/upload.js`) build the stored filename from random hex plus an extension mapped from the *validated* mime type, and re-check containment with `assertInside`. The extension used to come from `file.originalname`, which combined with a `%2F`-encoded route param let a request choose both the directory and the suffix — and multer writes before the controller's authorization check runs, so the 403 arrives after the file is on disk. Result files, avatars and HMO cards are all streamed back through an authenticated, ownership-checked route: an HMO card carries a member number, a name and often a photo.
+
+**Preparation is COMPOSED, not retyped.** `[1.54.0]` `tests.preparation` was a free-text box, and
+free text drifts. Measured on the clinic's own catalogue: 61 active services, 16 carrying
+preparation, and among those 16 only FOUR distinct sentences — two of which say the same thing in
+different words ("…an hour before **your appointment** and do not empty your bladder" on Chest
+Ultrasound and Thyroid; "…an hour before and do not empty your bladder" on KUB, Lower Abdomen and
+Pelvic Ultrasound). The booking wizard de-duplicates preparation by TEST ID, not by sentence, so a
+patient booking a Pelvic Ultrasound and a Thyroid together is shown both lines — one instruction,
+printed twice, reading as two.
+
+`lib/preparation.js` holds the rules; `PreparationField` ticks them and previews the sentence live.
+The column still stores TEXT, deliberately: no migration, and `sendAppointmentReminders.js`, the
+confirmation email and the booking wizard all keep working untouched. `parsePreparation` reads a
+stored sentence back into toggles — recognising BOTH bladder wordings, so editing either converges
+it — and anything unrecognised is preserved verbatim in the free-text field rather than dropped.
+
+**A PAID visit is finished in both directions.** `[1.55.0]` Tests cannot be added to it and
+cannot be removed from it. Removal would change a bill the patient holds a receipt for. ADDING was
+worse and was a live revenue leak, measured: pay a ₱190 visit, attach another ₱190 test, and the
+new row is created `Processing` — released straight to the department worklist because the visit
+is paid. The bill does not move, and `POST /payments` then refuses with "already been paid", since
+`uq_payments_one_paid_per_visit` allows one settled row per visit. The clinic performed the test
+and had no way to charge for it. Both directions now 409 with the remedy named — open a new visit,
+or reverse the payment. Re-opening billing was the wrong fix: a second settled payment per visit is
+exactly what that unique index exists to prevent.
 
 **An omitted field is not an instruction to erase.** `testRepository.updateTest` writes every
 column unconditionally, so a caller sending only the fields it cares about destroys the rest —
@@ -291,6 +401,75 @@ portal screen is where they look it up afterwards, not how they find out.
 **`test_results` is versioned — always filter on `is_current`.** A test carries one row per version of its report (an amendment supersedes rather than overwrites; see [1.15.0]). A `LEFT JOIN test_results` without `AND tr.is_current` repeats the parent row once per amendment and shows superseded findings beside live ones, and an `UPDATE … WHERE visit_test_id = $1` without it rewrites the history. `findVersionHistoryByVisitTestId` is the only intentional reader of superseded rows.
 
 **Never filter on `column::date`.** A B-tree index cannot serve a predicate on an expression, so `WHERE created_at::date = CURRENT_DATE` silently forces a sequential scan no matter what is indexed — `idx_patient_visits_created` existed for a year and was never used. Write half-open ranges on the raw column instead: `col >= $1::date AND col < ($2::date + 1)`. Measured at 219k rows: 50.7ms seq scan vs 0.84ms index scan. Casting in `SELECT`/`GROUP BY` is fine; only the filter matters.
+
+**An HMO claim is a RECEIVABLE, and must never be added to takings.** `[1.51.0]` Every other
+money figure in this app comes from `payments`; an approved HMO claim never reaches that table —
+the insurer is billed and pays later, outside this system. `GET /reports/hmo-claims` reports
+`approved` / `pending` / `refused` beside `collected` and never nets or sums them, because folding
+approved into revenue reports the same peso twice, once as a claim and once as cash. The response
+carries its own `note` saying so, so the caveat survives being copied into a summary.
+
+Two things decide a claim, independently, and BOTH decide the money: `hmo_requests.status` (set by
+approve/reject) and `hmo_request_tests.approval_status` (set per test). An HMO routinely clears a
+claim while refusing one line on it, so neither column alone is the answer — reading only the
+per-test column reported an approved claim as ₱0 approved with its full value still Pending.
+A refusal at either level wins, matching the partial unique index on that table. Bucketed by the
+VISIT date, so a claim decided three weeks later never moves money out of a period already
+reported — the closed-day restatement [1.30.0] exists to prevent, arriving by another door.
+
+**A report exports as CSV via `?format=csv`, and money in it is a NUMBER.** `[1.62.0]` All five
+report endpoints serve the same figures as a file through `utils/csvExport.js` +
+`utils/reportCsv.js`. Three rules, each of which was the obvious thing done the other way round:
+
+- **Never `formatCurrency` in a CSV cell.** `₱1,450.00` is TEXT to Excel — the separator and the
+  symbol both disqualify it as a number — so the column cannot be summed, which is the whole
+  reason somebody exported rather than printing. Write `1450.00` and put the unit in the header
+  (`Collected (PHP)`). This is the one place that deliberately does not use `formatCurrency`.
+- **The file opens with a UTF-8 BOM** (`\uFEFF`, written as an escape — a literal one is invisible
+  and one lint rule away from vanishing). Without it Excel on Windows reads the file as the system
+  codepage and every `ñ` and `₱` is mojibake. `charset=utf-8` in the header never reaches Excel;
+  the file is opened from disk.
+- **A NULL money value is an EMPTY cell, not `0.00`.** `Number(null)` is 0 and passes
+  `isFinite`, so the naive formatter states the clinic collected nothing rather than that nothing
+  is recorded.
+
+The format decision happens in the controller AFTER the service returns, so an export can never
+see figures the JSON could not — the operations report's per-slice permission gating applies
+unchanged, and a laboratory account's export omits Takings rather than zeroing it. Validation
+throws before any header is written, because a response that has begun as a download cannot become
+an error page. `Content-Disposition` must stay in `app.js`'s CORS `exposedHeaders` or the browser
+cannot read the filename.
+
+**An OCR read is a suggestion and must never write.** `[1.62.0]` `receiptOcrService` has no write
+in it, by design. [1.48.0] already ruled that the amount a patient CLAIMS is evidence and never
+the amount charged; a machine reading of that claim is weaker still. It pre-fills only a field the
+patient left EMPTY, and its duplicate warning does not block — a patient correcting a rejected
+submission legitimately re-sends the same reference. The scan uses `memoryStorage` and persists
+nothing: most scans are abandoned, and a disk-backed scan would orphan a file per attempt,
+indistinguishable from a real proof and safe for nothing to delete.
+
+**A queue estimate multiplies a service RATE, never a wait.** `[1.62.0]` `getReceptionThroughput`
+publishes a median WAIT of 36–96 minutes; multiplying that by patients-ahead tells the fourth
+person in line they have four hours, because a wait already contains the queue. The multiplier is
+the interval between consecutive patients being SERVED (`getMedianServiceMinutes` — `LAG` per day,
+gaps bounded 0.5–60 min so an idle desk is not read as a slow one). Below 10 samples it falls back
+to a stated default and says so in `estimate_basis`. `patients_ahead` counts only *Pending*
+predecessors, and a non-Pending visit gets `null` rather than 0 — zero reads as "no wait", which
+is a claim rather than an absence. Both the staff queue and the patient's booking pass go through
+`queueEstimateService`, so the two screens cannot disagree.
+
+**A second query must never publish a different number under an existing column's name.**
+`[1.62.0]` `getDepartmentTurnaroundPerformance` reports `median_turnaround_minutes` on exactly the
+basis `getDiagnosticThroughput` uses (payment → release) and verified equal to it, and names the
+registration → release span `median_total_minutes` instead. Two screens sitting beside each other
+disagreeing about "median turnaround" is the [1.32.0] divergence arriving by another door.
+
+**Chart colours are validated, not chosen.** `[1.62.0]` `components/charts/chartTheme.js` holds the
+pair and the evidence: `#53843b`/`#0a71a9` pass every check on both theme surfaces (ΔE 18.7 protan,
+19.2 normal). Lightening them for dark mode — the instinct — was tested and FAILS at ΔE 13.6, below
+the normal-vision floor. Same steps in both themes. Tritan separation is 5.2, so every chart using
+the pair also carries a legend and names both series in its tooltip; colour is never the only
+encoding. Median and p90 share one hue at two lightnesses because they are one distribution.
 
 **A money total never comes from the transaction list.** `GET /payments/transactions` is a log of
 receipts *issued*, and it includes ones later reversed — the cashier's cash-up is the screen that
@@ -370,8 +549,22 @@ This paragraph asserted the opposite of the one above it for a day, having been 
 .toISOString().slice(0, 10)`. Run at 03:11 on a Sunday in PHT, UTC is still Saturday, so "tomorrow"
 resolved to Sunday — the clinic is closed Sundays and three tests **silently skipped**. They are
 the ones asserting an unpaid appointment stays invisible to the department, and a security check
-that quietly does not run reads exactly like one that passed. Use the local-date `workingDay()` /
-`nextWorkingDay()` helpers those specs now define. Watch the skip count, not just the pass count.
+that quietly does not run reads exactly like one that passed. Use `tests/e2e/helpers/dates.js`
+(`nthWorkingDay` / `nextWorkingDay` / `dateStr`, all built from local getters). Watch the skip
+count, not just the pass count.
+
+**And count working days rather than offsetting into them.** `[1.60.0]` The obvious helper —
+"today + N, then push off a weekend" — was written four times in this suite and has now failed
+twice, for two different reasons. First the SATURDAY case: the clinic opens 08:00-17:00 on
+weekdays but only 08:00-12:00 on Saturday, 18 slots against 8, so a helper that skipped Sunday
+alone silently gave a spec less than half the capacity it expected. Fixing that by skipping
+Saturday too introduced the COLLAPSE case: when today+150 lands on a Sunday it pushes to Monday,
+and today+151 *is* that Monday. Two constants meant to be different days became one, so "move this
+booking to another day" became "move it to the slot it already holds" and four reschedule tests
+failed on a correct 409. Measured on 2026-08-27: `DAY_A` and `DAY_B` both resolved to 2027-01-25.
+`nthWorkingDay(n)` and `nthWorkingDay(n + 1)` are different days on every calendar, which is the
+property those specs were assuming all along and never actually had. Both failures share a shape
+worth naming: nothing in the application had changed, the calendar had.
 
 **Dates: never use `toISOString()` for "today".** It returns the **UTC** date, which in Philippine time (UTC+8) is *yesterday* between midnight and 08:00 — silently, with no error. Postgres `CURRENT_DATE` is the server's local date, so the two disagree every morning. Frontend code uses `frontend/src/lib/date.js` (`todayStr` / `daysAgoStr`, built from local getters); backend code derives date strings **in SQL** rather than in JavaScript. This bug shipped twice: in four dashboard `todayStr` helpers, and in the receipt-number generator.
 
@@ -451,7 +644,47 @@ and the copies had drifted apart:
 | `button.jsx` | `<Button loading>` for anything in flight — spinner, disable and `aria-busy`, and the **label stays put**. Never swap it for "Saving…": on `ConfirmDialog` that erased which of a refund, a cancellation or a release the person had just agreed to. `[1.39.0]` |
 | `date-field.jsx` / `calendar.jsx` | every date input. Keeps the native `<input type="date">` and replaces only the picker, so ISO values, `min`/`max`, `required` and the phone's OS picker all still work. Where the browser's glyph cannot be hidden — Firefox, measured, no CSS exists — it renders nothing custom rather than showing a second icon. `RANGE_PRESETS` for filters, `BIRTHDATE_YEAR_RANGE` for birthdates. See migrations.md [1.34.0] |
 
-- **The printed receipt is `components/Receipt.jsx`**, and the clinic's own identity is
+- **Printing an element uses `lib/printArea.js`, never a print stylesheet alone.** `[1.52.0]` The
+receipt printed the clinic name and then a blank sheet, and nothing in the suite could see it —
+every on-screen assertion was true, because the defect lived entirely in `@media print`, which no
+test had ever evaluated.
+
+Measured, the receipt was laid out inside the DIALOG rather than on the page: `position: fixed`
+(a fixed element is a containing block, so `.print-area { top: 0 }` resolved against the dialog),
+`max-height: 648px` and `overflow-y: auto` clipping a 644px receipt into a box measuring 56px.
+Undoing those moved it to top:720 — off the first sheet — because `visibility: hidden` KEEPS
+layout, so the whole app still occupied the page and the receipt queued up after it.
+
+`printElement()` copies the node to a child of `<body>`, `display: none`s every sibling, prints,
+and tears the copy down in a `finally`. A COPY, because relocating a live node is a mutation React
+did not perform. `display`, not `visibility`, because only `display` removes the layout.
+`receipt-print.spec.js` evaluates the print stylesheet — the only way any of this is visible —
+and asserts top === 0, zero other visible body children, and that the text reaches the FOOTER
+rather than stopping at the letterhead.
+
+**A receipt has an ADDRESS: `?receipt=RCT-…`.** `[1.52.0]` The printable document lived only in
+a dialog inside the cashier's console, reachable only from the day's transaction list — so "send me
+a copy of RCT-…", asked weeks later, had no answer. `pages/ReceiptView.jsx` renders the SAME
+`components/Receipt.jsx` at its own URL, openable in a new tab from the cashier log, from Cashier
+Monitoring (Admin/SuperAdmin), and from the patient's own booking pass. Not a PDF and not a second
+rendering path — the browser prints it at 80mm through the same `printing-receipt` body class.
+
+The second deep link in the app, following `?reset_token=`; this app has no router by design. Only
+the receipt NUMBER travels in the URL — the session comes from localStorage, already shared across
+tabs of the same origin. A link carrying a token ends up in history, a chat message and a screenshot.
+
+`GET /payments/receipt/:receiptNumber` authorizes in the SERVICE, not in route middleware, because
+the two callers need different questions answered: staff on `billing:read`, a Client on OWNERSHIP.
+A patient printing the receipt for money they paid is what a receipt is for — an HMO or an employer
+asks them to produce it. Verified: own receipt 200, another patient's 403, technician 403.
+
+**The booking pass carries the receipt but the QR does NOT encode it.** The QR holds the appointment
+reference alone, because ReceptionistDashboard's scanner hands whatever it decodes straight to
+`GET /appointments/verify/:ref`. Packing a second value in would not give the patient more — it
+would stop check-in working. The pass shows both: the code the desk scans, and the receipt number
+with a link to the printable document.
+
+**The printed receipt is `components/Receipt.jsx`**, and the clinic's own identity is
   `lib/clinic.js`. Two rules. First, anything inside `.print-area` prints, including a toolbar
   that happens to be nested there — the old receipt's Print button printed itself; mark chrome
   `no-print`. Second, `lib/clinic.js` leaves `tin` / `businessPermit` blank unless configured

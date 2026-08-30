@@ -41,7 +41,7 @@ export default function ShiftSummaryPanel({ queue }) {
                   )}
                 </div>
 
-                <div className="border-t border-[#e6ebf1] pt-5">
+                <div className="border-t border-line pt-5">
                   <span className="text-meta font-bold uppercase tracking-wider text-gray-500 block mb-3">
                     This shift so far
                   </span>
@@ -53,13 +53,13 @@ export default function ShiftSummaryPanel({ queue }) {
                       discounts, which is the number a cashier reconciles against their senior
                       and PWD booklet at the end of a shift. */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-[#e6ebf1] bg-slate-50/80 p-3">
+                    <div className="rounded-xl border border-line bg-slate-50/80 p-3">
                       <span className="text-meta font-bold uppercase tracking-wider text-gray-500 block">Average per receipt</span>
                       <span className="text-lg font-extrabold text-slate-900 tabular-nums">
                         {formatCurrency(averagePerReceipt)}
                       </span>
                     </div>
-                    <div className="rounded-xl border border-[#e6ebf1] bg-slate-50/80 p-3">
+                    <div className="rounded-xl border border-line bg-slate-50/80 p-3">
                       <span className="text-meta font-bold uppercase tracking-wider text-gray-500 block">Statutory discounts</span>
                       <span className="text-lg font-extrabold text-slate-900 tabular-nums">
                         {formatCurrency(statutoryDiscounts)}
@@ -89,7 +89,7 @@ export default function ShiftSummaryPanel({ queue }) {
                       of a shift. Stated here rather than inferred. Same condition as the band
                       above: on a shift with nothing reversed this is just `collected` again. */}
                   {reversalCount > 0 && (
-                    <div className="mt-2 flex items-center justify-between rounded-xl border border-[#e6ebf1] bg-slate-50/80 px-3 py-2">
+                    <div className="mt-2 flex items-center justify-between rounded-xl border border-line bg-slate-50/80 px-3 py-2">
                       <span className="text-meta font-bold uppercase tracking-wider text-gray-500">
                         Net in drawer
                       </span>
@@ -109,7 +109,7 @@ export default function ShiftSummaryPanel({ queue }) {
                       {queue.transactions.slice(0, 4).map((t) => (
                         <div
                           key={t.id}
-                          className="flex items-center justify-between rounded-lg border border-[#e6ebf1] px-3 py-2"
+                          className="flex items-center justify-between rounded-lg border border-line px-3 py-2"
                         >
                           <div className="min-w-0">
                             <span className="block text-xs font-bold text-slate-900 truncate">

@@ -14,7 +14,7 @@ import { todayStr, formatDateTime } from '../../lib/date';
 import { formatCurrency } from '../../lib/currency';
 import { settled } from '../../lib/collections';
 import { METHOD_FILTERS, METHOD_FILTER_ALL } from '../../lib/paymentMethods';
-import { Receipt, RefreshCw, Banknote, Hash, UserCircle2, Undo2 } from 'lucide-react';
+import { ExternalLink, Receipt, RefreshCw, Banknote, Hash, UserCircle2, Undo2 } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
 
 // Visual Design Improvement Plan Phase V1 — see VISUAL_IDENTITY.md §3a #11.
@@ -148,7 +148,7 @@ const CashierMonitoring = () => {
               that contradict each other is worse than either alone, and the peso figure is the
               one a reader believes. */}
           {!loadError && !loading && (
-          <div className={`grid grid-cols-2 gap-px border-b border-[#e6ebf1] bg-[#e6ebf1] ${
+          <div className={`grid grid-cols-2 gap-px border-b border-line bg-[#e6ebf1] ${
             { 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' }[cardCount]
           }`}>
             {/* Named on the figure itself when a method filter is on. The strip's own note above
@@ -215,6 +215,7 @@ const CashierMonitoring = () => {
                   <TableHead>Method</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Paid At</TableHead>
+                  <TableHead className="text-right">Receipt</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -223,7 +224,7 @@ const CashierMonitoring = () => {
                     clinic's data, not merely an unhelpful one. */}
                 {loadError ? (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={6} className="p-0">
+                    <TableCell colSpan={7} className="p-0">
                       <EmptyState
                         tone="error"
                         title="Could not load transactions"
@@ -233,7 +234,7 @@ const CashierMonitoring = () => {
                     </TableCell>
                   </TableRow>
                 ) : loading ? (
-                  <SkeletonRows rows={6} columns={6} />
+                  <SkeletonRows rows={6} columns={7} />
                 ) : pagedTransactions.length > 0 ? (
                   pagedTransactions.map(t => (
                     <TableRow key={t.id}>
@@ -261,11 +262,31 @@ const CashierMonitoring = () => {
                         {formatCurrency(t.amount)}
                       </TableCell>
                       <TableCell label="Paid at" className="text-right text-fine text-slate-500">{formatDateTime(t.paid_at)}</TableCell>
+                      {/* Oversight could read a receipt NUMBER here and never open the receipt —
+                          so answering "send me a copy of RCT-…" meant asking a cashier to do it
+                          from their own console. billing:read is what the route asks for, and an
+                          Admin holds it; this is looking, not taking money. */}
+                      <TableCell label="Receipt" className="text-right">
+                        {t.receipt_number ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            onClick={() => window.open(`?receipt=${encodeURIComponent(t.receipt_number)}`, '_blank', 'noopener')}
+                            title={`Open receipt ${t.receipt_number} in a new tab`}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Open
+                          </Button>
+                        ) : (
+                          <span className="text-fine text-slate-400">&mdash;</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={6} className="p-0">
+                    <TableCell colSpan={7} className="p-0">
                       <EmptyState
                         icon={Receipt}
                         title="No payments in this date range"

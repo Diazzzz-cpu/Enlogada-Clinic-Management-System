@@ -97,7 +97,7 @@ const RescheduleDialog = ({ open, onOpenChange, appointment, onRescheduled }) =>
         <form onSubmit={submit} className="space-y-4">
           {/* What is changing, stated before the controls. A grid of times with no reference point
               makes the patient work out for themselves what they are moving away from. */}
-          <div className="flex items-center gap-3 rounded-xl border border-[#e6ebf1] bg-sunken px-3 py-2.5">
+          <div className="flex items-center gap-3 rounded-xl border border-line bg-sunken px-3 py-2.5">
             <CalendarClock className="h-4 w-4 flex-shrink-0 text-brand-600" />
             <div className="min-w-0 text-fine">
               <span className="block font-semibold text-slate-900">
@@ -140,7 +140,7 @@ const RescheduleDialog = ({ open, onOpenChange, appointment, onRescheduled }) =>
             Your reference code and booking pass stay the same — only the date and time change.
           </p>
 
-          <div className="flex justify-end gap-2 border-t border-[#e6ebf1] pt-3">
+          <div className="flex justify-end gap-2 border-t border-line pt-3">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
               Keep current time
             </Button>

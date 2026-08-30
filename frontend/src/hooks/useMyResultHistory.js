@@ -14,17 +14,30 @@ export function useMyResultHistory({ patientId } = {}) {
   const [history, setHistory] = useState([]);
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  // A failed fetch used to reach console.error and stop there, so the tab rendered its EMPTY
+  // state — "No results yet" — to a patient whose results exist and who has just been emailed
+  // to say so. Telling somebody their medical results are not there when the request merely
+  // failed is the worst version of the mistake failure-states.spec.js was written about.
+  const [error, setError] = useState('');
 
   const load = useCallback(async (id) => {
     if (!id) {
       setHistory([]);
+      setLoading(false);
       return;
     }
+    setLoading(true);
+    setError('');
     try {
       const response = await api.get(`/results/history/${id}`);
       setHistory(response.data.data.results);
     } catch (err) {
       console.error('Failed to fetch diagnostic history:', err);
+      setHistory([]);
+      setError('Your results could not be loaded just now. Please try again.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -86,6 +99,7 @@ export function useMyResultHistory({ patientId } = {}) {
     category, setCategory,
     search, setSearch,
     pendingCount, completedCount,
+    loading, error,
     reload: () => load(patientId),
   };
 }

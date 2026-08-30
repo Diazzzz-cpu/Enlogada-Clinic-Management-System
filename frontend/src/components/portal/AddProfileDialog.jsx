@@ -146,7 +146,7 @@ export default function AddProfileDialog({ profiles, reference }) {
                 />
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2 border-t border-[#e6ebf1]">
+              <div className="flex justify-end space-x-2 pt-2 border-t border-line">
                 <Button type="button" variant="outline" onClick={() => profiles.openAdd(false)} disabled={profiles.adding}>Cancel</Button>
                 <Button type="submit"  disabled={profiles.adding}>
                   {profiles.adding ? 'Saving…' : 'Save Profile'}

@@ -20,7 +20,7 @@ import { cn } from '../../lib/utils';
  */
 
 const TONE = {
-  default: 'bg-white border-[#e6ebf1]',
+  default: 'bg-surface border-line',
   sunken: 'bg-slate-50/80 border-slate-200/80',
   // A panel whose content needs to read as urgent without shouting. Used for the critical-value
   // callback list and the unpaid-balance warning.
@@ -54,7 +54,7 @@ Panel.displayName = 'Panel';
 export const PanelHeader = ({ title, description, icon: Icon, actions, className, children }) => (
   <div
     className={cn(
-      'flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf1] px-5 py-3.5',
+      'flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5',
       className
     )}
   >
@@ -88,7 +88,7 @@ export const PanelBody = ({ flush = false, className, children }) => (
 );
 
 export const PanelFooter = ({ className, children }) => (
-  <div className={cn('flex flex-wrap items-center justify-between gap-3 border-t border-[#e6ebf1] bg-slate-50/60 px-5 py-3', className)}>
+  <div className={cn('flex flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/60 px-5 py-3', className)}>
     {children}
   </div>
 );

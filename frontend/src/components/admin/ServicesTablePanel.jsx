@@ -1,4 +1,5 @@
 import React from 'react';
+import LoadingState from '../ui/loading-state';
 import { Edit2, Info, Layers, Plus } from 'lucide-react';
 import { Panel, PanelBody } from '../ui/panel';
 import Toolbar, { ToolbarSpacer } from '../ui/toolbar';
@@ -7,6 +8,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { formatCurrency } from '../../lib/currency';
 import EmptyState from '../ui/empty-state';
+import Pagination from '../ui/pagination';
 
 /**
  * Every service the clinic sells, its price, and the filter over them.
@@ -30,7 +32,7 @@ export default function ServicesTablePanel({ catalogue }) {
           onClick={() => catalogue.setFilterCategory('all')}
           className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border-0 px-2.5 py-1.5 text-fine font-semibold transition-colors ${
             catalogue.filterCategory === 'all'
-              ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+              ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
               : 'bg-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -45,7 +47,7 @@ export default function ServicesTablePanel({ catalogue }) {
             onClick={() => catalogue.setFilterCategory(cat.id.toString())}
             className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border-0 px-2.5 py-1.5 text-fine font-semibold transition-colors ${
               catalogue.filterCategory === cat.id.toString()
-                ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+                ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
                 : 'bg-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -73,10 +75,7 @@ export default function ServicesTablePanel({ catalogue }) {
               action={<Button variant="outline" size="sm" onClick={catalogue.reload}>Try again</Button>}
             />
           ) : catalogue.loading ? (
-            <div className="py-16 flex flex-col items-center justify-center space-y-3">
-              <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-xs font-semibold text-gray-500">Loading catalog...</span>
-            </div>
+            <LoadingState size="lg" label="Loading the catalogue…" />
           ) : catalogue.filtered.length === 0 ? (
             /* The last two bare grey lines in the app — the exact "centred line of small italic
                grey text" that empty-state.jsx was written to replace, and it said "in this
@@ -91,7 +90,7 @@ export default function ServicesTablePanel({ catalogue }) {
               action={<Button size="sm" onClick={catalogue.openAdd}><Plus className="h-3.5 w-3.5" />Add New Service</Button>}
             />
           ) : (
-            <Table>
+            <Table data-testid="services-table">
               <TableHeader className="bg-slate-50/70">
                 <TableRow>
                   <TableHead className="text-xs font-bold uppercase">ID</TableHead>
@@ -103,7 +102,7 @@ export default function ServicesTablePanel({ catalogue }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {catalogue.filtered.map(test => (
+                {catalogue.paged.map(test => (
                   <TableRow key={test.id}>
                     <TableCell className="font-bold text-xs text-slate-900">SRV-{test.id}</TableCell>
                     {/* Whether this service tells the patient how to prepare. [1.24.0] added
@@ -156,6 +155,18 @@ export default function ServicesTablePanel({ catalogue }) {
             </Table>
           )}
         </PanelBody>
+        {/* Only once there is more than one page — a control that can never do anything is noise
+            on a catalogue the clinic may only have a dozen rows in. */}
+        {!catalogue.loading && !catalogue.error && catalogue.totalPages > 1 && (
+          <Pagination
+            page={catalogue.page}
+            totalPages={catalogue.totalPages}
+            onPageChange={catalogue.setPage}
+            total={catalogue.filtered.length}
+            totalLabel="services"
+            className="border-t border-line px-4 py-2.5"
+          />
+        )}
       </Panel>
       </div>
   );

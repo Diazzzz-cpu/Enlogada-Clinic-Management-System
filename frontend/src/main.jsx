@@ -29,17 +29,39 @@ applyStoredScale()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
+    {/* ── Toasts ─────────────────────────────────────────────────────────────────────────────
+        `expand` so a second toast does not stack UNDER the first as a folded edge. Two things
+        can succeed in quick succession here — verifying a payment refreshes a queue, releasing a
+        result notifies a department — and a message the reader cannot see is the same as no
+        message.
+
+        `closeButton` because the errors this app raises are not all glanceable. "Result released
+        — email notification failed, patient was not notified" is a sentence somebody has to read
+        and then act on; it must not vanish on a timer chosen for "Saved".
+
+        `gap` and `offset` keep the stack clear of the notification bell, which sits in the same
+        top-right corner on every staff console. Duration is per-type in lib/toast.js: an error
+        is given more than twice the dwell of a success, because a success confirms something the
+        reader just did and an error asks them to do something differently. */}
     <Toaster
       position="top-right"
+      expand
+      closeButton
+      gap={10}
+      offset={16}
       toastOptions={{
         classNames: {
           toast: 'rounded-xl border shadow-float font-sans',
           title: 'font-semibold text-sm',
+          description: '!text-slate-500',
+          closeButton: '!bg-surface !border-line !text-slate-500 hover:!text-slate-800',
           /* Through the surface token, not a pinned white. These fire in the corner of whatever
              screen the user is on, so a hardcoded white toast on a dark console is a small
              flash-bang every time something succeeds. [1.39.0] */
           success: '!bg-surface !border-brand-300 !text-ink [&_[data-icon]]:!text-brand-600',
           error: '!bg-surface !border-rose-200 !text-ink [&_[data-icon]]:!text-rose-500',
+          warning: '!bg-surface !border-amber-300 !text-ink [&_[data-icon]]:!text-amber-600',
+          info: '!bg-surface !border-azure-200 !text-ink [&_[data-icon]]:!text-azure-600',
         },
       }}
     />

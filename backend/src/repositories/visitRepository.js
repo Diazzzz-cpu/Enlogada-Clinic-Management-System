@@ -78,15 +78,43 @@ class VisitRepository {
     const summaryRes = await db.query(summaryQuery, params);
     const summary = summaryRes.rows[0];
 
+    // [1.62.0] Queue position and how many are still waiting IN FRONT of each visit.
+    //
+    // Computed in a CTE over the WHOLE active set — deliberately not inside the filtered query
+    // below. Position is a fact about the queue, not about the search results: filtering to
+    // "Dela Cruz" must not renumber that patient to #1, and paging to the second page must not
+    // restart the count. Both would be the result of ranking after the WHERE clause, and both
+    // would tell a patient something confidently false about where they stand.
+    //
+    // `patients_ahead` counts only 'Pending' predecessors. A 'Processing' visit has already been
+    // billed and released to a department — that person is no longer between this patient and the
+    // desk, and counting them would inflate every estimate by the whole morning's completed work.
+    //
+    // The frame `UNBOUNDED PRECEDING AND 1 PRECEDING` is what makes it "ahead of me" rather than
+    // "including me": without the `1 PRECEDING` bound, a Pending patient counts themselves and
+    // the person at the front of the queue is told one patient is ahead of them.
     let listQuery = `
+      WITH queue AS (
+        SELECT pv.id,
+               ROW_NUMBER() OVER (ORDER BY pv.created_at, pv.id)::int AS queue_position,
+               COALESCE(SUM(CASE WHEN pv.status = 'Pending' THEN 1 ELSE 0 END)
+                        OVER (ORDER BY pv.created_at, pv.id
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)::int AS patients_ahead
+          FROM patient_visits pv
+         WHERE pv.created_at >= CURRENT_DATE
+           AND pv.created_at < (CURRENT_DATE + 1)
+           AND pv.status IN ('Pending', 'Processing')
+      )
       SELECT pv.*, p.first_name, p.last_name, p.contact_number,
              pt.name as patient_type_name,
              u.first_name as created_by_first_name, u.last_name as created_by_last_name,
-             pv.status as visit_status
+             pv.status as visit_status,
+             q.queue_position, q.patients_ahead
       FROM patient_visits pv
       JOIN patients p ON pv.patient_id = p.id
       JOIN patient_types pt ON p.patient_type_id = pt.id
       LEFT JOIN users u ON pv.created_by = u.id
+      JOIN queue q ON q.id = pv.id
       WHERE ${whereClause}
       ORDER BY pv.created_at ASC
     `;
@@ -141,7 +169,7 @@ class VisitRepository {
   // 3.6 MB response to fill a fifteen-row table — down the wire, parsed, and held in memory, on
   // every page load and on a screen that polls. The row count comes back separately so the
   // pagination footer can still say how many there are without shipping them.
-  async findVisitsByDateRange({ startDate, endDate, search, limit = null, offset = 0 }) {
+  async findVisitsByDateRange({ startDate, endDate, search, visitType, status, limit = null, offset = 0 }) {
     // COALESCE to CURRENT_DATE rather than defaulting in JavaScript: the server's local date is
     // what every other date filter in this file compares against, and a JS default would have to
     // agree with it — which is exactly the disagreement the toISOString bug was.
@@ -155,6 +183,19 @@ class VisitRepository {
       params.push(`%${search}%`);
       const idx = params.length;
       filters.push(`(p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx} OR pv.queue_number ILIKE $${idx})`);
+    }
+
+    // Filtered in SQL, not in the page of rows already fetched. This list is paged at the
+    // database, so narrowing it in JavaScript would filter 25 rows and then label the answer as
+    // the whole range — the same mistake the money summary exists to avoid. The COUNT below runs
+    // on the same WHERE, so the total the footer shows is the total that matches.
+    if (visitType) {
+      params.push(visitType);
+      filters.push(`pv.visit_type = $${params.length}`);
+    }
+    if (status) {
+      params.push(status);
+      filters.push(`pv.status = $${params.length}`);
     }
     const whereClause = filters.join(' AND ');
 
@@ -296,6 +337,17 @@ class VisitRepository {
   // that later rolled back would leave the visit already released to the modalities — a ticket
   // on a worklist with no payment behind it, which is the exact inverse of the bug the payment
   // transaction exists to prevent. Nested here, this joins the caller's transaction instead.
+  /**
+   * Hands a paid visit's tests to their departments.
+   *
+   * @param {number} visitId
+   * @returns {Promise<Array>} The categories the work reached, so the caller can notify exactly
+   *   those departments and no others.
+   *
+   * Moves `visit_tests` to 'Processing', which is what makes them visible on a modality worklist.
+   * Called from inside the payment transaction: a released visit with no settled receipt is work
+   * the clinic performed and cannot bill for.
+   */
   async releaseVisitToModalities(visitId) {
     return await db.withTransaction(async () => {
       const visitRes = await db.query(
@@ -427,6 +479,36 @@ class VisitRepository {
     `;
     const result = await client.query(queryText);
     return String(result.rows[0].last_number).padStart(4, '0');
+  }
+
+  /**
+   * How busy the clinic is right now, as COUNTS ONLY. [1.63.0]
+   *
+   * Backs a public endpoint, so the shape of this query is the privacy control: it selects no
+   * name, no id, no queue number and nothing joinable back to a person. Two integers and a
+   * timestamp. Adding a column here is a decision about what the open internet can see, and the
+   * comment is placed at the SELECT because that is where somebody would add one.
+   *
+   * `status IN ('Pending','Processing')` matches findActiveVisits, so the public number and the
+   * receptionist's KPI card cannot disagree about what "in the clinic" means.
+   *
+   * Half-open range on the raw column, never `created_at::date` — a B-tree cannot serve a
+   * predicate on an expression, and this endpoint is unauthenticated and therefore cacheable
+   * traffic that anyone can generate.
+   *
+   * @returns {Promise<{waiting: number, in_progress: number}>}
+   */
+  async countActiveForPublicStatus() {
+    const queryText = `
+      SELECT COUNT(*) FILTER (WHERE status = 'Pending')::int    AS waiting,
+             COUNT(*) FILTER (WHERE status = 'Processing')::int AS in_progress
+        FROM patient_visits
+       WHERE created_at >= CURRENT_DATE
+         AND created_at < (CURRENT_DATE + 1)
+         AND status IN ('Pending', 'Processing')
+    `;
+    const result = await db.query(queryText);
+    return result.rows[0] || { waiting: 0, in_progress: 0 };
   }
 }
 

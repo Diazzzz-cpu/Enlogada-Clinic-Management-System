@@ -136,13 +136,11 @@ const SUPERSEDE = {
   'Breast Ultrasound': 'not on the 2025 ultrasound sheet — carried a demo price',
   'Abdominal X-Ray': 'the sheet distinguishes Supine & Upright (1300) from Flat Plate & Upright (1200)',
 
-  // The clinic does not offer these. Deactivated rather than deleted, and the '2D Echo' and 'ECG'
+  // The clinic does not offer these. Deactivated rather than deleted, and the 'ECG'
   // CATEGORIES stay: 18 historical visit_tests point at these rows, and dropping the category would
   // leave those visits unable to say what they were for. Deactivating is enough to achieve what was
   // actually asked — nothing new can be booked, and they disappear from the public price list and
   // the booking picker, both of which read only active rows.
-  'Pediatric 2D Echo': 'the clinic does not offer 2D Echo',
-  'Plain 2D Echo with Doppler': 'the clinic does not offer 2D Echo',
   '12 Lead ECG': 'the clinic does not offer ECG',
 };
 
@@ -364,7 +362,7 @@ async function main() {
   console.log('  * "CHEST PAL" and "CHEST APL" are both printed at 500 and look like the same view.');
   console.log('    Both loaded as printed — confirm whether one should go.');
   console.log('  * Package C reads "FBS/RBS"; FBS was carried (both are 190).');
-  console.log('  * 2D Echo and ECG are DEACTIVATED — the clinic does not offer them. The');
+  console.log('  * ECG is DEACTIVATED — the clinic does not offer it. 2D Echo was removed');
   console.log('    categories remain so historical results can still say what they were.');
   process.exit(0);
 }

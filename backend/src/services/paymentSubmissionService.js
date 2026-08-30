@@ -52,6 +52,23 @@ class PaymentSubmissionService {
     }
   }
 
+  /**
+   * Records a patient's claim that they have paid, with their screenshot as evidence.
+   *
+   * @param {object} params
+   * @param {number} params.patientVisitId
+   * @param {number} [params.paymentMethodId]
+   * @param {string} params.referenceNumber  The clinic's only handle on a transfer that happened
+   *   inside GCash or a bank.
+   * @param {number} params.amountClaimed    EVIDENCE, never the amount charged — approval bills
+   *   the recomputed total.
+   * @param {object} file  The uploaded proof.
+   * @param {object} user  A Client may submit only against their own visit.
+   * @returns {Promise<object>} The 'Pending' submission. No money moves here.
+   *
+   * `uq_paysub_one_live_per_visit` allows one Pending claim per visit, so two cashiers cannot be
+   * handed the same money twice. It is partial, so a rejected claim never blocks a second attempt.
+   */
   async submit({ patientVisitId, paymentMethodId, referenceNumber, amountClaimed }, file, user) {
     if (!referenceNumber?.trim()) {
       discardPaymentFile(file);
@@ -133,6 +150,17 @@ class PaymentSubmissionService {
    * The amount comes from the BILL, not from the claim. `processPayment` recomputes it and refuses
    * a mismatch, so this cannot be used to settle a visit for whatever the patient typed.
    */
+  /**
+   * Turns a patient's claim into money, through the SAME writer the counter uses.
+   *
+   * @param {number} id
+   * @param {object} actor  The cashier. Needs `billing:process`.
+   * @returns {Promise<object>} The settled payment, with its receipt number.
+   *
+   * Calls `paymentService.processPayment`, deliberately — it earns a real receipt number, the
+   * visit release and the cash-up entry, and there is never a parallel money writer. The amount is
+   * the recomputed bill, NOT `amount_claimed`.
+   */
   async verify(id, actor) {
     const submission = await paymentSubmissionRepository.findById(id);
     if (!submission) {
@@ -149,6 +177,46 @@ class PaymentSubmissionService {
     const method = submission.payment_method_id
       ? await paymentMethodRepository.findById(submission.payment_method_id)
       : null;
+
+    // ── A submission left Pending on a visit that IS paid ──────────────────────────────────────
+    //
+    // Taking the money and marking the submission are two writes and cannot be one: processPayment
+    // owns its own transaction, commits, and issues a receipt number from daily_counters. If the
+    // settle below fails after that commit — a dropped connection, a restart — the money is banked
+    // and the submission is still Pending.
+    //
+    // Nothing was lost when that happened, but nothing could fix it either. The row stayed in the
+    // cashier's queue forever, and every retry called processPayment, which correctly refused with
+    // "This visit has already been paid" — an error about the VISIT, on a screen about a
+    // SUBMISSION, with no action that would clear it.
+    //
+    // So reconcile instead of re-charging: adopt the payment that already exists and close the
+    // submission against it. This is the only branch that may settle without taking money, and it
+    // is safe precisely because it takes none — hasPaidPayment is the same guard processPayment
+    // would have used to refuse.
+    const existing = (await paymentRepository.findPaymentsByVisitId(submission.patient_visit_id))
+      .find((p) => p.payment_status === 'Paid');
+    if (existing) {
+      const reconciled = await paymentSubmissionRepository.settle(id, {
+        status: 'Verified',
+        reviewedBy: actor.userId,
+        reviewNote: null,
+        paymentId: existing.id,
+      });
+      if (reconciled) {
+        await auditService.log({
+          actorId: actor.userId,
+          action: 'payment_submission.reconciled',
+          entityType: 'payment_submission',
+          entityId: reconciled.id,
+          // Named distinctly from a normal verification: no money moved here, and a cash-up that
+          // cannot tell the two apart is a cash-up that cannot be checked.
+          description: `Ref ${reconciled.reference_number} matched to existing receipt ${existing.receipt_number} — no new payment taken`,
+        });
+        this.notifyPatient(reconciled.id, { verified: true, payment: existing }).catch(() => {});
+        return { submission: reconciled, payment: existing, reconciled: true };
+      }
+    }
 
     // The authoritative figure, recomputed from the visit.
     const bill = await paymentService.getBillingSummary(submission.patient_visit_id);

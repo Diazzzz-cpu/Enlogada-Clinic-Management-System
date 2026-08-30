@@ -33,6 +33,10 @@ import { todayStr, daysAgoStr } from "../../lib/date"
  * @param presets    optional quick ranges for filter fields — [{ label, value }]. A report filter
  *                   is almost always answering "last 7 days", which a month grid answers slowly.
  * @param yearRange  passed to Calendar; enables month/year dropdowns. Set it for birthdates.
+ * @param unavailable  passed to Calendar; { 'YYYY-MM-DD': 'reason' } days that cannot be picked.
+ *                   Only reaches the custom picker — where the browser owns the picker (Firefox)
+ *                   there is no way to grey a day, so the caller must still handle the choice
+ *                   after the fact rather than relying on this to prevent it.
  */
 /**
  * Can we take the browser's calendar glyph away? [1.34.0]
@@ -87,7 +91,7 @@ function useFinePointer() {
 
 const DateField = React.forwardRef(({
   className, containerClassName, value, onChange, min, max, disabled,
-  presets, yearRange, ...props
+  presets, yearRange, unavailable, ...props
 }, ref) => {
   const [open, setOpen] = React.useState(false);
   const wrapRef = React.useRef(null);
@@ -222,10 +226,10 @@ const DateField = React.forwardRef(({
           // the sidebar, clipping "Today" and "Last" clean off. Left-aligned it grows into the
           // content area instead, where there is room, and the fixed width makes the presets wrap
           // inside the calendar rather than dictating the size of the thing that contains them.
-          className="absolute left-0 z-50 mt-1 w-[17.5rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#e6ebf1] bg-white shadow-float"
+          className="absolute left-0 z-50 mt-1 w-[17.5rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-line bg-surface shadow-float"
         >
           {presets?.length > 0 && (
-            <div className="flex flex-wrap gap-1 border-b border-[#e6ebf1] p-2">
+            <div className="flex flex-wrap gap-1 border-b border-line p-2">
               {presets.map((p) => (
                 <button
                   key={p.label}
@@ -243,6 +247,7 @@ const DateField = React.forwardRef(({
             min={min}
             max={max}
             yearRange={yearRange}
+            unavailable={unavailable}
             onSelect={(next) => { emit(next); setOpen(false); }}
           />
         </div>

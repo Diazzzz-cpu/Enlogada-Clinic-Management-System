@@ -1,8 +1,10 @@
 const visitRepository = require('../repositories/visitRepository');
+const { VISIT_TYPES, VISIT_STATUSES } = require('../constants/visits');
 const notificationService = require('./notificationService');
 const patientRepository = require('../repositories/patientRepository');
 const { assertReferralIfRequired, normaliseReferral } = require('./referralService');
 const { staffRolesForCategories } = require('../constants/modality');
+const queueEstimateService = require('./queueEstimateService');
 
 const VALID_VISIT_STATUSES = ['Pending', 'Processing', 'Completed', 'Cancelled'];
 
@@ -17,6 +19,23 @@ const RELEASE_BLOCKED = {
 };
 
 class VisitService {
+  /**
+   * Opens a visit and issues its queue ticket.
+   *
+   * @param {object} params
+   * @param {number} params.patientId
+   * @param {string} params.visitType  'Walk in' | 'Appointment' (`chk_visits_type`).
+   * @param {string} [params.notes]
+   * @param {number} params.createdBy   Whoever opened it — a receptionist, or the patient
+   *   themselves when booking online. Reports that count staff throughput must exclude the latter.
+   * @param {string} [params.referringPhysician]
+   * @param {string} [params.referringPhysicianPrc]
+   * @returns {Promise<object>} The visit, carrying its `queue_number`.
+   *
+   * The ticket comes from `daily_counters` via `INSERT … ON CONFLICT DO UPDATE … RETURNING`, not
+   * from `COUNT(*) + 1`: counting races between two receptionists and rewinds when a visit is
+   * cancelled, handing a number to two different patients.
+   */
   async registerVisit({ patientId, visitType, notes, createdBy, referringPhysician, referringPhysicianPrc }) {
     const referral = normaliseReferral({ referringPhysician, referringPhysicianPrc });
 
@@ -63,10 +82,19 @@ class VisitService {
     }
 
     const result = await visitRepository.findActiveVisits(opts);
+
+    // [1.62.0] "You are number 12" is not an answer to the question every person holding a ticket
+    // is actually asking. The repository supplies the queue position; the estimate is added here
+    // because it depends on a clinic-wide service rate that has nothing to do with this query.
+    //
+    // Additive only — `visits` keeps every field it had, so nothing that reads this response has
+    // to change, and a screen that ignores the new fields behaves exactly as it did.
+    const visits = await queueEstimateService.annotate(result.visits);
+
     if (limitNum) {
-      return { ...result, page: pageNum, limit: limitNum, totalPages: Math.max(1, Math.ceil(result.total / limitNum)) };
+      return { ...result, visits, page: pageNum, limit: limitNum, totalPages: Math.max(1, Math.ceil(result.total / limitNum)) };
     }
-    return result;
+    return { ...result, visits };
   }
 
   // The date default is derived in SQL, not here. [1.29.0]
@@ -78,14 +106,23 @@ class VisitService {
   // number generator); this was the third place. `null` reaches the repository, which falls back
   // to CURRENT_DATE — the database's own local date, which is what every other date filter here
   // compares against.
-  async getVisitHistoryByDateRange({ startDate, endDate, search, page, limit }) {
+  async getVisitHistoryByDateRange({ startDate, endDate, search, visitType, status, page, limit }) {
     const limitNum = limit ? Math.min(Math.max(parseInt(limit, 10) || 0, 1), 100) : null;
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+
+    // Allow-listed rather than passed through. Both columns are constrained in the database, so
+    // an unknown value could only ever return nothing — and an empty screen is indistinguishable
+    // from a quiet day, which is how a typo in a query string becomes "the clinic saw nobody".
+    // Anything unrecognised is dropped, so the filter is simply not applied.
+    const type = VISIT_TYPES.includes(visitType) ? visitType : null;
+    const visitStatus = VISIT_STATUSES.includes(status) ? status : null;
 
     const result = await visitRepository.findVisitsByDateRange({
       startDate: startDate || null,
       endDate: endDate || null,
       search,
+      visitType: type,
+      status: visitStatus,
       limit: limitNum,
       offset: limitNum ? (pageNum - 1) * limitNum : 0,
     });
@@ -94,6 +131,12 @@ class VisitService {
     return { ...result, page: pageNum, limit: limitNum, totalPages: Math.max(1, Math.ceil(result.total / limitNum)) };
   }
 
+  /**
+   * One visit, with its attached tests.
+   *
+   * @param {number} id
+   * @returns {Promise<object|null>}
+   */
   async getVisitById(id) {
     const visit = await visitRepository.findVisitById(id);
     if (!visit) {
@@ -168,6 +211,17 @@ class VisitService {
     });
   }
 
+  /**
+   * Changes a visit's status, refusing the transitions that would break billing or release.
+   *
+   * @param {number} id
+   * @param {string} status  One of `VISIT_STATUSES`.
+   * @param {object} requestingUser
+   * @returns {Promise<object>}
+   *
+   * A receptionist cannot set 'Processing' to push an unpaid visit onto a worklist — release is
+   * the payment's job, and allowing it here would be a way round the ticket-release gate.
+   */
   async updateStatus(id, status, requestingUser) {
     if (!VALID_VISIT_STATUSES.includes(status)) {
       const error = new Error(`Invalid visit status. Must be one of: ${VALID_VISIT_STATUSES.join(', ')}`);
@@ -223,8 +277,57 @@ class VisitService {
     return await visitRepository.updateVisitStatus(id, status);
   }
 
+  /**
+   * Every visit for one patient, newest first.
+   *
+   * @param {number} patientId  A patient profile, not an account — an account may own several.
+   * @returns {Promise<Array>}
+   */
   async getVisitHistory(patientId) {
     return await visitRepository.findVisitsByPatientId(patientId);
+  }
+
+  /**
+   * "How busy is the clinic right now?" — for the public site. [1.63.0]
+   *
+   * ── Why this is safe to publish ─────────────────────────────────────────────────────────
+   *
+   * It is a count and an estimate. No name, no queue number, no id, nothing joinable to a person
+   * — the repository query selects two integers, deliberately. A clinic waiting-room display and
+   * a restaurant's "20 minute wait" sign carry the same information, and it is the information a
+   * patient needs to decide whether to set off now or after lunch.
+   *
+   * That reasoning does NOT extend to anything richer. A public endpoint that named who was
+   * waiting, or how long a specific ticket had been there, would be a PHI leak wearing a
+   * convenience feature's clothes.
+   *
+   * ── It reuses the same estimator the queue screens use ──────────────────────────────────
+   *
+   * Not a second calculation. A patient who reads "about 25 minutes" on the public page and is
+   * then told something different at the desk has been misled by the clinic twice in ten minutes,
+   * and the fix for that is one estimator rather than two that agree today.
+   *
+   * @returns {Promise<{waiting:number, inProgress:number, estimatedWaitMinutes:number|null,
+   *                    estimateIsCapped:boolean, estimateBasis:string, asOf:string}>}
+   */
+  async getPublicQueueStatus() {
+    const counts = await visitRepository.countActiveForPublicStatus();
+    const waiting = Number(counts.waiting) || 0;
+
+    // A patient arriving now joins the BACK of the queue, so everyone currently waiting is ahead
+    // of them. Passing `waiting` rather than `waiting - 1` is the whole difference between "how
+    // long have these people waited" and "how long would I wait".
+    const rate = await queueEstimateService.getServiceRate();
+    const estimate = queueEstimateService.estimateFor(waiting, rate);
+
+    return {
+      waiting,
+      inProgress: Number(counts.in_progress) || 0,
+      estimatedWaitMinutes: estimate.estimated_wait_minutes,
+      estimateIsCapped: estimate.estimate_is_capped,
+      estimateBasis: estimate.estimate_basis,
+      asOf: new Date().toISOString(),
+    };
   }
 }
 

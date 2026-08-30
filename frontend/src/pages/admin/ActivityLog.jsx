@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/panel';
 import PageHeader from '../../components/ui/page-header';
+import RefreshButton from '../../components/ui/refresh-button';
+import { useFreshness } from '../../hooks/useFreshness';
 import EmptyState from '../../components/ui/empty-state';
 import { SkeletonList } from '../../components/ui/skeleton';
 import { Button } from '../../components/ui/button';
@@ -63,6 +65,10 @@ const ActivityLog = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
+  // An audit trail is consulted precisely when something has just happened, so "is this the
+  // current list?" is the first question its reader has.
+  const updatedAt = useFreshness(loading, error);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -71,6 +77,9 @@ const ActivityLog = () => {
         title="Activity Log"
         description="Who did what — payment refunds and cancellations, staff account changes, HMO provider changes, and result corrections."
         meta={<span><strong className="font-semibold text-slate-700">{total}</strong> recorded action{total === 1 ? '' : 's'}</span>}
+        actions={
+          <RefreshButton onRefresh={() => fetchActivity(page)} loading={loading} updatedAt={updatedAt} />
+        }
       />
 
       <Panel>

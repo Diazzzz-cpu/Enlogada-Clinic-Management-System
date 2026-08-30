@@ -31,7 +31,7 @@ const PublicHeader = ({ currentTab = '', onNavigate }) => {
     }`;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[#e6ebf1] bg-white/85 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-line bg-surface/85 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
         {/* Brand */}
         <button
@@ -63,7 +63,7 @@ const PublicHeader = ({ currentTab = '', onNavigate }) => {
               <button
                 type="button"
                 onClick={() => go('dashboard')}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-fine font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-fine font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
                 <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-brand-100 text-brand-700">
                   <User className="w-3 h-3" />
@@ -109,7 +109,7 @@ const PublicHeader = ({ currentTab = '', onNavigate }) => {
           onClick={() => setMenuOpen(o => !o)}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={menuOpen}
-          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 md:hidden"
+          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-surface text-slate-600 hover:bg-slate-50 md:hidden"
         >
           {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
@@ -117,7 +117,7 @@ const PublicHeader = ({ currentTab = '', onNavigate }) => {
 
       {/* Mobile panel */}
       {menuOpen && (
-        <div className="md:hidden border-t border-[#e6ebf1] bg-white px-4 py-3 space-y-1 animate-fade-in">
+        <div className="md:hidden border-t border-line bg-surface px-4 py-3 space-y-1 animate-fade-in">
           {/* Dark mode was desktop-only, which on a site whose patients book from phones meant
               most of them could not reach it at all. Inside this panel rather than beside it:
               mobile-patient.spec.js selects `header div.md:hidden` and takes the LAST match, so a
@@ -139,7 +139,7 @@ const PublicHeader = ({ currentTab = '', onNavigate }) => {
             </button>
           ))}
 
-          <div className="pt-2 mt-2 border-t border-[#e6ebf1] space-y-2">
+          <div className="pt-2 mt-2 border-t border-line space-y-2">
             {user ? (
               <>
                 <button

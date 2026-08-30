@@ -6,15 +6,16 @@
  * notification to the correct modality department — so it lives here rather than being
  * duplicated, per the backend `constants/` layer in .agents/PROJECT_STRUCTURE.md.
  *
- * Ultrasound Staff covers '2D Echo' as well: a distinct test_categories row that
- * MODULE_SCOPE.md explicitly assigns to that role.
+ * [1.50.0] '2D Echo' was removed from all three maps when the clinic confirmed it does not offer
+ * the service and the last visit_tests row referencing it was gone. 'ECG' remains absent from
+ * CATEGORY_TO_STAFF_ROLE for its own, older reason — see below.
  */
 
 // Role name -> the test_categories this role may act on.
 const STAFF_ROLE_TO_CATEGORIES = {
   'Laboratory Staff': ['Laboratory'],
   'Xray Staff': ['Xray'],
-  'Ultrasound Staff': ['Ultrasound', '2D Echo']
+  'Ultrasound Staff': ['Ultrasound']
 };
 
 // test_categories.name -> the role that should be notified when a ticket in that category is
@@ -24,12 +25,11 @@ const STAFF_ROLE_TO_CATEGORIES = {
 const CATEGORY_TO_STAFF_ROLE = {
   Laboratory: 'Laboratory Staff',
   Xray: 'Xray Staff',
-  Ultrasound: 'Ultrasound Staff',
-  '2D Echo': 'Ultrasound Staff'
+  Ultrasound: 'Ultrasound Staff'
 };
 
 // The categories a diagnostic worklist may legitimately be queried for.
-const DIAGNOSTIC_CATEGORIES = ['Laboratory', 'Xray', 'Ultrasound', '2D Echo'];
+const DIAGNOSTIC_CATEGORIES = ['Laboratory', 'Xray', 'Ultrasound'];
 
 /**
  * visit_tests.status values a modality staff member is allowed to set themselves.

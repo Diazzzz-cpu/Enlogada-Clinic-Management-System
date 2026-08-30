@@ -78,6 +78,24 @@ class AppointmentRepository {
                SELECT 1 FROM payments pay
                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
              ) AS is_paid,
+             -- The receipt for the money already taken, so the booking pass can carry it. [1.52.0]
+             -- A patient who has paid holds two things that belong together: the pass they present
+             -- and the receipt for what they paid. They lived on separate screens, so the patient
+             -- had to go and find the second one.
+             --
+             -- 'Paid' only: a reversed receipt must not keep appearing on a live booking pass as
+             -- though the money were still the clinic's. LIMIT 1 because a visit settled once has
+             -- one receipt, and ordering by paid_at makes "the current one" deterministic rather
+             -- than whatever the planner returned first.
+             (
+               SELECT pay.receipt_number
+                 FROM payments pay
+                WHERE pay.patient_visit_id = pv.id
+                  AND pay.payment_status = 'Paid'
+                  AND pay.receipt_number IS NOT NULL
+                ORDER BY pay.paid_at DESC
+                LIMIT 1
+             ) AS receipt_number,
              COALESCE(ARRAY_AGG(DISTINCT tc.name) FILTER (WHERE tc.name IS NOT NULL), '{}') as categories
       FROM appointments a
       JOIN patient_visits pv ON a.patient_visit_id = pv.id
@@ -139,6 +157,24 @@ class AppointmentRepository {
                SELECT 1 FROM payments pay
                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
              ) AS is_paid,
+             -- The receipt for money already taken, so the pass and the receipt travel together.
+             -- [1.52.0] A patient who has paid holds two things that belong side by side: the pass
+             -- they present at the desk, and proof of what they paid. They lived on separate
+             -- screens, so the patient had to go and find the second one — usually at the moment
+             -- an HMO or an employer asked them for it.
+             --
+             -- 'Paid' only: a reversed receipt must not keep riding on a live pass as though the
+             -- money were still the clinic's. LIMIT 1 with an explicit ORDER BY because "the
+             -- current receipt" must be deterministic, not whatever the planner returned first.
+             (
+               SELECT pay.receipt_number
+                 FROM payments pay
+                WHERE pay.patient_visit_id = pv.id
+                  AND pay.payment_status = 'Paid'
+                  AND pay.receipt_number IS NOT NULL
+                ORDER BY pay.paid_at DESC
+                LIMIT 1
+             ) AS receipt_number,
              -- What this booking costs, so the patient paying from home is told a FIGURE rather
              -- than "the amount due". [1.48.0] They are about to type it into a banking app, and
              -- a number they have to go and find somewhere else is a number they will get wrong.
@@ -163,7 +199,35 @@ class AppointmentRepository {
                FROM visit_tests vt
                JOIN tests t ON vt.test_id = t.id
                WHERE vt.patient_visit_id = pv.id
-             ) AS preparation_notes
+             ) AS preparation_notes,
+             -- How many people are still waiting in front of this patient, RIGHT NOW. [1.62.0]
+             --
+             -- The service layer turns this into a time; the count is done here because it is a
+             -- fact about today's queue that only SQL can answer, and answering it in JavaScript
+             -- would mean shipping the whole active queue to the portal to count it — the entire
+             -- day's patient list, to a patient, which is a PHI leak rather than a performance
+             -- problem.
+             --
+             -- NULL unless this booking is itself in today's queue and still Pending. A booking
+             -- for next Tuesday has no position, and a patient already billed is past the desk;
+             -- in both cases there is no wait to state, and stating zero would be a claim rather
+             -- than an absence.
+             CASE
+               WHEN pv.status = 'Pending'
+                    AND pv.created_at >= CURRENT_DATE
+                    AND pv.created_at < (CURRENT_DATE + 1)
+               THEN (
+                 SELECT COUNT(*)::int
+                   FROM patient_visits ahead
+                  WHERE ahead.status = 'Pending'
+                    AND ahead.created_at >= CURRENT_DATE
+                    AND ahead.created_at < (CURRENT_DATE + 1)
+                    -- Strictly earlier, with id breaking a tie the same way the staff queue's
+                    -- window function does, so the two screens agree on who is in front of whom.
+                    AND (ahead.created_at, ahead.id) < (pv.created_at, pv.id)
+               )
+               ELSE NULL
+             END AS patients_ahead
       FROM appointments a
       JOIN patient_visits pv ON a.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id

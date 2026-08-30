@@ -1,5 +1,6 @@
 import React from 'react';
-import { Activity, Calendar, CheckCircle, ChevronRight, Clock, Download, Eye, FileText, FlaskConical, HeartPulse, Info, Printer, Scan, Stethoscope } from 'lucide-react';
+import { printElement } from '../../lib/printArea';
+import { Activity, Calendar, CheckCircle, ChevronRight, Clock, Download, Eye, FileText, FlaskConical, Info, Printer, Scan, Stethoscope } from 'lucide-react';
 
 // The mark a patient recognises their own report by. Elements rather than components because
 // they are looked up by name and rendered as-is; the sizing is the same everywhere it appears.
@@ -7,18 +8,18 @@ const CATEGORY_ICONS = {
   Ultrasound: <Stethoscope className="w-5 h-5" />,
   Xray: <Scan className="w-5 h-5" />,
   Laboratory: <FlaskConical className="w-5 h-5" />,
-  '2D Echo': <HeartPulse className="w-5 h-5" />,
   ECG: <Activity className="w-5 h-5" />,
 };
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
+import EmptyState from '../ui/empty-state';
+import { SkeletonList } from '../ui/skeleton';
 import Toolbar, { ToolbarSpacer } from '../ui/toolbar';
 import { SearchInput } from '../ui/search-input';
 import { Dialog, DialogContent, DialogTrigger } from '../ui/dialog';
 import { StatusBadge } from '../ui/status-badge';
 import { TabsContent } from '../ui/tabs';
 import ResultReport from '../ResultReport';
-import { printReport } from '../../lib/printReport';
 import { isSafeResultUrl, downloadResultFile } from '../../lib/resultFile';
 
 /**
@@ -48,7 +49,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
               <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
                 {/* Only the categories this patient actually has. The hardcoded list this
                     replaces mirrored all five test_categories rows, so every patient was offered
-                    2D Echo and ECG filters for services the clinic retired [1.47.0] — chips that
+                    filters for services the clinic does not offer — chips that
                     named a service nobody can book and returned nothing when clicked. */}
                 {results.categories.map(cat => (
                   <button
@@ -56,7 +57,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                     onClick={() => results.setCategory(cat)}
                     className={`cursor-pointer rounded-[7px] border-0 px-2.5 py-1.5 text-fine font-semibold transition-colors ${
                       results.category === cat
-                        ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
+                        ? 'bg-surface text-slate-900 shadow-[0_1px_2px_rgb(15_23_42_/_0.08)]'
                         : 'bg-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
@@ -68,9 +69,21 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
 
           {/* Test Cards List */}
           <div className="space-y-3">
-            {results.filtered.length > 0 ? (
+            {results.error ? (
+              // tone="error" looks deliberately unlike empty. A patient who has just been
+              // emailed "your result is ready" and then reads "no diagnostic requests found"
+              // concludes the clinic lost it.
+              <EmptyState
+                tone="error"
+                title="Your results could not be loaded"
+                description={results.error}
+                action={<Button variant="outline" size="sm" onClick={results.reload}>Try again</Button>}
+              />
+            ) : results.loading ? (
+              <SkeletonList rows={3} />
+            ) : results.filtered.length > 0 ? (
               results.filtered.map(item => (
-                <Card key={item.visit_test_id} className="border-[#e6ebf1] rounded-xl hover:shadow-raised transition-all">
+                <Card key={item.visit_test_id} className="border-line rounded-xl hover:shadow-raised transition-all">
                   <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-start space-x-3.5">
                       <div className="w-10 h-10 bg-gray-50 border border-gray-200/80 rounded-xl flex items-center justify-center flex-shrink-0 text-brand-600">
@@ -179,7 +192,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
 
                         <div className="flex justify-end pt-2">
                           <Button
-                            onClick={printReport}
+                            onClick={() => printElement(null, 'printing-report')}
                             variant="outline"
                             className="text-xs font-bold flex items-center space-x-1.5"
                           >

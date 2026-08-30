@@ -69,8 +69,8 @@ class PaymentController {
 
   async getTransactions(req, res, next) {
     try {
-      const { startDate, endDate, page, limit, method } = req.query;
-      const result = await paymentService.getTransactions({ startDate, endDate, page, limit, method });
+      const { startDate, endDate, page, limit, method, search } = req.query;
+      const result = await paymentService.getTransactions({ startDate, endDate, page, limit, method, search });
       // Unpaged callers still get a bare array under `transactions`, exactly as before — now
       // with `summary` beside it, which is where every peso figure on the client comes from.
       return res.status(200).json({
@@ -79,6 +79,22 @@ class PaymentController {
           ? { transactions: result, total: result.total ?? result.length, summary: result.summary }
           : result,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /payments/receipt/:receiptNumber — one receipt, printable, any time.
+   *
+   * Its own route rather than a filter on the transaction list, because the print page opens in a
+   * NEW TAB and must render from a single known URL without inheriting a date range, a page
+   * number or a filter that happened to be set on the screen it was opened from.
+   */
+  async getReceipt(req, res, next) {
+    try {
+      const receipt = await paymentService.getReceipt(req.params.receiptNumber, req.user);
+      return res.status(200).json({ status: 'success', data: receipt });
     } catch (err) {
       next(err);
     }

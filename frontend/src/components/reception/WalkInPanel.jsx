@@ -13,13 +13,20 @@ import WalkInRegistration from './WalkInRegistration';
  * reached for, so what each view depends on is visible at its top instead of inferred by
  * scrolling.
  */
-export default function WalkInPanel({ queue, lookup, checkIn, reference }) {
+/**
+ * @param {object} props
+ * @param {boolean} [props.compact]  Rendered in the queue screen's side column rather than as its
+ *   own full-width screen. Drops the reading-width cap, which exists to stop a form sprawling
+ *   across a 27" monitor and is exactly wrong once the form IS the narrow column.
+ */
+export default function WalkInPanel({ queue, lookup, checkIn, reference, compact = false }) {
+  const panelWidth = compact ? '' : 'max-w-3xl';
   return (
         <div className="space-y-4">
 
           {/* Existing Patient Lookup (Module 7: patient record lookup) */}
-          <Panel className="max-w-3xl p-6">
-            <div className="border-b border-[#e6ebf1] pb-3 mb-4">
+          <Panel className={`${panelWidth} p-6`}>
+            <div className="border-b border-line pb-3 mb-4">
               <h2 className="m-0 flex items-center gap-2 text-lead font-bold tracking-tight text-slate-900">
                 <Users className="h-4 w-4 text-brand-600" />
                 <span>Find Existing Patient</span>
@@ -59,7 +66,7 @@ export default function WalkInPanel({ queue, lookup, checkIn, reference }) {
                   <p className="text-xs text-slate-500 text-center py-3">No matching patient records found. Register them as a new patient below.</p>
                 ) : (
                   lookup.results.map(patient => (
-                    <div key={patient.id} className="flex items-center justify-between border border-[#e6ebf1] rounded-xl p-3 bg-slate-50/70">
+                    <div key={patient.id} className="flex items-center justify-between border border-line rounded-xl p-3 bg-slate-50/70">
                       <div className="text-xs">
                         <span className="block font-bold text-slate-900">{patient.first_name} {patient.last_name} <span className="text-meta text-gray-400 font-normal">PT-{patient.id}</span></span>
                         <span className="block text-gray-500">{patient.patient_type_name} &middot; DOB {new Date(patient.birthdate).toLocaleDateString()}</span>

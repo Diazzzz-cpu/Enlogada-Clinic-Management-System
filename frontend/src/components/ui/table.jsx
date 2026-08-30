@@ -50,7 +50,7 @@ const TableHeader = React.forwardRef(({ className, sticky = false, ...props }, r
   <thead
     ref={ref}
     className={cn(
-      "bg-slate-50/80 [&_tr]:border-b [&_tr]:border-[#e6ebf1]",
+      "bg-slate-50/80 [&_tr]:border-b [&_tr]:border-line",
       sticky && "sticky top-0 z-10 backdrop-blur-sm",
       className
     )}
@@ -69,7 +69,7 @@ TableBody.displayName = "TableBody"
 const TableFooter = React.forwardRef(({ className, ...props }, ref) => (
   <tfoot
     ref={ref}
-    className={cn("border-t border-[#e6ebf1] bg-slate-50/80 font-semibold [&>tr]:last:border-b-0", className)}
+    className={cn("border-t border-line bg-slate-50/80 font-semibold [&>tr]:last:border-b-0", className)}
     {...props} />
 ))
 TableFooter.displayName = "TableFooter"
@@ -80,7 +80,7 @@ const TableRow = React.forwardRef(({ className, ...props }, ref) => (
     className={cn(
       // A hairline that is lighter than the panel's own border, so rows read as divisions
       // *within* one object rather than as a stack of separate objects.
-      "border-b border-[#eef2f6] transition-colors hover:bg-slate-50/70 data-[state=selected]:bg-brand-50",
+      "border-b border-line-soft transition-colors hover:bg-slate-50/70 data-[state=selected]:bg-brand-50",
       className
     )}
     {...props} />

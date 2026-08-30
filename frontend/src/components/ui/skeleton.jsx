@@ -36,7 +36,7 @@ export function SkeletonList({ rows = 3, className }) {
     // decorative bars being read out or passed over in silence.
     <div role="status" aria-busy="true" aria-label="Loading" className={cn('space-y-2', className)}>
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="rounded-xl border border-[#e6ebf1] bg-white p-3.5 space-y-2">
+        <div key={i} className="rounded-xl border border-line bg-surface p-3.5 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <Skeleton className="h-3 w-2/5" />
             <Skeleton className="h-4 w-16 rounded-full" />
@@ -56,7 +56,7 @@ export function SkeletonRows({ rows = 5, columns = 4 }) {
   return (
     <>
       {Array.from({ length: rows }).map((_, r) => (
-        <tr key={r} className="border-b border-[#e6ebf1]">
+        <tr key={r} className="border-b border-line">
           {Array.from({ length: columns }).map((_, c) => (
             <td key={c} className="py-3.5 px-4">
               {/* Varying widths: uniform bars read as a rendered table of identical values

@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 import { selfPayProfile } from './helpers/patients.js';
 
 // What the patient is told about their own booking. [1.24.0]
@@ -129,12 +130,7 @@ test('the booking wizard shows preparation for the test the patient picks', asyn
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/');
-  await page.getByText('Sign In', { exact: true }).first().click();
-  await page.fill('input[type="email"]', 'client@enlogada.com');
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await expect(page.getByText(/welcome/i).first()).toBeVisible({ timeout: 15000 });
+  await signIn(page, 'client@enlogada.com');
 
   await page.getByRole('button', { name: 'Book Schedule' }).first().click();
   const dialog = page.getByRole('dialog');

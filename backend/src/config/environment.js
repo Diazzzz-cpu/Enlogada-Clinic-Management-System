@@ -75,11 +75,36 @@ module.exports = {
   CLINIC_VAT_REGISTERED: process.env.CLINIC_VAT_REGISTERED !== 'false',
   VAT_RATE: parseFloat(process.env.VAT_RATE || '0.12'),
 
-  SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
-  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
-  SMTP_USER: process.env.SMTP_USER || '',
-  SMTP_PASS: process.env.SMTP_PASS || '',
-  SMTP_FROM: process.env.SMTP_FROM || 'Enlogada Clinic <noreply@enlogadaclinic.com>',
+  /**
+   * The clinic's own identity, for documents the backend composes on its own — currently the
+   * released-result email. [1.61.0]
+   *
+   * The defaults are the same values frontend/src/lib/clinic.js falls back to, and that is the
+   * point: a report emailed to a patient carries the letterhead they read on the website and on
+   * their receipt. Three sources drifting apart is a document nobody can rely on, which is the
+   * reasoning clinic.js already sets out for the printed receipt.
+   *
+   * TIN and business permit are deliberately absent. They belong on a BIR document, and a
+   * diagnostic report is not one — inventing them onto a clinical email would be worse than the
+   * receipt case, where at least the patient might file it for reimbursement.
+   */
+  CLINIC_NAME: process.env.CLINIC_NAME || 'Enlogada Ultrasound & Diagnostic Clinic',
+  CLINIC_ADDRESS: process.env.CLINIC_ADDRESS || 'Bugo, Cagayan de Oro, Philippines 9000',
+  CLINIC_PHONE: process.env.CLINIC_PHONE || '0936 132 0650',
+  CLINIC_EMAIL: process.env.CLINIC_EMAIL || 'enlogadaclinic2011@gmail.com',
+
+  // Outbound mail. EMAIL_* is accepted as an alias for SMTP_* because that is how Gmail names
+  // these when you generate an App Password, and an operator following Google's own wording
+  // should not end up with a silently unconfigured mailer. SMTP_* wins where both are set, being
+  // the more specific and the one this project has always documented.
+  //
+  // The password is read from the environment and nowhere else — never a default, never a
+  // fallback literal, never logged. `logSafeConfig` below must never gain a line for it.
+  SMTP_HOST: process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT || '587', 10),
+  SMTP_USER: process.env.SMTP_USER || process.env.EMAIL_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || process.env.EMAIL_APP_PASSWORD || process.env.EMAIL_PASS || '',
+  SMTP_FROM: process.env.SMTP_FROM || process.env.EMAIL_FROM || 'Enlogada Clinic <noreply@enlogadaclinic.com>',
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
 

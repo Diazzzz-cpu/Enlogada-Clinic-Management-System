@@ -522,6 +522,138 @@ CREATE TABLE test_results (
     CONSTRAINT fk_results_recorded_by FOREIGN KEY (recorded_by) REFERENCES users(id)
 );
 
+-- ── Structured result entry [1.50.0]-[1.53.0] ────────────────────────────────────────────────
+--
+-- A result was one free-text box until [1.50.0]. The clinic's own work is not shaped like that:
+-- their laboratory forms print TEST | RESULT | UNIT | REFERENCE RANGE with section headings, and
+-- their ultrasound reports open with a Measurements block. These five tables hold the FORM (what
+-- a given test asks for) and the VALUES (what was recorded against one version of one result).
+--
+-- Placed after test_results because result_measurements references it, and after tests /
+-- test_categories which the field sets reference.
+
+CREATE TABLE result_field_sets (
+    id           SERIAL PRIMARY KEY,
+    code         VARCHAR(40)  NOT NULL UNIQUE,
+    name         VARCHAR(120) NOT NULL,
+    category_id  INT          NOT NULL,
+    -- The heading the form prints above its panel: CLINICAL MICROSCOPY, HEMATOLOGY, etc.
+    discipline   VARCHAR(60),
+    -- Non-NULL turns on a per-fetus repeating group. Only the obstetric set would use it.
+    repeat_label VARCHAR(30),
+    is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_field_sets_category FOREIGN KEY (category_id) REFERENCES test_categories(id)
+);
+
+CREATE TABLE result_fields (
+    id             SERIAL PRIMARY KEY,
+    field_set_id   INT         NOT NULL,
+    code           VARCHAR(40) NOT NULL,
+    label          VARCHAR(80) NOT NULL,
+    value_kind     VARCHAR(12) NOT NULL,
+    unit           VARCHAR(10),
+    display_order  SMALLINT    NOT NULL,
+    -- The section heading this field prints under. An explicit column, NOT a "carry it forward
+    -- until the next heading" rule: the clinic's CBC prints RDW-CV after the Differential Count
+    -- block and it does not belong to it.
+    section        VARCHAR(60),
+    applies_to_sex VARCHAR(10),
+    is_required    BOOLEAN     NOT NULL DEFAULT FALSE,
+    -- The annotation printed beside the field on the clinic's own form. Text, not numeric bounds:
+    -- bounds would invite out-of-range flagging nobody asked for.
+    reference_note VARCHAR(60),
+    derivation     VARCHAR(24),
+    derived_from   VARCHAR(40),
+    is_repeating   BOOLEAN     NOT NULL DEFAULT FALSE,
+    is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
+    CONSTRAINT fk_result_fields_set FOREIGN KEY (field_set_id)
+        REFERENCES result_field_sets(id) ON DELETE CASCADE,
+    CONSTRAINT uq_result_fields_code UNIQUE (field_set_id, code),
+    CONSTRAINT chk_result_fields_kind CHECK (value_kind IN ('linear3','number','text','date')),
+    CONSTRAINT chk_result_fields_sex
+        CHECK (applies_to_sex IS NULL OR applies_to_sex IN ('Male','Female')),
+    -- Closed deliberately. Only formulas the clinic's own archive evidences; an open enum invites
+    -- someone to invent clinical arithmetic. BPS_SUM was added by [1.51.0].
+    CONSTRAINT chk_result_fields_derivation CHECK (
+        derivation IS NULL
+        OR derivation IN ('ELLIPSOID_VOLUME','EDC_NAEGELE','GA_FROM_MSD','BPS_SUM')),
+    CONSTRAINT chk_result_fields_derived_from CHECK ((derivation IS NULL) = (derived_from IS NULL))
+);
+
+CREATE TABLE result_field_set_tests (
+    id           SERIAL PRIMARY KEY,
+    field_set_id INT NOT NULL,
+    test_id      INT NOT NULL,
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_fst_set  FOREIGN KEY (field_set_id)
+        REFERENCES result_field_sets(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fst_test FOREIGN KEY (test_id) REFERENCES tests(id),
+    -- One set per test: two would make "which grid do I render" unanswerable. A separate table
+    -- rather than tests.field_set_id, because testRepository.updateTest writes every column
+    -- unconditionally and would unmap it on the first status toggle.
+    CONSTRAINT uq_fst_test UNIQUE (test_id)
+);
+
+CREATE TABLE result_measurements (
+    id             SERIAL PRIMARY KEY,
+    -- Attaches to the VERSION, not the visit_test. createResult inserts a new test_results row per
+    -- save and copies nothing forward; hanging these off visit_test_id would let an amendment
+    -- rewrite the superseded version's numbers in place.
+    test_result_id INT         NOT NULL,
+    field_id       INT         NOT NULL,
+    group_index    SMALLINT    NOT NULL DEFAULT 1,
+    -- NUMERIC(10,4), not (7,2). [1.53.0] Postgres ROUNDS rather than errors, so a suppressed TSH
+    -- of 0.004 mIU/L stored as 0.00 and became indistinguishable from 0.001.
+    value_1        NUMERIC(10,4),
+    value_2        NUMERIC(10,4),
+    value_3        NUMERIC(10,4),
+    value_text     VARCHAR(120),
+    value_date     DATE,
+    value_source   VARCHAR(10) NOT NULL DEFAULT 'entered',
+    -- Stamped WITH the value. If a coefficient is ever corrected, released reports keep saying
+    -- what they said.
+    derivation     VARCHAR(24),
+    created_at     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_measurements_result FOREIGN KEY (test_result_id)
+        REFERENCES test_results(id) ON DELETE CASCADE,
+    CONSTRAINT fk_measurements_field FOREIGN KEY (field_id) REFERENCES result_fields(id),
+    CONSTRAINT uq_measurements UNIQUE (test_result_id, field_id, group_index),
+    CONSTRAINT chk_measurements_source CHECK (value_source IN ('entered','computed','override')),
+    CONSTRAINT chk_measurements_group CHECK (group_index >= 1),
+    CONSTRAINT chk_measurements_has_value CHECK (
+        value_1 IS NOT NULL OR value_text IS NOT NULL OR value_date IS NOT NULL)
+);
+
+CREATE TABLE clinic_signatories (
+    id            SERIAL PRIMARY KEY,
+    -- NULL means every category. A laboratory report carries two signatories with PRC licence
+    -- numbers; an ultrasound report carries one radiologist and no number anywhere.
+    category_id   INT,
+    full_name     VARCHAR(120) NOT NULL,
+    role_caption  VARCHAR(80)  NOT NULL,
+    -- Nullable and NOT defaulted. A blank prints nothing rather than a plausible-looking number,
+    -- for the same reason lib/clinic.js refuses to invent a TIN.
+    prc_license   VARCHAR(40),
+    display_order SMALLINT     NOT NULL DEFAULT 1,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_signatories_category FOREIGN KEY (category_id) REFERENCES test_categories(id),
+    CONSTRAINT uq_signatory UNIQUE (category_id, full_name, role_caption)
+);
+
+CREATE INDEX idx_result_fields_set    ON result_fields (field_set_id);
+CREATE INDEX idx_fst_set              ON result_field_set_tests (field_set_id);
+CREATE INDEX idx_measurements_result  ON result_measurements (test_result_id);
+CREATE INDEX idx_measurements_field   ON result_measurements (field_id);
+CREATE INDEX idx_signatories_category ON clinic_signatories (category_id);
+-- NULLs are DISTINCT in a Postgres unique constraint, so uq_signatory above does not cover the
+-- "signs every category" case. [1.53.0]
+CREATE UNIQUE INDEX uq_signatory_global ON clinic_signatories (full_name, role_caption)
+    WHERE category_id IS NULL;
+
 -- 7. Billing and Payments
 -- ── Manual proof of payment [1.48.0] ─────────────────────────────────────────────────────────
 --

@@ -365,7 +365,17 @@ class ResultRepository {
              pv.created_at AS visit_date, pv.referring_physician, pv.referring_physician_prc,
              t.name AS test_name, tc.name AS category_name,
              -- The discipline heading the form prints above its panel, e.g. CLINICAL MICROSCOPY.
-             fs.discipline
+             fs.discipline,
+             -- Whether the FORM carries reference ranges — not whether these particular values
+             -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
+             -- hand, but the viewer and the patient's copy do not, so they fell back to it and the
+             -- same released result printed four columns on one screen and three on another.
+             -- NULL (not FALSE) when the test has no field set, so the caller's own fallback still
+             -- decides that case rather than this column silently answering "no".
+             CASE WHEN fs.id IS NULL THEN NULL ELSE EXISTS (
+               SELECT 1 FROM result_fields rf
+               WHERE rf.field_set_id = fs.id AND rf.reference_note IS NOT NULL
+             ) END AS field_set_has_reference
       FROM test_results tr
       LEFT JOIN users u ON tr.released_by = u.id
       JOIN visit_tests vt        ON vt.id = tr.visit_test_id
@@ -415,7 +425,17 @@ class ResultRepository {
              -- same document by requirement, and this query fed the patient's — so without these
              -- their copy printed Birthday, Sex and Patient Type blank and carried no title at all,
              -- while the clinic's showed all four.
-             p.birthdate, p.sex, ptp.name AS patient_type_name, fs.discipline
+             p.birthdate, p.sex, ptp.name AS patient_type_name, fs.discipline,
+             -- Whether the FORM carries reference ranges — not whether these particular values
+             -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
+             -- hand, but the viewer and the patient's copy do not, so they fell back to it and the
+             -- same released result printed four columns on one screen and three on another.
+             -- NULL (not FALSE) when the test has no field set, so the caller's own fallback still
+             -- decides that case rather than this column silently answering "no".
+             CASE WHEN fs.id IS NULL THEN NULL ELSE EXISTS (
+               SELECT 1 FROM result_fields rf
+               WHERE rf.field_set_id = fs.id AND rf.reference_note IS NOT NULL
+             ) END AS field_set_has_reference
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id

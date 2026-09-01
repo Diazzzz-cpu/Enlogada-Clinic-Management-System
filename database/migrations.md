@@ -1,5 +1,61 @@
 # Database Migration & Schema History
 
+## [1.63.0] - 2026-09-01 (A schema file that builds the database it describes)
+
+No new migration script, and nothing to run on an existing database. Both fixes below are about
+databases and screens that were built the *other* way.
+
+### schema.sql did not declare five of its own tables
+
+`migrateDb.js` builds the whole database from `database/schema.sql` — it is the documented way to
+create one. Five tables were reachable only by running the migration scripts:
+
+    result_field_sets   result_fields   result_field_set_tests
+    result_measurements clinic_signatories
+
+So a database created the documented way had no structured result entry at all: no field sets, no
+measurements, no signatories. Every environment that worked, worked because it had been migrated
+rather than built. Nothing in the suite covers it, because the suite runs against a database that
+already exists.
+
+The declarations are folded in after `test_results` — `result_measurements` references it, and the
+field sets reference `tests` / `test_categories`, so that position satisfies every foreign key. They
+are the composed final shape, not the first draft: `value_1..3` are `NUMERIC(10,4)` per `[1.53.0]`,
+the derivation CHECK carries `BPS_SUM` per `[1.51.0]`, and `uq_signatory_global` is the partial index
+that `[1.53.0]` added because NULLs are DISTINCT in a plain unique constraint.
+
+Verified by building a throwaway database from the file and diffing it against the live one: 36
+tables each way, no difference in either direction. Not by reading it — reading it is what missed
+this for four releases.
+
+### The reference-range column was decided by the values again
+
+`[1.53.0]` established that the column belongs to the FORM, not to what happens to have been
+recorded, and passed `fieldSet` into `ResultReport` to settle it. Only the entry dialog ever passed
+it. `ResultViewerDialog` and the portal's `ResultsTab` pass none, so both fell back to
+`measurements.some(m => m.reference_note)` — the exact heuristic that release replaced.
+
+The visible failure is two copies of one document disagreeing: the clinic's just-released copy
+prints four columns and the patient's copy of the same result prints three, under a component whose
+docblock says they are the same document by requirement. Eight active field sets are partially
+ranged, and Whole Abdomen is the worst at 1 of 11 — leave that one field blank and the patient's
+copy silently loses the column.
+
+Fixed in the repository rather than by threading the prop through two more components, so it cannot
+drift again: both result queries already `LEFT JOIN result_field_sets`, so each gained a
+`field_set_has_reference` flag. It is **NULL, not FALSE, when a test has no field set**, so the old
+heuristic still decides that case instead of the column quietly answering "no".
+
+No live occurrences today — checked — so this was latent, which is why 328/330 said nothing about it.
+No E2E test can catch it either while the seeded data never produces a partially-ranged form; worth
+seeding deliberately if the demo data is ever rebuilt.
+
+### On the version number
+
+This fork and upstream have both been numbering from the same range, and `[1.50.0]` already tags two
+unrelated changes across the boundary. `[1.63.0]` is next after upstream's highest at time of
+writing; happy to renumber if it collides.
+
 ## [1.62.0] - 2026-08-28 (Take the figures with you, read the receipt, name the wait)
 
 **No schema change, and no migration script.** All four features are reads over tables that

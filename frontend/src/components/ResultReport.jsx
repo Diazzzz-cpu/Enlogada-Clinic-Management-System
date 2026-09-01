@@ -175,9 +175,14 @@ export default function ResultReport({
   // been recorded. [1.53.0] Deriving it from the values printed a three-column Urinalysis when
   // microscopy was left blank and a four-column one for the next patient, because only 2 of its 14
   // fields carry a range. `fieldSet` is authoritative when the caller has it.
+  // `fieldSet` when the caller has it (the entry dialog); otherwise the server's own answer for
+  // the same question, which the viewer and the patient's copy DO get — they pass no fieldSet, so
+  // before this they fell through to the heuristic above and could disagree with the clinic's copy
+  // about how many columns the form has. The heuristic survives only for a test with no form at
+  // all, which is why the column is NULL rather than FALSE in that case.
   const showReference = fieldSet
     ? fieldSet.fields.some((f) => f.reference_note)
-    : measurements.some((m) => m.reference_note);
+    : result.field_set_has_reference ?? measurements.some((m) => m.reference_note);
 
   return (
     <div className="print-area print-active space-y-3 bg-white p-1">

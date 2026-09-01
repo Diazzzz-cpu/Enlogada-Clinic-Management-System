@@ -163,4 +163,52 @@ test.describe('Booking: choosing what to book', () => {
     const fixed = Number(pkg.price).toLocaleString('en-US', { minimumFractionDigits: 2 });
     expect(shown, `the booking should be billed at the package price ${fixed}`).toContain(fixed);
   });
+
+  test('a test the chosen package already contains stops being selectable, and stops being charged for', async ({ page }) => {
+    const ctx = await request.newContext();
+    const active = (await (await ctx.get(`${API}/packages`)).json()).data.packages;
+    await ctx.dispose();
+    test.skip(active.length === 0, 'Need an active package — run seedRealCatalogue.js.');
+
+    // A bundle whose component name is not a prefix of another test's, so the row can be addressed
+    // by its text without matching two.
+    const pkg = active.find((p) => (p.tests || []).length > 0);
+    test.skip(!pkg, 'Need a package with components.');
+    const component = pkg.tests[0];
+
+    const dialog = await openBooking(page);
+    const total = dialog.getByTestId('picker-total');
+
+    // Tick the component ON ITS OWN first. This is the order that used to misquote: the patient
+    // picks a test, then notices the bundle that contains it.
+    const row = dialog.locator('label').filter({ hasText: component.name }).first();
+    await row.getByRole('checkbox').check();
+    const alone = Number(component.price).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    await expect(total).toContainText(alone);
+
+    // Now the package that already includes it.
+    const pkgRow = dialog.locator('label').filter({ hasText: pkg.name }).first();
+    await pkgRow.getByRole('checkbox').check();
+
+    // The component is no longer a live control, and says which bundle covers it — a control that
+    // is merely dead reads as broken.
+    await expect(row.getByRole('checkbox')).toBeDisabled();
+    await expect(row).toContainText(new RegExp(`in ${pkg.name}`, 'i'));
+
+    // The property that matters: the quote is the package price, NOT the package plus the
+    // component. Booking writes the package's allocated share and skips the loose row, so a total
+    // that added both quoted a number the till would never charge.
+    const fixed = Number(pkg.price).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    await expect(total).toContainText(fixed);
+    const sum = (Number(pkg.price) + Number(component.price))
+      .toLocaleString('en-US', { minimumFractionDigits: 2 });
+    await expect(total).not.toContainText(sum);
+
+    // Removing the bundle gives the earlier choice back rather than silently discarding it.
+    await pkgRow.getByRole('checkbox').uncheck();
+    await expect(row.getByRole('checkbox')).toBeEnabled();
+    await expect(row.getByRole('checkbox')).toBeChecked();
+    await expect(total).toContainText(alone);
+  });
+
 });

@@ -107,9 +107,27 @@ const TestPicker = ({
   const selected = tests.filter((t) => selectedIds.includes(t.id.toString()));
   const selectedPackages = packages.filter((p) => selectedPackageIds.includes(p.id.toString()));
 
-  // The package contributes its fixed price, never the sum of its components.
+  // Which tests a chosen bundle already contains, and which bundle to name. Booking writes the
+  // package's allocated share and SKIPS the loose row for the same test (packages attach first,
+  // ON CONFLICT DO NOTHING), so a component offered as a live tick quotes a price the till will
+  // never charge: Pelvic Ultrasound + Package A read 1,950 while the visit billed 1,450.
+  const coveredBy = new Map();
+  for (const p of selectedPackages) {
+    for (const t of p.tests || []) {
+      const key = t.id.toString();
+      // First bundle wins where two share a component. Arbitrary but stable, and the total is the
+      // same either way — what it decides is only which name the chip prints.
+      if (!coveredBy.has(key)) coveredBy.set(key, p.name);
+    }
+  }
+
+  // Ticked AND not already inside a chosen bundle — the only tests the total may add on top.
+  const billable = selected.filter((t) => !coveredBy.has(t.id.toString()));
+
+  // The package contributes its fixed price, never the sum of its components — and a component
+  // already inside one contributes nothing further.
   const total =
-    selected.reduce((sum, t) => sum + parseFloat(t.price || 0), 0) +
+    billable.reduce((sum, t) => sum + parseFloat(t.price || 0), 0) +
     selectedPackages.reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
 
   // Preparation from both, de-duplicated by test id: booking Package A and a Pelvic Ultrasound
@@ -250,24 +268,46 @@ const TestPicker = ({
                         order and the accessibility tree, which is the part that actually matters
                         when a collapsed section is still in the DOM. */}
                     <div id={panelId} inert={!open} className="space-y-1 border-t border-line p-2">
-                    {items.map((t) => (
+                    {items.map((t) => {
+                      // The bundle that already covers it, if any — the chip's text and the reason
+                      // the control is inert.
+                      const inPackage = coveredBy.get(t.id.toString());
+                      return (
                       <label
                         key={t.id}
-                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface p-2 text-xs transition-colors hover:border-brand-300 hover:bg-brand-50/40"
+                        className={`flex items-center gap-3 rounded-lg border border-line bg-surface p-2 text-xs transition-colors ${
+                          inPackage
+                            ? 'cursor-default opacity-60'
+                            : 'cursor-pointer hover:border-brand-300 hover:bg-brand-50/40'
+                        }`}
                       >
                         <input
                           type="checkbox"
-                          checked={selectedIds.includes(t.id.toString())}
+                          // Shown ticked because the patient IS getting it. The tick is never
+                          // cleared: a component covered by a bundle they later remove has to come
+                          // back, rather than the bundle silently discarding an earlier choice.
+                          checked={!!inPackage || selectedIds.includes(t.id.toString())}
                           onChange={() => onToggle(t.id.toString())}
-                          disabled={disabled}
+                          disabled={disabled || !!inPackage}
                           className="rounded text-brand-600 focus:ring-brand-500"
                         />
                         <span className="flex flex-1 items-center justify-between gap-2">
                           <span className="font-bold text-slate-800">{t.name}</span>
-                          <span className="font-extrabold tabular-nums text-slate-900">{formatCurrency(t.price)}</span>
+                          <span className="flex items-center gap-2">
+                            {/* Naming the bundle is the point. A control that is merely dead reads
+                                as broken; one that says which package covers it reads as handled,
+                                and answers "why can I not tick this" without anyone asking. */}
+                            {inPackage && (
+                              <span className="rounded-md bg-brand-100 px-1.5 py-px text-micro font-bold text-brand-700">
+                                in {inPackage}
+                              </span>
+                            )}
+                            <span className="font-extrabold tabular-nums text-slate-900">{formatCurrency(t.price)}</span>
+                          </span>
                         </span>
                       </label>
-                    ))}
+                      );
+                    })}
                     </div>
                   </div>
                 </div>
@@ -281,18 +321,18 @@ const TestPicker = ({
           discovering the number at the till. */}
       <div className="flex items-center justify-between rounded-lg bg-sunken px-3 py-2">
         <span className="text-fine font-medium text-slate-500">
-          {selected.length === 0 && selectedPackages.length === 0
+          {billable.length === 0 && selectedPackages.length === 0
             ? 'Nothing selected'
             : [
                 selectedPackages.length
                   ? `${selectedPackages.length} package${selectedPackages.length === 1 ? '' : 's'}`
                   : null,
-                selected.length
-                  ? `${selected.length} test${selected.length === 1 ? '' : 's'}`
+                billable.length
+                  ? `${billable.length} test${billable.length === 1 ? '' : 's'}`
                   : null,
               ].filter(Boolean).join(' + ') + ' selected'}
         </span>
-        <span className="text-note font-extrabold tabular-nums text-slate-900">{formatCurrency(total)}</span>
+        <span data-testid="picker-total" className="text-note font-extrabold tabular-nums text-slate-900">{formatCurrency(total)}</span>
       </div>
 
       {/* Preparation, at the desk. The person handing over the queue ticket saying "come back

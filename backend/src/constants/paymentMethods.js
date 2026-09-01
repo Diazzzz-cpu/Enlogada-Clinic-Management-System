@@ -49,6 +49,31 @@ const EWALLET_METHODS = ['GCash'];
 
 const COUNTER_METHODS = [CASH_METHOD, ...EWALLET_METHODS, BANK_METHOD];
 
+/**
+ * The subset a patient can pay into WITHOUT being at the counter. [1.64.0]
+ *
+ * ── Why this is not COUNTER_METHODS ─────────────────────────────────────────────────────────
+ *
+ * Publishing a payment method asks two questions, and only the first is about the cash-up:
+ *
+ *   1. Is this a bucket a verified payment can be written to?  Cash, GCash and Bank all pass.
+ *   2. Can a patient REACH it from their phone?                Cash does not.
+ *
+ * `payment_methods` answers the second question as well, because a published row is an account
+ * number a patient is told to send money to — `PayBookingPanel` renders it as a copyable field
+ * under the words "Send ₱X to the…". Cash has no account number to copy and no QR to scan; it is
+ * handed across a counter, which is the path that already exists when nothing is published here.
+ *
+ * So publishing a Cash "channel" produced a screen instructing a patient to transfer money to an
+ * account that does not exist. The validation read COUNTER_METHODS — the right list for
+ * `payments.payment_method`, the wrong list for this table — and the two happen to overlap enough
+ * that the mistake looked correct.
+ *
+ * Kept as a derivation of the other constants rather than a literal, so adding an e-wallet adds it
+ * here too. Cash is excluded by construction: it is the one method defined by its presence.
+ */
+const PUBLISHABLE_METHODS = [...EWALLET_METHODS, BANK_METHOD];
+
 // clinic-facing payments.payment_method value -> PayMongo payment_method_types value.
 // 'card', 'grab_pay', 'qrph' etc. are valid PayMongo values but are deliberately NOT offered.
 const GATEWAY_METHODS = {
@@ -93,6 +118,7 @@ module.exports = {
   BANK_METHOD,
   EWALLET_METHODS,
   COUNTER_METHODS,
+  PUBLISHABLE_METHODS,
   GATEWAY_METHODS,
   sqlList
 };

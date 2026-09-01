@@ -270,3 +270,87 @@ test.describe('Manual proof of payment', () => {
     await api.dispose();
   });
 });
+
+// ── A published channel must be one a patient can actually reach ─────────────────────────────
+//
+// `payment_methods` publishes an account number that PayBookingPanel renders under the words
+// "Send ₱X to the…", with a copy button. Cash has no such number — it is handed across a counter.
+// Publishing it produced an instruction a patient could not follow.
+//
+// The validation read COUNTER_METHODS (Cash/GCash/Bank), which is the correct vocabulary for
+// `payments.payment_method` and the wrong one for this table. Both writes are covered here
+// because only one of them was ever guarded: `update` validated nothing at all, and the
+// repository writes `kind = COALESCE($2, kind)`, so a PATCH could move a live GCash channel to
+// Cash after the fact.
+test.describe('Publishable payment channels', () => {
+  let api;
+  let superToken;
+
+  test.beforeAll(async () => {
+    api = await request.newContext();
+    superToken = await loginAs(api, SUPERADMIN);
+  });
+
+  test.afterAll(async () => { await api.dispose(); });
+
+  test('Cash cannot be published as an online channel', async () => {
+    const res = await api.post(`${API}/payment-methods`, {
+      headers: { Authorization: `Bearer ${superToken}` },
+      data: {
+        kind: 'Cash', label: 'Pay at the counter', accountName: 'Enlogada Clinic',
+        accountNumber: '09000000000',
+      },
+    });
+
+    expect(res.status()).toBe(400);
+    // The message has to say why, not just "invalid" — the person reading it picked Cash for a
+    // sensible-sounding reason and needs to know the counter path already exists.
+    expect((await res.json()).message).toMatch(/counter/i);
+  });
+
+  test('the two kinds a patient can reach are still accepted', async () => {
+    for (const kind of ['GCash', 'Bank']) {
+      const res = await api.post(`${API}/payment-methods`, {
+        headers: { Authorization: `Bearer ${superToken}` },
+        data: {
+          kind,
+          label: `E2E ${kind} channel`,
+          accountName: 'Enlogada Clinic',
+          accountNumber: '09000000000',
+          bankName: kind === 'Bank' ? 'BPI' : undefined,
+        },
+      });
+      expect(res.status(), `${kind} must remain publishable`).toBe(201);
+
+      // Retire it again so the clinic's own published list is not left with test channels on it.
+      const id = (await res.json()).data.method.id;
+      await api.put(`${API}/payment-methods/${id}`, {
+        headers: { Authorization: `Bearer ${superToken}` },
+        data: { isActive: false },
+      });
+    }
+  });
+
+  test('an existing channel cannot be MOVED to Cash after the fact', async () => {
+    const method = await ensureMethod(api, superToken);
+
+    const res = await api.put(`${API}/payment-methods/${method.id}`, {
+      headers: { Authorization: `Bearer ${superToken}` },
+      data: { kind: 'Cash' },
+    });
+    expect(res.status(), 'update must be gated too, not just create').toBe(400);
+
+    // And the live row is untouched — a rejected write must not half-apply.
+    const after = (await (await api.get(`${API}/payment-methods`)).json()).data.methods
+      .find((m) => m.id === method.id);
+    expect(after.kind).toBe(method.kind);
+  });
+
+  test('a published channel always carries something to pay into', async () => {
+    const { methods } = (await (await api.get(`${API}/payment-methods`)).json()).data;
+    for (const m of methods) {
+      expect(['GCash', 'Bank'], `${m.label} is published as ${m.kind}`).toContain(m.kind);
+      expect(String(m.account_number || '').trim(), `${m.label} has no number to pay into`).not.toBe('');
+    }
+  });
+});

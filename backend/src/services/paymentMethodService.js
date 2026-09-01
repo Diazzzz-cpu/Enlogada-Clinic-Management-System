@@ -3,7 +3,7 @@ const fs = require('fs');
 const paymentMethodRepository = require('../repositories/paymentMethodRepository');
 const auditService = require('./auditService');
 const { PAYMENT_UPLOAD_ROOT, discardPaymentFile } = require('../config/upload');
-const { COUNTER_METHODS } = require('../constants/paymentMethods');
+const { PUBLISHABLE_METHODS } = require('../constants/paymentMethods');
 
 /**
  * The payment channels the clinic publishes. See migrations.md [1.48.0].
@@ -15,6 +15,24 @@ const { COUNTER_METHODS } = require('../constants/paymentMethods');
  * time the only question that matters is who changed it and when. Role edits are not audited in
  * this app because the matrix is visible to everyone who reads it; an account number is not.
  */
+/**
+ * One gate, used by both write paths, so they cannot drift apart again.
+ *
+ * @param {string} kind
+ * @throws {Error} 400 naming what IS offered and why Cash is not.
+ */
+function assertPublishableKind(kind) {
+  if (PUBLISHABLE_METHODS.includes(String(kind || '').trim())) return;
+
+  const error = new Error(
+    `A published payment method must be one of ${PUBLISHABLE_METHODS.join(' or ')} — it is an `
+    + 'account a patient sends money to before they arrive. Cash is settled at the counter, so '
+    + 'there is nothing to publish for it.'
+  );
+  error.statusCode = 400;
+  throw error;
+}
+
 class PaymentMethodService {
   /** What a patient may pay into. */
   async listActive() {
@@ -33,16 +51,14 @@ class PaymentMethodService {
       throw error;
     }
     // Rejected here with a readable message rather than left to chk_payment_methods_kind, which
-    // would surface as a raw constraint violation. The three are the cash-up buckets: a verified
-    // payment is written with this exact value, and anything else either fails chk_payment_method
-    // on `payments` or lands in a bucket the drawer has no tile for.
-    if (!COUNTER_METHODS.includes(data.kind.trim())) {
-      const error = new Error(
-        `Kind must be one of ${COUNTER_METHODS.join(', ')} — it decides which cash-up total this settles into.`
-      );
-      error.statusCode = 400;
-      throw error;
-    }
+    // would surface as a raw constraint violation.
+    //
+    // PUBLISHABLE_METHODS, not COUNTER_METHODS. [1.64.0] The kind still decides which cash-up
+    // total a verified payment settles into — that part was always right — but it ALSO has to be
+    // somewhere a patient can send money from their phone, because that is what a published row
+    // is. Cash is a valid cash-up bucket and not a reachable channel, and offering it produced a
+    // patient screen saying "Send ₱1,450.00 to the…" above an account number that cannot exist.
+    assertPublishableKind(data.kind);
     // An account with no number is not a way to pay; it is a way to lose a patient's money.
     if (!data.accountNumber?.trim()) {
       const error = new Error('An account or mobile number is required — it is what the patient pays into.');
@@ -78,6 +94,13 @@ class PaymentMethodService {
       error.statusCode = 404;
       throw error;
     }
+
+    // This path validated NOTHING. [1.64.0] `paymentMethodRepository.update` writes
+    // `kind = COALESCE($2, kind)`, so a PATCH could move a live GCash channel to Cash and the
+    // database would take it — the check constraint still allows Cash, correctly, because it
+    // mirrors the cash-up vocabulary. Closing create without closing this would have moved the
+    // hole rather than filled it.
+    if (data.kind !== undefined) assertPublishableKind(data.kind);
 
     const method = await paymentMethodRepository.update(id, data);
 

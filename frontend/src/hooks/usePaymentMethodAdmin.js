@@ -20,7 +20,12 @@ import { toastSuccess } from '../lib/toast';
  */
 
 /** Kept in step with COUNTER_METHODS on the server, which chk_payment_method enforces. */
-export const METHOD_KINDS = ['GCash', 'Bank', 'Cash'];
+// Cash is NOT here, and that is the point. [1.64.0] This dialog publishes an account a patient
+// sends money to before they arrive — the panel renders it under "Send ₱X to the…" with a copy
+// button. Cash is settled at the counter and has no number to copy, so a published Cash channel
+// was an instruction a patient could not follow. Mirrors PUBLISHABLE_METHODS on the server, which
+// is what actually enforces it.
+export const METHOD_KINDS = ['GCash', 'Bank'];
 
 const EMPTY = {
   kind: 'GCash',

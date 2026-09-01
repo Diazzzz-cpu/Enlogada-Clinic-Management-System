@@ -213,6 +213,10 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       const amountDue = visitTests.reduce((sum, t) => sum + Number(t.price_at_time || 0), 0);
 
       setBookingConfirmation({
+        // Carried through so the confirmation can take the payment itself rather than sending the
+        // patient to Appointments to find it. Present on both branches — the INSERT is
+        // `RETURNING *`, and the already-booked branch returns the existing row.
+        visitId: appt.patient_visit_id,
         referenceCode: appt.appointment_reference,
         queueNumber: appt.queue_number,
         patientName: selectedProfile ? `${selectedProfile.first_name} ${selectedProfile.last_name}` : '',

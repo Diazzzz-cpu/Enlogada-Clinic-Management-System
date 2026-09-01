@@ -154,6 +154,17 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
       onSettled?.();
     } catch (err) {
       setError(err.response?.data?.message || 'The payment could not be submitted. Please try again.');
+      // A 409 means the server knows something this mount does not: the visit is already paid, or a
+      // claim is already awaiting review. Reachable now that payment lives in two places — the
+      // booking dialog and the Appointments tab hold independent state, so submitting from one
+      // leaves the other stale and still showing the form. Re-reading flips `pending`/`verified`
+      // and the panel's early return lands on the right end state by itself, instead of stranding
+      // the patient on a form with an error under it.
+      //
+      // Only on 409. `reload()` sets `loading`, which flashes the skeleton — worth it when the
+      // answer actually changes, wasteful for a 400 like a missing reference number, where the
+      // patient should stay on the form with what they typed still in it.
+      if (err.response?.status === 409) await reload();
     } finally {
       setSubmitting(false);
     }

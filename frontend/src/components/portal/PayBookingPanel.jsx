@@ -205,6 +205,32 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
     return <div className="h-24 animate-pulse rounded-xl bg-skeleton" aria-hidden="true" />;
   }
 
+  // Settled. The fourth state the hook's docblock names — "verified -> the pass appears; nothing
+  // to do" — which this panel did not implement, because `AppointmentsTab` gated it behind
+  // `!appt.is_paid` and it was never rendered for a paid booking.
+  //
+  // The booking dialog mounts it without that guard, so the case became reachable: pay at the
+  // counter, or have the cashier verify while a dialog is still open, then submit from it. The
+  // server refuses with 409 "This visit is already paid.", the hook re-reads, and without this
+  // branch the upload form renders again UNDER that sentence — inviting a retry that can only
+  // fail. Decided here rather than by a third parent guard: the panel now has two parents with
+  // different notions of "already paid", and one that decides for itself cannot be mounted
+  // somewhere that forgets to check.
+  if (pay.verified) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5">
+        <p className="m-0 flex items-center gap-1.5 text-note font-semibold text-emerald-900">
+          <Check className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          This booking is paid
+        </p>
+        <p className="m-0 mt-1 text-fine leading-relaxed text-emerald-800">
+          Nothing further to send. Your booking pass is on this booking in{' '}
+          <strong>Appointments</strong>.
+        </p>
+      </div>
+    );
+  }
+
   // Already sent, awaiting a human. No second upload offered — a duplicate is refused by the
   // server anyway, and offering the form invites a patient to pay twice.
   if (pay.pending) {

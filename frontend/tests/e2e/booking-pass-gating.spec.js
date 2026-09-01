@@ -102,3 +102,79 @@ test('a self-pay booking is confirmed without issuing the pass', async ({ page }
 
   expect(errors, `console errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
+
+/**
+ * A week clear of `farWorkingDay()`. Both tests in this file book, and `Date.now() % 40` is fixed
+ * for the run, so they would otherwise land on the same date — where `POST /appointments` returns
+ * the EXISTING booking with 200 instead of 201 and the second test quietly asserts against the
+ * first one's visit. That is the trap CLAUDE.md records under "A booking spec must claim its own
+ * slot".
+ */
+function anotherWorkingDay() {
+  const d = new Date();
+  d.setDate(d.getDate() + 247 + (Date.now() % 40));
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+test('the patient can pay on the confirmation itself, without going to Appointments', async ({ page }) => {
+  const ctx = await request.newContext();
+
+  const token = (await (await ctx.post(`${API}/auth/login`, {
+    data: { email: 'client@enlogada.com', password: PASSWORD },
+  })).json()).data.token;
+
+  // The panel falls back to "pay at the counter" when the clinic has published no account, which
+  // is a legitimate configuration and not what this test is about.
+  const methods = (await (await ctx.get(`${API}/payment-methods`)).json()).data.methods || [];
+  test.skip(methods.length === 0, 'Need a published payment method — SuperAdmin → Payment Methods.');
+
+  const date = anotherWorkingDay();
+  const free = (await (await ctx.get(`${API}/appointments/availability?date=${date}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })).json()).data.slots.filter((s) => s.available);
+  test.skip(free.length === 0, 'Need a free slot to book into.');
+  const slot = free[0].time;
+  await ctx.dispose();
+
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await signIn(page, 'client@enlogada.com');
+
+  await page.getByRole('button', { name: 'Book Schedule' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  await dialog.locator('#slotpicker-label').fill(date);
+  const slotButton = dialog.locator(`[data-testid="slot-${slot}"]`);
+  await expect(slotButton).toBeVisible({ timeout: 15000 });
+  await slotButton.click();
+
+  const box = dialog.getByRole('checkbox').first();
+  await expect(box).toBeVisible({ timeout: 10000 });
+  await box.check();
+
+  await dialog.getByRole('button', { name: /2\. HMO/i }).click();
+  const submit = dialog.getByRole('button', { name: /submit schedule request/i });
+  await expect(submit).toBeVisible({ timeout: 10000 });
+  await submit.click();
+
+  await expect(dialog.getByText(/APT-[A-Z0-9]+/).first()).toBeVisible({ timeout: 20000 });
+
+  // The point of the change: the means of paying is HERE, on the confirmation, rather than named
+  // as somewhere else to go. The patient is most willing to settle in the seconds after booking,
+  // and an unpaid booking only HOLDS its slot [1.35.0].
+  await expect(
+    dialog.getByText(/Pay to confirm this booking/i),
+    'the confirmation must offer payment itself, not send the patient to another screen'
+  ).toBeVisible({ timeout: 15000 });
+
+  // The clinic's actual published account, so this is the real panel and not a placeholder.
+  await expect(dialog.getByText(methods[0].account_number)).toBeVisible();
+
+  // The fallback survives, which is the whole reason the Appointments route stays wired: anyone
+  // who closes this dialog must still be able to pay.
+  await expect(dialog.getByText(/Appointments/)).toBeVisible();
+
+  expect(errors, `console errors: ${errors.join(' | ')}`).toHaveLength(0);
+});

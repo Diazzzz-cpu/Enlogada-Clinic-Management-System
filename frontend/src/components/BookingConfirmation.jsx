@@ -6,6 +6,7 @@ import { Printer, CheckCircle2, Wallet, ShieldCheck } from 'lucide-react';
 import AppointmentTime from './ui/appointment-time';
 import { formatCurrency } from '../lib/currency';
 import DataBadge from './ui/data-badge';
+import PayBookingPanel from './portal/PayBookingPanel';
 
 /**
  * What the patient sees the moment a booking succeeds.
@@ -27,6 +28,7 @@ import DataBadge from './ui/data-badge';
  * owed and where to pay it.
  */
 const BookingConfirmation = ({
+  visitId = null,
   referenceCode,
   queueNumber,
   patientName,
@@ -37,6 +39,12 @@ const BookingConfirmation = ({
   isHmo = false,
   onClose,
 }) => {
+  // Set once proof has been uploaded from this screen. The panel switches itself to "sent for
+  // checking", but the Status field further down would still read "Awaiting payment" — and to a
+  // patient who has just paid, that reads as "it did not go through". [1.49.0] records where that
+  // ends: the next step is paying twice.
+  const [proofSent, setProofSent] = React.useState(false);
+
   const owed = Number(amountDue) || 0;
   // An HMO booking is not the patient's to settle — the claim decides what, if anything, they
   // owe — so it gets its own message rather than a demand for money that may never be due.
@@ -105,13 +113,29 @@ const BookingConfirmation = ({
                 </>
               ) : (
                 <>
-                  Open <strong>Appointments</strong> to pay {formatCurrency(owed)} into the
-                  clinic&apos;s GCash or bank account and upload your confirmation. A cashier checks
-                  it, and your scannable pass appears there. You can also pay at the counter on the
-                  day.
+                  Pay {formatCurrency(owed)} below and upload your confirmation — a cashier checks
+                  it and your scannable pass appears. You can also do this later from{' '}
+                  <strong>Appointments</strong>, or pay at the counter on the day.
                 </>
               )}
             </p>
+          </div>
+        )}
+
+        {/* Paying happens HERE, not one screen away. The patient is most willing to settle in the
+            seconds after booking, and an unpaid booking only HOLDS its slot [1.35.0] — so the walk
+            to another tab is a slot nobody can use and a patient nothing chases, the portal having
+            no notification bell [1.49.0].
+
+            `no-print`: a QR to scan and a file picker are meaningless on paper. The sentence above
+            stays printable, so a printed confirmation still says where to pay. */}
+        {awaitingPayment && visitId && (
+          <div className="no-print">
+            <PayBookingPanel
+              visitId={visitId}
+              amountDue={owed}
+              onSettled={() => setProofSent(true)}
+            />
           </div>
         )}
 
@@ -136,7 +160,9 @@ const BookingConfirmation = ({
             </div>
             <div className="space-y-0.5">
               <span className="field-label">Status</span>
-              <span className="text-sm font-extrabold text-amber-700">Awaiting payment</span>
+              <span className="text-sm font-extrabold text-amber-700">
+                {proofSent ? 'Payment sent for checking' : 'Awaiting payment'}
+              </span>
             </div>
           </div>
         )}

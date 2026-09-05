@@ -127,19 +127,27 @@ function AnalyteTable({ measurements, showReference }) {
   );
 }
 
-/** The two-column footer. A signatory with no licence number prints none. */
-function Signatories({ signatories }) {
+/**
+ * The two-column footer. A signatory with no licence number prints none.
+ *
+ * `caption` overrides the FIRST signatory's own caption. [1.64.0] The same technologist signs every
+ * report, but the clinic's workbook captions her "Medical Technologist" on the chemistry and CBC
+ * forms and "Examiner" on Blood Type, HBsAg, BUA, the OGTTs and CT BT. `clinic_signatories` holds
+ * one caption per CATEGORY, so the form carries the exception. Only the first — the pathologist's
+ * caption never varies.
+ */
+function Signatories({ signatories, caption = null }) {
   if (!signatories?.length) return null;
   return (
     <div className="pt-8" data-signatory>
       <p className="m-0 pb-4 text-fine font-bold text-slate-700">FOR:</p>
       <div className="grid grid-cols-2 gap-6">
-        {signatories.map((s) => (
+        {signatories.map((s, i) => (
           <div key={`${s.full_name}-${s.role_caption}`} className="text-center">
             <p className="m-0 border-t border-slate-800 pt-1 text-fine font-bold uppercase text-slate-900">
               {s.full_name}
             </p>
-            <p className="m-0 text-meta text-slate-700">{s.role_caption}</p>
+            <p className="m-0 text-meta text-slate-700">{(i === 0 && caption) || s.role_caption}</p>
             {s.prc_license && (
               <p className="m-0 text-meta italic text-slate-600">PRC License No. {s.prc_license}</p>
             )}
@@ -229,13 +237,19 @@ export default function ResultReport({
           (staff preview vs patient view), and only the caller knows which. */}
       {children}
 
-      {/* The clinic prints this on 28 of its 38 forms. It is their claim, not one this system
-          invents, and it is why the signature block matters. */}
+      {/* The clinic's claim, not one this system invents, and it is why the signature block
+          matters. [1.64.0] There are TWO, chosen by the form: most carry the seal note, while
+          OGTT 50, OGTT 100, CT BT and Hct Hgb declare themselves electronically signed. The two
+          say OPPOSITE things about whether a signature is needed, so printing the wrong one sends
+          a patient to fetch a seal the clinic never intended to apply. Defaults to the seal note
+          when the form is unknown — the majority, and the more cautious of the two. */}
       <p className="m-0 pt-3 text-center text-meta text-slate-600">
-        NOTE: DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL
+        {result.signature_mode === 'electronic'
+          ? '** THIS IS AN ELECTRONICALLY SIGNED REPORT. NO SIGNATURE IS REQUIRED.**'
+          : 'NOTE: DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL'}
       </p>
 
-      <Signatories signatories={sigs} />
+      <Signatories signatories={sigs} caption={result.technologist_caption} />
 
       {variant === 'patient' && (
         <p className="m-0 pt-2 text-center text-meta font-bold text-brand-600">

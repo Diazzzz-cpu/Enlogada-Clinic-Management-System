@@ -541,10 +541,22 @@ CREATE TABLE result_field_sets (
     discipline   VARCHAR(60),
     -- Non-NULL turns on a per-fetus repeating group. Only the obstetric set would use it.
     repeat_label VARCHAR(30),
+    -- Which disclaimer the form prints. [1.64.0] The clinic's workbook uses two, per form: most
+    -- carry the official-seal note, while OGTT 50, OGTT 100, CT BT and Hct Hgb say the report is
+    -- electronically signed and needs no signature. The two sentences say OPPOSITE things about
+    -- whether a seal is required, so the wrong one sends a patient to fetch something the clinic
+    -- never meant to apply.
+    signature_mode VARCHAR(12) NOT NULL DEFAULT 'seal',
+    -- Overrides the signatory's own caption for THIS form. [1.64.0] The same technologist signs
+    -- every report, but the workbook captions her "Medical Technologist" on the chemistry and CBC
+    -- forms and "Examiner" on Blood Type, HBsAg, BUA, the OGTTs and CT BT. clinic_signatories holds
+    -- one caption per CATEGORY and cannot express that. NULL means "use the signatory's own".
+    technologist_caption VARCHAR(40),
     is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_field_sets_category FOREIGN KEY (category_id) REFERENCES test_categories(id)
+    CONSTRAINT fk_field_sets_category FOREIGN KEY (category_id) REFERENCES test_categories(id),
+    CONSTRAINT chk_field_sets_signature_mode CHECK (signature_mode IN ('seal', 'electronic'))
 );
 
 CREATE TABLE result_fields (

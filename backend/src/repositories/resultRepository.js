@@ -366,6 +366,11 @@ class ResultRepository {
              t.name AS test_name, tc.name AS category_name,
              -- The discipline heading the form prints above its panel, e.g. CLINICAL MICROSCOPY.
              fs.discipline,
+             -- Which disclaimer this FORM prints, and how it captions the technologist.
+             -- [1.64.0] Per-form facts: the clinic's workbook uses two footers and two
+             -- captions, and the wrong disclaimer tells a patient to fetch a seal the
+             -- clinic never meant to apply.
+             fs.signature_mode, fs.technologist_caption,
              -- Whether the FORM carries reference ranges — not whether these particular values
              -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
              -- hand, but the viewer and the patient's copy do not, so they fell back to it and the
@@ -426,6 +431,9 @@ class ResultRepository {
              -- their copy printed Birthday, Sex and Patient Type blank and carried no title at all,
              -- while the clinic's showed all four.
              p.birthdate, p.sex, ptp.name AS patient_type_name, fs.discipline,
+             -- See findResultByVisitTestId: the footer belongs to the form, and the
+             -- patient's copy is the same document as the clinic's by requirement.
+             fs.signature_mode, fs.technologist_caption,
              -- Whether the FORM carries reference ranges — not whether these particular values
              -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
              -- hand, but the viewer and the patient's copy do not, so they fell back to it and the

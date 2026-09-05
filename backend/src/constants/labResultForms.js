@@ -85,7 +85,7 @@ const LAB_FIELD_SETS = [
     ],
   },
   {
-    code: 'ct_bt', name: 'Clotting Time / Bleeding Time', discipline: 'HEMATOLOGY',
+    code: 'ct_bt', caption: 'Examiner', signatureMode: 'electronic', name: 'Clotting Time / Bleeding Time', discipline: 'HEMATOLOGY',
     tests: ['Clotting Time / Bleeding Time (CT BT)'],
     fields: [
       // `text`, because the clinic writes the result as a phrase — minutes AND seconds — not a
@@ -107,7 +107,7 @@ const LAB_FIELD_SETS = [
     ],
   },
   {
-    code: 'bua', name: 'Blood Uric Acid', discipline: 'CLINICAL CHEMISTRY',
+    code: 'bua', caption: 'Examiner', name: 'Blood Uric Acid', discipline: 'CLINICAL CHEMISTRY',
     tests: ['Blood Uric Acid (BUA)'],
     fields: [
       { code: 'bua', label: 'B U A', kind: 'number', unit: 'mg/dL', note: 'Male: 3.4-7.0 / Female: 2.4-5.7' },
@@ -158,7 +158,7 @@ const LAB_FIELD_SETS = [
     ],
   },
   {
-    code: 'ogtt_75', name: 'OGTT 75 grams', discipline: 'CLINICAL CHEMISTRY', tests: ['OGTT 75g'],
+    code: 'ogtt_75', caption: 'Examiner', name: 'OGTT 75 grams', discipline: 'CLINICAL CHEMISTRY', tests: ['OGTT 75g'],
     // Seeded from the PLAIN form. The clinic keeps a second OGTT 75g sheet whose reference column
     // is captioned GESTATIONAL DIABETES and whose values are diagnostic THRESHOLDS with the
     // opposite polarity — above the number is positive. Merging the two would print a normal range
@@ -193,7 +193,7 @@ const LAB_FIELD_SETS = [
 
   // ── SEROLOGY / IMMUNOLOGY ──────────────────────────────────────────────────────────────────
   {
-    code: 'hepatitis_b', name: 'Hepatitis B Screening', discipline: 'SEROLOGY/IMMUNOLOGY',
+    code: 'hepatitis_b', caption: 'Examiner', name: 'Hepatitis B Screening', discipline: 'SEROLOGY/IMMUNOLOGY',
     tests: ['Hepatitis B Screening'],
     fields: [{ code: 'hbsag_screening', label: 'HBsAg Screening', kind: 'text' }],
   },
@@ -204,9 +204,24 @@ const LAB_FIELD_SETS = [
   },
   {
     // Filed under Serology by the clinic, not Hematology. Their form, their filing.
-    code: 'blood_typing', name: 'Blood Typing', discipline: 'SEROLOGY/IMMUNOLOGY',
+    code: 'blood_typing', caption: 'Examiner', name: 'Blood Typing', discipline: 'SEROLOGY/IMMUNOLOGY',
     tests: ['Blood Typing'],
     fields: [{ code: 'blood_type', label: 'Blood Type', kind: 'text' }],
+  },
+  {
+    // INFERRED, not transcribed — the workbook has no HIV sheet.
+    //
+    // Its three siblings do, and are identical in shape: HBsAg Screening, VDRL/Syphilis and
+    // Anti-HCV Screening are each ONE Serology row carrying a text result of "REACTIVE" or
+    // "NON-REACTIVE", with no unit and no reference range. HIV takes that shape.
+    //
+    // Marked inferred so nobody later reads it as transcribed and "corrects" a real form to match
+    // it. Until now HIV Screening was the one active laboratory test with NO field set, so it
+    // printed as bare prose with no TEST/RESULT/UNIT/RANGE table at all — the defect that prompted
+    // this work.
+    code: 'hiv_screening', caption: 'Examiner', name: 'HIV Screening', discipline: 'SEROLOGY/IMMUNOLOGY',
+    tests: ['HIV Screening'],
+    fields: [{ code: 'hiv_screening', label: 'HIV Screening', kind: 'text' }],
   },
 ];
 

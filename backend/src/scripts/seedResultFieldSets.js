@@ -226,16 +226,34 @@ async function run() {
     const existing = (await db.query(`SELECT id FROM result_field_sets WHERE code = $1`, [set.code])).rows[0];
     let setId = existing?.id;
 
+    // The per-form footer facts [1.64.0]. Defaults live here rather than in the data file so only
+    // the exceptions have to be written down: the seal note and "Medical Technologist" are the
+    // overwhelming majority in the clinic's workbook.
+    const signatureMode = set.signatureMode || 'seal';
+    const caption = set.caption || null;
+
     if (!setId) {
       if (APPLY) {
         setId = (await db.query(
-          `INSERT INTO result_field_sets (code, name, category_id, discipline)
-           VALUES ($1,$2,$3,$4) RETURNING id`,
-          [set.code, set.name, categories[set.discipline ? 'Laboratory' : 'Ultrasound'], set.discipline || null]
+          `INSERT INTO result_field_sets (code, name, category_id, discipline, signature_mode, technologist_caption)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [set.code, set.name, categories[set.discipline ? 'Laboratory' : 'Ultrasound'], set.discipline || null,
+           signatureMode, caption]
         )).rows[0].id;
       }
       created.push(`${set.code} (${set.fields.length} fields)`);
     } else {
+      // An EXISTING set has to be updated, or the footer facts never reach the forms that were
+      // already seeded — which is every one of them. Only these two columns: the name, discipline
+      // and category are the clinic's and are not this script's to overwrite on a re-run.
+      if (APPLY) {
+        await db.query(
+          `UPDATE result_field_sets
+              SET signature_mode = $2, technologist_caption = $3, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND (signature_mode IS DISTINCT FROM $2 OR technologist_caption IS DISTINCT FROM $3)`,
+          [setId, signatureMode, caption]
+        );
+      }
       unchanged.push(set.code);
     }
 

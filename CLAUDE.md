@@ -98,6 +98,7 @@ node src/scripts/migrateScheduleOverrides.js   # [1.57.0] close a DATE, or chang
 node src/scripts/migrateResultDelivery.js      # [1.59.0] record that a released report actually reached the patient (--rollback reverses it)
 node src/scripts/migratePatientEmail.js        # [1.60.0] an address on the patient record, so a walk-in can be sent their result (--rollback reverses it)
 node src/scripts/migrateRemove2dEcho.js       # [1.50.0] remove the 2D Echo category and its tests; REFUSES if any visit_tests still reference them (--rollback restores)
+node src/scripts/migrateResultSignatureMode.js # [1.64.0] which disclaimer a lab form prints, and how it captions the technologist (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.

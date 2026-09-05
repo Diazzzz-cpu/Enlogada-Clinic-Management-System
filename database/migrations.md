@@ -1,5 +1,73 @@
 # Database Migration & Schema History
 
+## [1.64.0] - 2026-09-05 (The form decides its own footer, and HIV gets a form at all)
+
+`node src/scripts/migrateResultSignatureMode.js` — additive, idempotent, `--rollback` reverses it.
+Then `node src/scripts/seedResultFieldSets.js --confirm`.
+
+Read out of the clinic's own workbook, `RESULT FORM FLORENCE MEA D. ENLOGADA.xlsx` — about 30 named
+sheets, one per laboratory form.
+
+### HIV Screening printed no table at all
+
+It was the ONE active laboratory test with no field set. `ResultReport` renders the
+TEST / RESULT / UNIT / REFERENCE RANGE table only when the test has a form; without one it falls
+through to bare `COMMENT` and `REMARKS` prose. That fallback is *correct* for X-ray, which is
+narrative and has no form in the workbook. It is wrong for a laboratory test, and it is what the
+clinic photographed when they asked why the printed result looked so bare.
+
+The workbook has no HIV sheet, so this form is **inferred and says so in the code**: its three
+siblings — HBsAg Screening, VDRL/Syphilis, Anti-HCV Screening — are each one Serology row carrying
+a text `"REACTIVE"` / `"NON-REACTIVE"`, no unit, no range. HIV takes that shape. Marked inferred so
+nobody later mistakes it for a transcription and "corrects" a real form to match it.
+
+### There are two footers, not one
+
+The report hardcoded the seal note for every result. The workbook uses two, per form:
+
+    NOTE: DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL      most forms
+    ** THIS IS AN ELECTRONICALLY SIGNED REPORT. NO SIGNATURE IS REQUIRED.**   OGTT 50, OGTT 100,
+                                                                             CT BT, Hct Hgb
+
+Those sentences say **opposite** things about whether a signature is needed. Printing the wrong one
+sends a patient to fetch a seal the clinic never intended to apply, or tells them none is coming
+when one is. Of the forms this system actually stocks, only Clotting Time / Bleeding Time is
+electronically signed.
+
+The technologist's caption travels with it. The same person signs every report, but the workbook
+captions her **Medical Technologist** on the chemistry and CBC forms and **Examiner** on Blood Type,
+HBsAg, BUA, the OGTTs and CT BT. `clinic_signatories` holds one caption per CATEGORY and cannot
+express that, so `technologist_caption` overrides it per form and NULL means "use the signatory's
+own". Only the first signatory: the pathologist's caption never varies.
+
+Defaults chosen so only the exceptions are written down — `seal` and the signatory's own caption are
+the overwhelming majority, and the seal note is the more cautious of the two when a form is unknown.
+
+### What was already right
+
+Checked rather than assumed, after asserting otherwise earlier and being wrong: **CBC, Urinalysis
+and Fecalysis already match the workbook field-for-field, in order** — including `RDW-CV` printing
+outside the Differential Count block, and the sex-split ranges stored verbatim
+(`Male: 13.7-16.7 / Female: 11.7-14.5`). The `FOR:` label above the signature block was already
+there too. 22 of 23 laboratory tests already had their form. The gap was coverage, not correctness.
+
+### Not done here, and why
+
+The **ultrasound** templates in the same Drive folder are **SABAL HOSPITAL's**, not Enlogada's —
+every one opens with that letterhead and is signed by a radiologist Enlogada does share. Which
+letterhead belongs on Enlogada's own output is a question for the clinic, not a design decision, so
+no ultrasound layout work was done. Note the system already credits that same sonologist in
+`SIGNATORIES`, so only the institution name is open.
+
+Fourteen laboratory services exist as forms in the workbook with no catalogue row — PSA, Anti-HCV,
+Dengue NS1, Pregnancy Test, FOBT, SGOT, Albumin, Sodium, Potassium, Ionized Calcium, Phosphorus,
+OGTT 50, OGTT 100, standalone Hct/Hgb. Reported to the clinic, not added: adding them means
+inventing prices, which is what `[1.51.0]` was about removing.
+
+The workbook also contains four **veterinary** sheets. They stay out — CLAUDE.md is unambiguous that
+veterinary was removed deliberately.
+
+
 ## [1.63.0] - 2026-09-01 (A schema file that builds the database it describes)
 
 No new migration script, and nothing to run on an existing database. Both fixes below are about

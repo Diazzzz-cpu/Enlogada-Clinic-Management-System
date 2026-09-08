@@ -18,7 +18,7 @@ const buttonVariants = cva(
         // under the cursor feels playful, which is wrong on a screen where the primary action
         // takes a patient's money or releases a diagnostic report.
         default:
-          "bg-brand-500 text-white shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-brand-600 active:bg-brand-700",
+          "bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-primary-hover active:bg-primary-active",
         destructive:
           "bg-destructive text-destructive-foreground shadow-[0_1px_2px_rgb(15_23_42_/_0.10)] hover:bg-destructive-hover active:bg-destructive-active",
         // `active:` on every variant, not only the filled ones. [1.54.0] outline and ghost had a

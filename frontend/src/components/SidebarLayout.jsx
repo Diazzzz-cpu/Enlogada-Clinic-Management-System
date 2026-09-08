@@ -329,7 +329,7 @@ const SidebarLayout = ({ title = 'Dashboard', activeNav = 'dashboard', onSelectN
           : 'border-white/[0.07] bg-white/[0.04] hover:bg-white/[0.08]'
       )}
     >
-      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500 text-micro font-bold text-white">
+      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-micro font-bold text-primary-foreground">
         {initials}
       </span>
       <span className="flex min-w-0 flex-col leading-tight">
@@ -472,7 +472,18 @@ const SidebarLayout = ({ title = 'Dashboard', activeNav = 'dashboard', onSelectN
                 {unreadCount > 0 && (
                   // A count, not a dot. "There is something" is barely more useful than nothing;
                   // "there are eleven" tells staff whether to open it now or after this patient.
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-nano font-bold tabular-nums text-white ring-2 ring-surface">
+                  //
+                  // `bg-emphasis`, not the `bg-rose-500` it was. [1.65.0] Measured in OKLCH, that
+                  // rose carried chroma 0.215 against the brand's 0.117 — so the unread COUNT was
+                  // the loudest object on every staff screen, at 1.8x the saturation of the brand
+                  // itself. The eye went there first, every time, for the least consequential
+                  // thing on the page. It was also a raw Tailwind shade rather than a token, so
+                  // no gate governed it.
+                  //
+                  // A count is information, not an alert. Red is reserved for something being
+                  // wrong. This is the same paired token the queue ticket uses — a dark pill you
+                  // read — and the pair is validated in both themes by checkContrast.
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emphasis px-1 text-nano font-bold tabular-nums text-emphasis-foreground ring-2 ring-surface">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}

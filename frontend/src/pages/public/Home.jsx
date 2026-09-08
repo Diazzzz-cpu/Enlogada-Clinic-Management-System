@@ -104,7 +104,11 @@ const Home = ({ onNavigate }) => {
       <HeroQuickDock onNavigate={onNavigate} />
 
       {/* Key Highlights Banner */}
-      <section className="bg-surface pb-10 pt-14 sm:pb-12 sm:pt-16 border-b border-line">
+      {/* No `bg-surface` here any more. [1.65.0] The page ran dark hero -> white -> canvas ->
+          dark slab -> dark footer: five stacked grounds, three of them dark and unrelated to one
+          another, which is what made it read as banded. The body is now one ground — canvas, the
+          same page ground every console uses — and the things ON it are panels. */}
+      <section className="pb-10 pt-14 sm:pb-12 sm:pt-16">
         <PageShell className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
           {/* One tone across all three, not three.
               These are one set of related claims about the clinic, and they wore a green, a blue
@@ -112,7 +116,7 @@ const Home = ({ onNavigate }) => {
               reasons to trust the same clinic. It is the same mistake the metric card's own notes
               describe: state the tone once, quietly, and let the content differ. Brand green,
               because these are the clinic's own promises and green is the clinic's colour. */}
-          <div className="flex items-start space-x-4 p-4 rounded-xl bg-slate-50/70 border border-line">
+          <div className="flex items-start space-x-4 p-4 rounded-xl bg-surface border border-line">
             <div className="p-3 bg-brand-50 text-brand-600 rounded-xl">
               <ShieldCheck className="w-6 h-6" />
             </div>
@@ -122,7 +126,7 @@ const Home = ({ onNavigate }) => {
             </div>
           </div>
 
-          <div className="flex items-start space-x-4 p-4 rounded-xl bg-slate-50/70 border border-line">
+          <div className="flex items-start space-x-4 p-4 rounded-xl bg-surface border border-line">
             <div className="p-3 bg-brand-50 text-brand-600 rounded-xl">
               <Clock className="w-6 h-6" />
             </div>
@@ -132,7 +136,7 @@ const Home = ({ onNavigate }) => {
             </div>
           </div>
 
-          <div className="flex items-start space-x-4 p-4 rounded-xl bg-slate-50/70 border border-line">
+          <div className="flex items-start space-x-4 p-4 rounded-xl bg-surface border border-line">
             <div className="p-3 bg-brand-50 text-brand-600 rounded-xl">
               <Award className="w-6 h-6" />
             </div>
@@ -146,10 +150,15 @@ const Home = ({ onNavigate }) => {
 
       {/* Call to Action Bar */}
       <PageShell as="section" className="py-12 sm:py-16">
-        <div className="rail-gradient rail-grid relative flex flex-col items-center justify-between gap-5 overflow-hidden rounded-2xl border border-[#2b3a4d] p-6 text-white sm:p-10 md:flex-row">
+        {/* A panel, not a second dark slab. [1.65.0] This carried the same `rail-gradient` as the
+            hero half a page above it, so the page had two identical dark moments competing to be
+            the important one — and the footer made three. The hero keeps that treatment because it
+            opens the page; this closes it, and the green button is now the only saturated thing in
+            the lower half, which is where the eye should land. */}
+        <div className="relative flex flex-col items-center justify-between gap-5 overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-raised sm:p-10 md:flex-row">
           <div className="relative space-y-2 text-center md:text-left">
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Need a Diagnostic Appointment?</h2>
-            <p className="text-xs sm:text-sm text-rail-ink-soft">Sign in to your account or register to schedule an appointment today.</p>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">Need a Diagnostic Appointment?</h2>
+            <p className="text-xs sm:text-sm text-ink-soft">Sign in to your account or register to schedule an appointment today.</p>
           </div>
           <Button
             onClick={() => onNavigate && onNavigate('login')}

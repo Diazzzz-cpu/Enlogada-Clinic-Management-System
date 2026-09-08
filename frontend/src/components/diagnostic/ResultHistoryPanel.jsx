@@ -176,7 +176,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                         <Button
                           onClick={() => onViewResult(test)}
                           variant="outline"
-                          className="text-fine font-bold border-gray-200 hover:bg-brand-500 hover:text-white rounded-lg py-1 px-2.5 flex items-center space-x-1.5"
+                          className="text-fine font-bold border-gray-200 hover:bg-primary hover:text-primary-foreground rounded-lg py-1 px-2.5 flex items-center space-x-1.5"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>View Report</span>

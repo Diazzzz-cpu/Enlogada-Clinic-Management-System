@@ -60,6 +60,15 @@ const INK_ON_SURFACES = [
 
 /** Paired fill/foreground tokens. Both halves must be defined in both themes, and must contrast. */
 const PAIRS = [
+  // The most-clicked element in the application, and the one this list did not cover. [1.65.0]
+  //
+  // `--color-primary` filled every Book Now, Sign In and Save at #53843b — 4.44:1 under white,
+  // below the 4.50 floor. It got here because the list was written from the tokens that LOOKED
+  // like fills (emphasis, destructive, rail) and `primary` reads as a brand colour rather than as
+  // a surface something sits on. It is both.
+  //
+  // Its hover state was already compliant, so the control passed a glance and failed at rest.
+  { fg: 'primary-foreground', bg: 'primary', min: AA_BODY },
   { fg: 'emphasis-foreground', bg: 'emphasis', min: AA_BODY },
   { fg: 'destructive-foreground', bg: 'destructive', min: AA_BODY },
   { fg: 'rail-ink', bg: 'rail', min: AA_BODY },

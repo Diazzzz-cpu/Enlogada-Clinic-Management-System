@@ -105,7 +105,7 @@ export default function CheckInPanel({ checkIn, disposition }) {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-gray-500 uppercase">Queue Ticket</span>
-                  <Badge className="bg-brand-500 text-white font-extrabold">{checkIn.result.queue_number}</Badge>
+                  <Badge className="bg-primary text-primary-foreground font-extrabold">{checkIn.result.queue_number}</Badge>
                 </div>
 
                 {/* Payment is the other half of the release rule, so the front desk needs to

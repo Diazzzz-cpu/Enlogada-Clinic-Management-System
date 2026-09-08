@@ -306,12 +306,12 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                         {/* Visual Step Progress Bar */}
                         <div className="flex items-center justify-between pt-3 pb-1 border-b border-slate-100 my-2">
                           <div className={`flex items-center space-x-2 text-xs font-bold ${bookingStep === 1 ? 'text-brand-600' : 'text-slate-400'}`}>
-                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-meta ${bookingStep === 1 ? 'bg-brand-500 text-white' : 'bg-slate-200 text-slate-600'}`}>1</span>
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-meta ${bookingStep === 1 ? 'bg-primary text-primary-foreground' : 'bg-slate-200 text-slate-600'}`}>1</span>
                             <span>Select Tests</span>
                           </div>
                           <div className="h-[2px] flex-1 mx-3 bg-slate-200" />
                           <div className={`flex items-center space-x-2 text-xs font-bold ${bookingStep === 2 ? 'text-brand-600' : 'text-slate-400'}`}>
-                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-meta ${bookingStep === 2 ? 'bg-brand-500 text-white' : 'bg-slate-200 text-slate-600'}`}>2</span>
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-meta ${bookingStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-slate-200 text-slate-600'}`}>2</span>
                             <span>Schedule & HMO</span>
                           </div>
                         </div>
@@ -330,14 +330,14 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                           <button 
                             type="button"
                             onClick={() => setBookingStep(1)}
-                            className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 1 ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-500'}`}
+                            className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 1 ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-500'}`}
                           >
                             1. Schedule & Services
                           </button>
                           <button 
                             type="button"
                             onClick={() => setBookingStep(2)}
-                            className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 2 ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-500'}`}
+                            className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-500'}`}
                           >
                             2. HMO / Payment Note
                           </button>

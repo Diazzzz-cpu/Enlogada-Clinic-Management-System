@@ -3,7 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { payAndReleaseWalkIn, confirmAppointmentCheckIn } from './helpers/ticketRelease.js';
 import { selfPayTypeId } from './helpers/patients.js';
 import { COUNTER_PAYMENT_METHODS } from '../../src/lib/paymentMethods.js';
-import { daysAgoStr } from '../../src/lib/date.js';
+import { nthWorkingDay } from './helpers/dates.js';
 import { fixturePerson } from './helpers/people.js';
 
 // Ticket Release Gating.
@@ -238,11 +238,28 @@ test.describe('Online appointment gating (API)', () => {
     //
     // daysAgoStr uses local getters. The loop is bounded because a clinic closed all week is a
     // fixture problem worth failing on rather than looping over.
+    // A far-future working day this file owns, rather than "the next open day". [1.65.0]
+    //
+    // Probing forward from tomorrow put these three tests in the busiest week of the calendar —
+    // the one the demo seed fills and every other booking spec reaches for. `claimedSlots` below
+    // de-duplicates by TIME and is file-local, so it cannot see a slot another spec already took
+    // on the same date with this same seeded client.
+    //
+    // That collision is silent and it inverts the assertion. `POST /appointments` returns the
+    // EXISTING booking with 200 when the same patient re-submits the same date and time, so this
+    // helper would hand back an appointment another spec had already paid for and checked in —
+    // and "a freshly booked appointment is invisible to the department" then legitimately fails,
+    // because that appointment really was released. Measured: the failure moved between runs and
+    // reproduced on a clean tree, which is what a shared-state flake looks like and a regression
+    // does not.
+    //
+    // 170 is clear of the 120-151 band the other booking specs already claim. The probe is kept
+    // in case that exact date carries a schedule override, but it starts somewhere quiet.
     let avail = null;
-    for (let ahead = 1; ahead <= 7 && !avail?.isOpen; ahead += 1) {
+    for (let ahead = 0; ahead <= 7 && !avail?.isOpen; ahead += 1) {
       const availRes = await apiContext.get(`${API}/appointments/availability`, {
         headers: { Authorization: `Bearer ${clientToken}` },
-        params: { date: daysAgoStr(-ahead) }
+        params: { date: nthWorkingDay(170 + ahead) }
       });
       avail = (await availRes.json()).data;
     }

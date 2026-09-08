@@ -94,7 +94,7 @@ const AvatarUpload = () => {
   return (
     <div className="flex items-center space-x-4">
       <div className="relative w-16 h-16 flex-shrink-0">
-        <div className="w-16 h-16 rounded-full bg-brand-500 text-white flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-surface shadow-md">
+        <div className="w-16 h-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-surface shadow-md">
           {objectUrl ? (
             <img src={objectUrl} alt="Profile" className="w-full h-full object-cover" />
           ) : (

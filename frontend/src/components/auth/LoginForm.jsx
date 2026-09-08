@@ -220,6 +220,15 @@ const LoginForm = ({ onNavigate }) => {
               shape="pill"
               theme="outline"
               text="continue_with"
+              // Google's widget follows the BROWSER's locale, and nothing else in this app does.
+              // [1.65.0] On a Philippine machine it rendered "Magpatuloy sa Google" beneath an
+              // otherwise entirely English form — one control speaking a different language from
+              // the screen around it, decided by a setting the clinic never chose.
+              //
+              // Pinned rather than left to the browser. If the clinic later wants a Filipino
+              // interface that is a decision to take for the whole app, not one Google makes for
+              // a single button.
+              locale="en"
               width={googleWidth}
             />
           </div>

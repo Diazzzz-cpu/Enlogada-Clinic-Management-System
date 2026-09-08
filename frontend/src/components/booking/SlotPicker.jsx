@@ -201,7 +201,7 @@ const SlotPicker = ({
                       title={isHeldByUs ? 'Your current appointment time' : undefined}
                       className={`cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${
                         selected
-                          ? 'border-brand-500 bg-brand-500 text-white'
+                          ? 'border-primary bg-primary text-primary-foreground'
                           : isHeldByUs
                             ? 'border-brand-300 bg-brand-50 text-brand-700'
                             : selectable

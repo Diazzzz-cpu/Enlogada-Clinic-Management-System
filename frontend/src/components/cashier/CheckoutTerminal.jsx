@@ -240,7 +240,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                           onClick={() => checkout.setPaymentMethod(method)}
                           className={`cursor-pointer rounded-lg border px-3 py-2 text-fine font-semibold transition-colors ${
                             checkout.paymentMethod === method
-                              ? 'border-brand-500 bg-brand-500 text-white'
+                              ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                           }`}
                         >
@@ -325,7 +325,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                             key={val}
                             type="button"
                             onClick={() => checkout.setAmountTendered(val)}
-                            className="px-2 py-0.5 bg-slate-100 hover:bg-brand-500 hover:text-white rounded-md text-meta font-bold text-slate-700 transition-all border border-slate-200 cursor-pointer"
+                            className="px-2 py-0.5 bg-slate-100 hover:bg-primary hover:text-primary-foreground rounded-md text-meta font-bold text-slate-700 transition-all border border-slate-200 cursor-pointer"
                           >
                             ₱{val}
                           </button>
@@ -333,7 +333,7 @@ export default function CheckoutTerminal({ checkout, queue }) {
                         <button
                           type="button"
                           onClick={() => checkout.setAmountTendered((checkout.bill?.totalAmount ?? 0).toString())}
-                          className="px-2 py-0.5 bg-brand-50 text-brand-600 hover:bg-brand-500 hover:text-white rounded-md text-meta font-bold transition-all border border-brand-300 cursor-pointer"
+                          className="px-2 py-0.5 bg-brand-50 text-brand-600 hover:bg-primary hover:text-primary-foreground rounded-md text-meta font-bold transition-all border border-brand-300 cursor-pointer"
                         >
                           Exact
                         </button>

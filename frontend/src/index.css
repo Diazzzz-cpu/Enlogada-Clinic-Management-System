@@ -41,9 +41,17 @@
   --text-stat: 1.875rem;    /* 30px */
 
   /* ── Brand ─────────────────────────────────────────────────────────────────────────────── */
-  --color-primary: #53843b;
-  --color-primary-hover: #477233;
-  --color-primary-active: #3a5c29;
+  /* #477233, not the #53843b it was. [1.65.0]
+     White on #53843b measures 4.44:1 — under the 4.50 floor for normal text — and this token
+     fills every primary action in the app. The hover state was already this value, so the button
+     was compliant on hover and not at rest, which is when it is read.
+
+     Deliberately NOT `brand-600`: the dark block remaps that step to #81a570 for its INK role, and
+     white on it is 2.78:1. A semantic token is not remapped, so one value serves both themes —
+     5.64:1 for white text, 3.32:1 against the dark canvas, 3.03:1 against the dark surface. */
+  --color-primary: #477233;
+  --color-primary-hover: #3a5c29;
+  --color-primary-active: #2b451f;
   --color-primary-foreground: #ffffff;
   /* One dark, not two.
    *
@@ -488,9 +496,21 @@ select:focus-visible {
  *
  * This is one hue, the logo's azure, walked from mid to deep along a single diagonal. A single
  * hue cannot go muddy; it just gets darker. Clean, clinical, and unmistakably the brand's blue. */
+/* The brand's green belongs here too. [1.65.0]
+ *
+ * This was a flat azure diagonal with NO green in it, while every other dark surface in the app
+ * — the hero, the admin banner, the patient portal — is `.rail-gradient`: navy carrying a green
+ * wash top-left and an azure wash top-right. So the sign-in screen, which is the first branded
+ * surface most patients ever see, was the one surface that omitted the brand colour, and a green
+ * rail then appeared the moment they landed.
+ *
+ * The wash is placed at 10% 0% to mirror `.rail-gradient` exactly, and deliberately away from the
+ * white light source at 78% 8% below, so the two do not fight over the same corner. */
 .auth-panel {
   background-color: #07517a;
-  background-image: linear-gradient(152deg, #0a71a9 0%, #07517a 48%, #052f47 100%);
+  background-image:
+    radial-gradient(115% 135% at 10% 0%, rgba(83, 132, 59, 0.26) 0%, rgba(83, 132, 59, 0) 58%),
+    linear-gradient(152deg, #0a71a9 0%, #07517a 48%, #052f47 100%);
 }
 
 /* A soft light-source high on the panel, so the flat diagonal above gains some depth without

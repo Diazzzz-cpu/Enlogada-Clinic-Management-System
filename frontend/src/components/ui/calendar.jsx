@@ -221,7 +221,7 @@ const Calendar = React.forwardRef(({
                 "h-8 rounded-lg text-fine font-semibold tabular-nums transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
                 isSelected
-                  ? "bg-brand-500 text-white hover:bg-brand-600"
+                  ? "bg-primary text-primary-foreground hover:bg-primary-hover"
                   : outside
                     ? "text-slate-300 hover:bg-slate-50"
                     : "text-slate-700 hover:bg-brand-50",

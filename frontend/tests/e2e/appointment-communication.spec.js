@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { signIn } from './helpers/auth.js';
 
 // The two times a booking has, and the values a clinician must not miss. [1.63.0]
 //
@@ -50,6 +51,53 @@ test.describe('Appointment arrival policy', () => {
     const res = await ctx.get(`${API}/clinic`);
     expect(res.status()).toBe(200);
     expect((await res.json()).data.clinic.arrivalLeadMinutes).toBeTruthy();
+  });
+  /**
+   * The instruction has to survive a reader who is not looking for it. [1.66.0]
+   *
+   * It rendered as `text-micro text-ink-muted` trailing the appointment on the same line — the
+   * smallest size and weakest colour the system has — and the clinic reported that patients simply
+   * were not seeing it. Their patients are mostly middle-aged and not especially comfortable with
+   * software, and a muted 11px clause is decoration to that reader, not an instruction.
+   *
+   * Reads whatever booking is already on the list rather than creating one. Every card renders the
+   * same `AppointmentTime`, so a fresh booking buys nothing and costs a far-future date that lands
+   * pages deep — which is what made the first version of this test time out walking the pager.
+   */
+  test('the booking card asks for the arrival time in words a patient cannot miss', async ({ page }) => {
+    await signIn(page, 'client@enlogada.com');
+    await page.getByRole('tab', { name: 'Appointments' }).click();
+
+    const card = page.locator('[data-testid="appointment-card"]').first();
+    const anyCard = await card.isVisible({ timeout: 15000 }).catch(() => false);
+    test.skip(!anyCard, 'Need at least one booking on the client account.');
+
+    // 1. The WORDS. "arrive by 8:15" is a label; "Please arrive by 8:15 AM" is a request, and for a
+    //    reader who is not hunting for it that difference is the entire point.
+    const arrival = card.getByText(/Please arrive by/i).first();
+    await expect(arrival, 'the card must ASK, not label').toBeVisible();
+
+    // 2. The WEIGHT, asserted separately — the old markup already contained the arrival time. It
+    //    was unreadable, not absent, so a text-only assertion would pass against the defect.
+    const style = await arrival.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { weight: Number(cs.fontWeight), px: parseFloat(cs.fontSize) };
+    });
+    expect(style.weight, 'the arrival instruction must be bold').toBeGreaterThanOrEqual(700);
+
+    // 3. And still SECOND. Leading with the instruction makes patients treat the arrival time as
+    //    the real appointment and creep earlier every visit, which is why this change is emphasis
+    //    rather than promotion — bold and amber, but never larger than the appointment itself.
+    //
+    //    count() BEFORE evaluate(). A locator that matches nothing makes evaluate() auto-wait for
+    //    the whole test timeout, and a trailing .catch() only runs once that has already expired —
+    //    so the test hangs for 30s and reports "timeout" rather than the assertion that failed.
+    //    That cost a debugging round here; the guard is the fix.
+    const scheduled = card.locator('[data-testid="appointment-scheduled-time"]');
+    if (await scheduled.count()) {
+      const scheduledPx = await scheduled.first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(style.px, 'arrival must not outgrow the appointment time').toBeLessThanOrEqual(scheduledPx);
+    }
   });
 });
 

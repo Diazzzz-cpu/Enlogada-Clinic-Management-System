@@ -106,8 +106,19 @@ test.describe('Result version history', () => {
 
     await page.getByText('Laboratory History').first().click();
 
+    // Search for the amended test by name rather than hoping it is on page one. [1.70.0]
+    // ResultHistoryPanel pages at 10 and the laboratory history is comfortably longer than that,
+    // so `locator('tr', { hasText: 'Amended' })` found nothing whenever the amendment was not among
+    // the ten most recent — which is how this test failed. It passes today only because the
+    // fixture happens to sort first, which is luck rather than a property worth relying on.
+    const search = page.getByPlaceholder(/search/i).first();
+    if (await search.count()) await search.fill(amended.test_name);
+
     const row = page.locator('tr', { hasText: 'Amended' }).first();
-    await expect(row).toBeVisible({ timeout: 20000 });
+    await expect(
+      row,
+      `no amended row for ${amended.test_name} — the fixture may have paged out of the history`
+    ).toBeVisible({ timeout: 20000 });
     await row.getByRole('button').first().click();
 
     const timeline = page.getByRole('heading', { name: /Amendment history/i });

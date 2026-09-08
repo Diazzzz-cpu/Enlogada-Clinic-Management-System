@@ -373,6 +373,33 @@ async function main() {
     stages.push(`${v.patient.first_name} ${v.patient.last_name} — AMENDED X-ray report (v2), released`);
   }
 
+  // 6b. And an amended LABORATORY result. [1.70.0]
+  //
+  // The X-ray one above was the only amendment this seeder made, and result-version-timeline.spec
+  // looks for one in LABORATORY — it drives the laboratory technician's own history screen, which
+  // is where a lab amendment would be read back. So the fixture and the spec disagreed about where
+  // it lives, and the spec failed against a demo dataset that had never contained what it needed.
+  //
+  // The one amended laboratory result that DID exist carried no reason at all: it predates
+  // [1.15.0]'s rule, and resultService now refuses an amendment whose reason is under four
+  // characters. That row is left alone rather than back-filled — amendment_reason is a clinical
+  // audit field, and inventing one is the class of thing [1.51.0] removed from this repo.
+  {
+    const v = await makeVisit({ category: offered('Laboratory'), testIndex: 1, referrerIndex: 1 });
+    await payFor(v, 'Cash');
+    await recordFindings(v, { findings: 'Within normal limits.' });
+    const token = modalityToken[v.category];
+    const form = new FormData();
+    form.append('findings', 'Repeat run on a fresh specimen. Value corrected; see remarks.');
+    form.append('remarks', 'Re-run after the first specimen was found to be haemolysed.');
+    form.append('amendmentReason', 'First specimen haemolysed; assay repeated on a fresh draw');
+    form.append('isCritical', 'false');
+    await fetch(`${API}/results/${v.visitTestId}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+    await release(v);
+    today.push(v);
+    stages.push(`${v.patient.first_name} ${v.patient.last_name} — AMENDED Laboratory report (v2), released`);
+  }
+
   // 7. Fully completed — shows in released history and patient records.
   for (const category of ['Ultrasound', 'Laboratory']) {
     const v = await makeVisit({ category, testIndex: 3 });

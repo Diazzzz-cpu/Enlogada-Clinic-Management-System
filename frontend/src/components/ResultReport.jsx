@@ -43,6 +43,40 @@ function formatValue(m) {
   return axes.map((v) => Number(v)).join(' x ');
 }
 
+/**
+ * Measurements, as an ultrasound report writes them. [1.67.0]
+ *
+ * These used to go through `AnalyteTable` — the four-column TEST | RESULT | UNIT | REFERENCE RANGE
+ * grid transcribed from the clinic's LABORATORY workbook. That grid is right for blood work and
+ * wrong here: the clinic's ultrasound reports write one measurement per line as
+ *
+ *     Right Kidney = 10.35 x 4.05 x 4.64 cm   CT = 1.08 cm
+ *     Prostate Gland = 2.89 x 3.45 x 3.11 cm ( wt. = 16.24 grms. )  N.V.= 5.0 - 25.0 gms
+ *
+ * so a sonologist reading our output met a blood-panel layout for an organ study.
+ *
+ * `reference_note` prints inline after the value rather than in a column of its own, because that
+ * is where the source puts it — the prostate's `N.V.= 5.0 - 25.0 gms` sits on the same line as the
+ * weight it qualifies, and a column would separate a normal value from the number it judges.
+ */
+function MeasurementLines({ measurements }) {
+  return (
+    <div className="space-y-0.5 text-fine">
+      {measurements.map((m) => (
+        <p key={`${m.field_code}-${m.group_index || 1}`} className="m-0 text-slate-800">
+          <span>{m.group_label ? `${m.group_label} — ${m.label}` : m.label}</span>
+          {' = '}
+          <span className="font-bold tabular-nums text-slate-900">{formatValue(m)}</span>
+          {m.unit ? <span className="text-slate-800">{` ${m.unit}`}</span> : null}
+          {m.reference_note ? (
+            <span className="ml-2 text-slate-600">{m.reference_note}</span>
+          ) : null}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /** The header block, identical on every form the clinic issues. */
 function Letterhead({ clinic, title }) {
   return (
@@ -203,13 +237,29 @@ export default function ResultReport({
       />
       <PatientBlock result={result} name={name} />
 
+      {/* Which study this was. [1.67.0] The clinic's reports carry BOTH a generic "ULTRASOUND
+          REPORT" heading and a specific "Examination:" line; ours had only the heading, so a
+          report never said what the patient actually had done.
+
+          Printed as the catalogue name rather than folded into the title as
+          "ULTRASOUND OF THE <name>" — that reads correctly for "Whole Abdomen" and badly for "BPS"
+          or "Trans-vaginal (TVS)", and manufacturing English around a catalogue string is how a
+          clinical document ends up saying something nobody wrote. */}
+      {isUltrasound && result.test_name && (
+        <p className="m-0 text-fine text-slate-800">
+          <span className="font-bold uppercase tracking-wide">Examination:</span>{' '}
+          <span className="font-semibold uppercase">{result.test_name}</span>
+        </p>
+      )}
+
       {measurements.length > 0 && (
         isUltrasound ? (
           <div className="space-y-1">
             <h4 className="m-0 text-fine font-bold uppercase tracking-wider text-slate-900">Measurements</h4>
-            <AnalyteTable measurements={measurements} showReference={showReference} />
+            <MeasurementLines measurements={measurements} />
           </div>
         ) : (
+          // Laboratory keeps the four-column grid — that one IS the clinic's own form.
           <AnalyteTable measurements={measurements} showReference={showReference} />
         )
       )}
@@ -219,7 +269,10 @@ export default function ResultReport({
           form calls this box COMMENT; their ultrasound report calls it Findings & Impression. */}
       <div className="space-y-1 pt-1">
         <h4 className="m-0 text-fine font-bold uppercase tracking-wider text-slate-900">
-          {isUltrasound ? 'Findings & Impression' : 'Comment'}
+          {/* "Findings" is what the document says. The impression is a labelled paragraph inside
+              this prose in the source too, not a separate field — which is also why there is no
+              impression column to render. */}
+          {isUltrasound ? 'Findings' : 'Comment'}
         </h4>
         <div className="min-h-[2.5rem] whitespace-pre-wrap border-b border-slate-300 pb-2 text-fine leading-relaxed text-slate-800">
           {result.findings || ''}

@@ -436,7 +436,9 @@ test.describe('Ultrasound structured measurements', () => {
     await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
     const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]');
     await expect(row).toBeVisible({ timeout: 15000 });
-    await row.getByRole('button', { name: 'Record Findings' }).click();
+    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
+    // and recording through the API above is exactly what puts it in that state.
+    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
 
     // Fill ONE grid field and leave the comment box untouched — the legal state [1.52.0] created.
     await page.getByTestId('measurement-color').fill('YELLOW');
@@ -625,7 +627,9 @@ test.describe('Ultrasound structured measurements', () => {
     await page.getByPlaceholder('Search patient, test, queue...').fill(patient.last_name);
     await expect(page.getByText(`${patient.first_name} ${patient.last_name}`)).toBeVisible({ timeout: 15000 });
     const row = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
-    await row.getByRole('button', { name: 'Record Findings' }).click();
+    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
+    // and recording through the API above is exactly what puts it in that state.
+    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
 
     // The assertion `laboratory.spec.js` depends on without saying so: it drives the findings box
     // with a BARE page.locator('textarea'), so a second one anywhere in this dialog breaks two of
@@ -687,4 +691,97 @@ test.describe('Ultrasound structured measurements', () => {
       .data.result;
     expect(saved.findings).toBe('CBC within normal limits.');
   });
+
+  /**
+   * An ultrasound report is not a blood panel. [1.67.0]
+   *
+   * Measurements went through `AnalyteTable` — the four-column TEST | RESULT | UNIT | REFERENCE
+   * RANGE grid transcribed from the clinic's LABORATORY workbook. Correct for blood work, wrong
+   * for an organ study: the clinic's own ultrasound reports write one line per measurement,
+   * `Right Kidney = 10.35 x 4.05 x 4.64 cm`, and never carry a reference-range column.
+   *
+   * Driven through the BROWSER and asserted on the just-released certificate, because that is the
+   * document a patient is handed and the defect is in how it renders, not in what is stored. The
+   * API assertions above would have passed against it unchanged.
+   */
+  test('a released ultrasound prints as an ultrasound report, not as a laboratory panel', async ({ page }) => {
+    const person = fixturePerson();
+    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
+      .data.patientTypes;
+    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
+    const patient = (await (await apiContext.post(`${API}/patients`, {
+      headers: auth(reception),
+      data: {
+        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
+        birthdate: '1979-05-04', sex: 'Male', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await apiContext.post(`${API}/visits`, {
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e ultrasound print' },
+    })).json()).data.visit;
+
+    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+    const study = tests.find((t) => t.name === 'KUB / Prostate') || tests.find((t) => t.name === 'Whole Abdomen');
+    test.skip(!study, 'Need an ultrasound study with a field set.');
+    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
+      headers: auth(reception),
+      data: { patientVisitId: visit.id, testIds: [study.id] },
+    })).json()).data.visitTests[0];
+
+    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
+      .data.bill;
+    await apiContext.post(`${API}/payments`, {
+      headers: auth(cashier),
+      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
+    });
+
+    // Recorded through the API; the assertion is about the PRINTED document, not the entry form.
+    await apiContext.post(`${API}/results/${attached.id}`, {
+      headers: auth(ultra),
+      multipart: {
+        findings: 'Both kidneys are normal in size and echopattern.\n\nImpression: NEGATIVE ULTRASOUND STUDY.',
+        measurements: JSON.stringify({ right_kidney: { value_1: 10.35, value_2: 4.05, value_3: 4.64 } }),
+      },
+    });
+    // NOT released here. A released result leaves the active worklist, and the certificate this
+    // asserts on is the one the dialog renders at the moment of release — the copy actually handed
+    // across the counter.
+
+    await page.goto('/');
+    await page.getByText('Sign In', { exact: true }).first().click();
+    await page.fill('input[type="email"]', 'ultrasound@enlogada.com');
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.locator('button[type="submit"]').click();
+    await expect(page.getByPlaceholder('Search patient, test, queue...')).toBeVisible({ timeout: 15000 });
+
+    await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
+    const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]').first();
+    await expect(row).toBeVisible({ timeout: 15000 });
+    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
+    // and recording through the API above is exactly what puts it in that state.
+    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
+
+    // Authorise from the form; the grid is already filled from the API call above.
+    await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
+    // ConfirmDialog's own button is labelled without the trailing 'Result'.
+    await page.getByRole('button', { name: 'Authorize & Release', exact: true }).click();
+
+    const report = page.locator('.print-area').first();
+    await expect(report).toBeVisible({ timeout: 15000 });
+
+    // 1. It says which study this was. The heading alone said only "Ultrasound Report".
+    await expect(report.getByText(/Examination:/i), 'the report must name the study').toBeVisible();
+
+    // 2. It is NOT the laboratory grid. That column heading is the tell: it belongs to the blood
+    //    panel and has no meaning for an organ measurement.
+    await expect(
+      report.getByText('Reference Range', { exact: true }),
+      'an ultrasound report must not carry the laboratory reference-range column'
+    ).toHaveCount(0);
+
+    // 3. The clinic's own line shape, `Label = value unit`.
+    await expect(report.getByText(/=\s*10\.35 x 4\.05 x 4\.64/), 'measurements print as one line each').toBeVisible();
+  });
+
 });

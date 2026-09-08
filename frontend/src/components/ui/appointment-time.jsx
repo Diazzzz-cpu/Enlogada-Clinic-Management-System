@@ -31,9 +31,14 @@ import { appointmentTimes } from '../../lib/appointmentTime';
  * preparation callout on the same card already uses it and index.css redefines the ramp for dark
  * mode, so it is proven in both themes rather than invented here.
  *
- * The reason is stated too: "for front-desk check-in" is why the earlier time exists. An
- * unexplained instruction to come early reads as the clinic padding its own schedule, and
- * patients discount it accordingly.
+ * The reason is stated too — "for check-in at the front desk" is why the earlier time exists. An
+ * unexplained instruction to come early reads as the clinic padding its own schedule, and patients
+ * discount it accordingly.
+ *
+ * It sits on its OWN line in the stacked variant. [1.68.0] It used to trail the time, so the label
+ * "PLEASE ARRIVE BY" opened a sentence that the value line finished — one sentence across two type
+ * treatments, ending in a hyphenated compound that read as a token rather than as English. Keep
+ * label, value and reason on three lines; do not fold the reason back onto the time.
  */
 const AppointmentTime = ({
   scheduledTime,
@@ -66,8 +71,20 @@ const AppointmentTime = ({
   }
 
   return (
-    <span className={cn('flex flex-col gap-1', className)}>
-      <span className="flex items-baseline gap-1.5">
+    // Side by side once there is room, stacked on a phone. [1.69.0] The two times are a PAIR —
+    // one fact and the instruction that qualifies it — and reading them across rather than down
+    // makes that relationship visible instead of implied.
+    //
+    // `sm:` (640px) and not smaller: mobile-patient.spec.js runs at 390px, where two columns would
+    // squeeze "for check-in at the front desk" into a ragged stack of three words. Breakpoints are
+    // viewport-based, so the max-w-xl (576px) dialog still gets two columns on a desktop — about
+    // 270px each, which both labels and the reason line fit inside.
+    <span className={cn('grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-4', className)}>
+      {/* Flush left, flush right. [1.69.1] BookingConfirmation's card carries `text-center`, so
+          without these each block centred inside its own half and the pair drifted toward the
+          middle with dead space at both edges. `text-left` keeps each block's own lines aligned to
+          each other — only the BLOCKS move apart, not the words inside them. */}
+      <span className="flex items-baseline gap-1.5 text-left sm:justify-self-start">
         <Clock className="h-3.5 w-3.5 flex-shrink-0 translate-y-0.5 text-ink-muted" aria-hidden="true" />
         <span>
           <span className="block text-micro font-semibold uppercase tracking-wide text-ink-muted">
@@ -78,7 +95,7 @@ const AppointmentTime = ({
       </span>
 
       {showArrival && (
-        <span className="flex items-baseline gap-1.5">
+        <span className="flex items-baseline gap-1.5 text-left sm:justify-self-end">
           <LogIn className="h-3.5 w-3.5 flex-shrink-0 translate-y-0.5 text-amber-900" aria-hidden="true" />
           <span>
             {/* "Recommended arrival" read as optional, which is not what the clinic means. Both
@@ -86,10 +103,16 @@ const AppointmentTime = ({
             <span className="block text-micro font-semibold uppercase tracking-wide text-ink-muted">
               Please arrive by
             </span>
-            <span className="block text-note font-bold text-amber-900">
-              {times.arrival}
-              <span className="ml-1 font-normal text-ink-muted">for front-desk check-in</span>
-            </span>
+            <span className="block text-note font-bold text-amber-900">{times.arrival}</span>
+            {/* Its own line, not trailing the time. [1.68.0] "PLEASE ARRIVE BY" is a label and
+                "8:45 AM for front-desk check-in" was a value, so one sentence ran across two type
+                treatments and the reader had to stitch it together. The hyphenated compound made
+                the tail read as a token rather than as English.
+
+                The reason STAYS rather than being dropped for tidiness: an unexplained instruction
+                to come early reads as the clinic padding its own schedule, and patients discount
+                it accordingly. It just says where to go, in words. */}
+            <span className="block text-micro text-ink-muted">for check-in at the front desk</span>
           </span>
         </span>
       )}

@@ -1,5 +1,72 @@
 # Database Migration & Schema History
 
+## [1.71.0] - 2026-09-09 (A package may claim a component the visit already had)
+
+No migration. One conflict clause, one dead file, and the open questions written down.
+
+### The bundle could cost more than its own fixed price
+
+`testRepository.addTestToVisit` wrote `ON CONFLICT DO NOTHING`. That is right for a retried booking
+re-sending the same tests. It was wrong in one case, and the case cost money.
+
+A package EXPANDS into one `visit_tests` row per component at an allocated share of its fixed price.
+Attach a package to a visit that already carries one of those components as a LOOSE row, and
+`DO NOTHING` skipped the package's cheaper share — the component kept its LIST price with
+`package_id` NULL, permanently. Nothing ever repaired it: every other `UPDATE` on `visit_tests` sets
+`status` and nothing else, and the bill is derived from `SUM(price_at_time)`.
+
+    Package A   fixed 1,450   +200 if all components were pre-picked
+    Package E   fixed 2,050   +590
+
+Not reachable from booking, which submits once with packages attached first — that ordering is why
+the single-call path was always correct. Reachable from **reception's assign-tests dialog**, where
+reopening a visit to add work is the ordinary way to use it.
+
+A package may now claim a loose row. Three conditions stop it doing something worse, and each is
+load-bearing:
+
+  * `visit_tests.package_id IS NULL` — never take a component from a DIFFERENT package. Two bundles
+    sharing a test must not fight over one row.
+  * `EXCLUDED.package_id IS NOT NULL` — only a PACKAGE claim may reprice. The same function inserts
+    loose tests, and without this a re-added loose test would rewrite its own `price_at_time` to
+    today's list price, restating a bill that column exists to freeze.
+  * no `Paid` payment on the visit — never restate a bill the patient holds a receipt for.
+    `testService.addTestsToVisit` already refuses on a paid visit, but `appointmentService`'s
+    already-booked branch calls `packageService.attachPackages` DIRECTLY and bypasses that guard, so
+    it could not be relied on from the repository.
+
+All four behaviours were exercised against the live database in a rolled-back transaction before the
+change was trusted, and the regression test was verified by restoring `DO NOTHING` and watching it
+fail on "the package must claim the loose row".
+
+### DiagnosticReport.jsx removed
+
+Superseded by `ResultReport` in `[1.50.0]` and imported by zero files since. Deleting a component
+that nothing renders is not a behaviour change; leaving it is a second answer to "what does a report
+look like" for whoever finds it first.
+
+### Open, and deliberately not decided here
+
+Recorded so they live in the repository rather than in a chat log:
+
+  * **14 laboratory services** exist as forms in the clinic's workbook with no catalogue row: PSA,
+    Anti-HCV, Dengue NS1, Pregnancy Test, FOBT, SGOT, Albumin, Sodium, Potassium, Ionised Calcium,
+    Phosphorus, OGTT 50, OGTT 100, standalone Hct/Hgb. Not added — that needs prices, and inventing
+    them is what `[1.51.0]` removed from this repo.
+  * **`Chest Ultrasound` and `Transrectal`** are the two active tests with no field set, so they
+    print as prose. The clinic's document folder contains no template for either; writing one would
+    be inventing clinical fields. Needs an exemplar.
+  * **`migrateRemove2dEcho.js` stays unrun.** Measured 2026-09-09: **19** `visit_tests` still
+    reference 2D Echo / ECG, so the script refuses — correctly. Upstream's "the count reached zero"
+    is true of their database, not this one.
+  * **`[1.50.0]` tags two unrelated changes** across the fork boundary — this fork's structured
+    result entry, and upstream's 2D Echo removal. Renumbering rewrites references across released
+    history, so it is offered to upstream as a question instead.
+  * **The ultrasound templates are SABAL HOSPITAL's**, and the large ones are scanned images pasted
+    into the document rather than text. The clinic confirmed everything prints as ENLOGADA, so the
+    structure was copied and the letterhead was not; the images are out of scope.
+
+
 ## [1.64.0] - 2026-09-05 (The form decides its own footer, and HIV gets a form at all)
 
 `node src/scripts/migrateResultSignatureMode.js` — additive, idempotent, `--rollback` reverses it.

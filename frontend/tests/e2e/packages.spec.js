@@ -292,4 +292,61 @@ test.describe('Package deals', () => {
 
     await api.dispose();
   });
+
+  /**
+   * A package must be able to CLAIM a component the visit already carries. [1.71.0]
+   *
+   * `addTestToVisit` wrote ON CONFLICT DO NOTHING. Attach a package to a visit that already holds
+   * one of its components as a loose row and the package's cheaper allocated share was SKIPPED —
+   * the component kept its LIST price with package_id NULL, permanently. Nothing repaired it: every
+   * other UPDATE on visit_tests touches `status` alone, and the bill is derived from
+   * SUM(price_at_time). The bundle then costs more than its own fixed price: +₱200 on Package A.
+   *
+   * Not reachable from booking, which submits once with packages ordered first. Reachable from
+   * reception's assign-tests dialog, where reopening a visit to add work is ordinary use — so this
+   * asserts the two-call order that screen actually produces.
+   */
+  test('a package claims a component the visit already had, and still bills its fixed price', async () => {
+    const api = await request.newContext();
+    const token = await loginAs(api, RECEPTIONIST);
+    const H = { Authorization: `Bearer ${token}` };
+
+    const { packages } = (await (await api.get(`${API}/packages`)).json()).data;
+    const pkg = packages.find((p) => (p.tests || []).length > 1);
+    test.skip(!pkg, 'Need a package with components.');
+    const component = pkg.tests[0];
+    const visit = await makeWalkIn(api, token);
+
+    // CALL ONE — the component on its own, at list price. This is the row that used to survive.
+    const loose = await api.post(`${API}/tests/visit-tests`, {
+      headers: H, data: { patientVisitId: visit.id, testIds: [component.id] },
+    });
+    expect(loose.status()).toBe(201);
+
+    // CALL TWO — the package that contains it. A separate request, which is the whole point:
+    // within ONE call packages are attached first and the ordering already handles this.
+    const withPkg = await api.post(`${API}/tests/visit-tests`, {
+      headers: H, data: { patientVisitId: visit.id, packageIds: [pkg.id] },
+    });
+    expect(withPkg.status()).toBe(201);
+
+    const rows = (await withPkg.json()).data.visitTests;
+    const claimed = rows.find((r) => Number(r.test_id) === Number(component.id));
+    expect(claimed, 'the component must still be on the visit').toBeTruthy();
+
+    // It belongs to the bundle now, not to the loose line it started as.
+    expect(Number(claimed.package_id), 'the package must claim the loose row').toBe(Number(pkg.id));
+    expect(
+      Number(claimed.price_at_time),
+      'the component must drop to its allocated share, not keep list price'
+    ).toBeLessThan(Number(component.price));
+
+    // And the arithmetic that matters: the parts sum to the package price EXACTLY. A bundle that
+    // bills more than its fixed price is the defect stated in money.
+    const total = rows.reduce((sum, r) => sum + Number(r.price_at_time), 0);
+    expect(total.toFixed(2), 'the visit must bill the package price, not package + list').toBe(
+      Number(pkg.price).toFixed(2)
+    );
+  });
+
 });

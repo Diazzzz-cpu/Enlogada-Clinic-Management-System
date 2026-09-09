@@ -86,14 +86,52 @@ class TestRepository {
   }
 
   // Visit-Tests: Link tests to a patient visit
-  // ON CONFLICT DO NOTHING against uq_visit_tests_visit_test: a retried booking re-sending the
-  // same tests converges on the same rows instead of failing on the unique constraint. Returns
-  // undefined for a row that already existed, so callers re-read rather than trusting RETURNING.
+  //
+  // The conflict clause carried DO NOTHING, which is right for a retried booking re-sending the
+  // same tests — it converges on the same rows instead of failing the unique constraint. But it was
+  // also wrong in one case, and that case cost money. [1.71.0]
+  //
+  // A package EXPANDS into one row per component at an allocated share of its fixed price. Attach a
+  // package to a visit that already carries one of those components as a loose row, and DO NOTHING
+  // skipped the package's cheaper share — leaving the component at LIST price with package_id NULL,
+  // for good. Nothing ever repaired it: every UPDATE on visit_tests sets `status` and nothing else,
+  // and the bill is derived from SUM(price_at_time). The bundle then quietly costs more than its
+  // own fixed price — +₱200 on Package A, +₱590 on Package E. Not reachable from booking, which
+  // submits once with packages ordered first; reachable from reception's assign-tests dialog, where
+  // reopening a visit to add work is the ordinary way to use it.
+  //
+  // So a package may now CLAIM a loose row. Each condition below stops it doing something worse:
+  //
+  //   visit_tests.package_id IS NULL   — never take a component from a DIFFERENT package. Two
+  //                                      bundles sharing a test must not fight over one row.
+  //   EXCLUDED.package_id IS NOT NULL  — only a PACKAGE claim may reprice. This function also
+  //                                      inserts loose tests, and without this a re-added loose test
+  //                                      would rewrite its own price_at_time to today's list price —
+  //                                      restating a bill that column exists to freeze.
+  //   no 'Paid' payment                — never restate a bill the patient holds a receipt for.
+  //                                      testService.addTestsToVisit already refuses on a paid
+  //                                      visit, but appointmentService's already-booked branch calls
+  //                                      packageService.attachPackages DIRECTLY and bypasses it, so
+  //                                      that guard cannot be relied on from here.
+  //
+  // Every path where this does not fire keeps the old DO NOTHING behaviour exactly.
+  //
+  // Still returns undefined for a row left untouched, so callers re-read rather than trusting
+  // RETURNING — the [1.45.0] trap.
   async addTestToVisit({ patientVisitId, testId, priceAtTime, packageId = null }) {
     const queryText = `
       INSERT INTO visit_tests (patient_visit_id, test_id, price_at_time, package_id)
       VALUES ($1, $2, $3, $4)
-      ON CONFLICT (patient_visit_id, test_id) DO NOTHING
+      ON CONFLICT (patient_visit_id, test_id) DO UPDATE
+        SET price_at_time = EXCLUDED.price_at_time,
+            package_id    = EXCLUDED.package_id
+        WHERE visit_tests.package_id IS NULL
+          AND EXCLUDED.package_id IS NOT NULL
+          AND NOT EXISTS (
+                SELECT 1 FROM payments p
+                 WHERE p.patient_visit_id = visit_tests.patient_visit_id
+                   AND p.payment_status = 'Paid'
+              )
       RETURNING *
     `;
     const result = await db.query(queryText, [patientVisitId, testId, priceAtTime, packageId]);

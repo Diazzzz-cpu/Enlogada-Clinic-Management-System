@@ -101,6 +101,72 @@ test.describe('Appointment arrival policy', () => {
   });
 });
 
+test.describe('Appointment list priority', () => {
+  /**
+   * Ordering was never the problem; the layout was undoing it. [1.72.0]
+   *
+   * Every card went into one two-across grid, so a Pending booking carrying the full payment
+   * panel took one cell and a Cancelled booking took the other — and because a CSS grid row is
+   * as tall as its tallest child, the patient got a screen half of which was empty and the other
+   * half of which gave "pay for this" and "you cancelled this" the same billing.
+   *
+   * Two things are asserted, and they fail for different reasons:
+   *   - the GROUPING, which is what stops a cancelled booking sitting beside a live one, and
+   *   - the WIDTH, which is the only thing that catches a regression back to the grid. A grid
+   *     column is half-width whether or not there is anything in the neighbouring cell, so a
+   *     single open booking laid out the old way still measures half the row.
+   *
+   * Reads whatever the client account already has rather than booking anything. This runs in a
+   * suite with workers: 1 against a shared database, and a spec that creates bookings to check a
+   * layout leaves rows behind for every spec after it.
+   */
+  test('open bookings get the width; finished ones sit under their own heading', async ({ page }) => {
+    await signIn(page, 'client@enlogada.com');
+    await page.getByRole('tab', { name: 'Appointments' }).click();
+
+    const cards = page.locator('[data-testid="appointment-card"]');
+    const anyCard = await cards.first().isVisible({ timeout: 15000 }).catch(() => false);
+    test.skip(!anyCard, 'Need at least one booking on the client account.');
+
+    const isFinished = (s) => s === 'Cancelled' || s === 'Completed';
+    const statusesIn = async (sel) => {
+      const loc = page.locator(`${sel} [data-testid="appointment-card"]`);
+      // count() before evaluateAll(): a locator matching nothing makes the evaluate auto-wait out
+      // the whole test timeout, and reports it as a timeout rather than as the empty list it is.
+      return (await loc.count()) ? loc.evaluateAll((els) => els.map((el) => el.dataset.status)) : [];
+    };
+
+    const active = await statusesIn('[data-testid="active-bookings"]');
+    const earlier = await statusesIn('[data-testid="earlier-bookings"]');
+
+    // Nothing is lost in the split — a cancelled booking is still part of this list, which is the
+    // whole reason it moved rather than being hidden.
+    expect(active.length + earlier.length, 'every card belongs to exactly one group')
+      .toBe(await cards.count());
+
+    expect(active.some(isFinished), 'a cancelled booking must not sit among the live ones').toBeFalsy();
+    expect(earlier.every(isFinished), 'only finished bookings belong under the heading').toBeTruthy();
+
+    if (earlier.length) {
+      await expect(
+        page.getByText('Earlier bookings'),
+        'the boundary between "act on this" and "this already happened" has to be named',
+      ).toBeVisible();
+    }
+
+    if (active.length) {
+      // The regression guard. Measured against the card's own row rather than a fixed pixel
+      // count, so it holds at whatever viewport the suite runs.
+      const first = page.locator('[data-testid="active-bookings"] [data-testid="appointment-card"]').first();
+      const { card, row } = await first.evaluate((el) => ({
+        card: el.getBoundingClientRect().width,
+        row: el.parentElement.getBoundingClientRect().width,
+      }));
+      expect(card, 'an open booking takes the full row, not a grid column').toBeGreaterThan(row * 0.9);
+    }
+  });
+});
+
 test.describe('Abnormal value highlighting', () => {
   // Exercised through the browser so it runs the shipped module rather than a copy of it.
   test('out-of-range values are flagged, in-range and prose are left alone', async ({ page }) => {

@@ -3,6 +3,7 @@ import { AlertTriangle, Maximize2, Minus, Plus, RotateCcw, ShieldAlert } from 'l
 import api from '../../config/api';
 import { cn } from '../../lib/utils';
 import { formatCurrency } from '../../lib/currency';
+import { reviewConcerns } from '../../lib/paymentReview';
 import { Button } from '../ui/button';
 import DataBadge from '../ui/data-badge';
 import EmptyState from '../ui/empty-state';
@@ -177,12 +178,10 @@ function ProofCanvas({ submissionId }) {
 export default function ProofReviewDialog({ submission, onClose, onVerify, onReject, busy = false }) {
   if (!submission) return null;
 
-  const claimed = Number(submission.amount_claimed);
-  const due = Number(submission.amount_due);
-  // A centavo of slack: both are NUMERIC(10,2) and this is a comparison for a human, not a
-  // reconciliation. Flagging a 0.001 difference would cry wolf on every visit.
-  const mismatch = Number.isFinite(claimed) && Number.isFinite(due) && Math.abs(claimed - due) > 0.01;
-  const duplicates = Number(submission.duplicate_count) || 0;
+  // Shared with the queue row and the verification confirm. [1.72.0] The confirm demands an extra
+  // acknowledgement for exactly what is flagged here, so these must be the same judgement and not
+  // three copies of it that can drift apart.
+  const { claimed, due, mismatch, duplicates } = reviewConcerns(submission);
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -247,7 +246,7 @@ export default function ProofReviewDialog({ submission, onClose, onVerify, onRej
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-line bg-sunken p-2.5">
                   <dt className="text-micro font-semibold uppercase tracking-wide text-ink-muted">Patient claims</dt>
-                  <dd className="m-0 mt-0.5 text-note font-bold tabular-nums text-ink">{formatCurrency(claimed || 0)}</dd>
+                  <dd className="m-0 mt-0.5 text-note font-bold tabular-nums text-ink">{formatCurrency(claimed)}</dd>
                 </div>
                 <div className={cn(
                   'rounded-lg border p-2.5',
@@ -255,7 +254,7 @@ export default function ProofReviewDialog({ submission, onClose, onVerify, onRej
                 )}>
                   <dt className="text-micro font-semibold uppercase tracking-wide text-ink-muted">Visit owes</dt>
                   <dd className={cn('m-0 mt-0.5 text-note font-bold tabular-nums', mismatch ? 'text-amber-900' : 'text-ink')}>
-                    {formatCurrency(due || 0)}
+                    {formatCurrency(due)}
                   </dd>
                 </div>
               </div>
@@ -265,8 +264,8 @@ export default function ProofReviewDialog({ submission, onClose, onVerify, onRej
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
                   <span>
                     These do not match. Approving records{' '}
-                    <strong className="font-bold">{formatCurrency(due || 0)}</strong> — the visit's real
-                    total — not the {formatCurrency(claimed || 0)} claimed.
+                    <strong className="font-bold">{formatCurrency(due)}</strong> — the visit's real
+                    total — not the {formatCurrency(claimed)} claimed.
                   </span>
                 </p>
               )}

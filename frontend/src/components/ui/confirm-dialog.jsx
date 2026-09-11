@@ -12,6 +12,10 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   onConfirm,
   loading = false,
+  // Off by default, so every existing caller keeps a confirm button that is always live. Set by
+  // a dialog whose decision needs something ticked or typed before it may be taken — the point
+  // being that the button is visibly unavailable rather than clickable and then refused.
+  confirmDisabled = false,
   error = "",
   // Anything the decision needs before it can be made — most often a reason field, because a
   // refusal that names no reason leaves whoever answers the phone afterwards with nothing to say.
@@ -42,7 +46,7 @@ export function ConfirmDialog({
               piece of information the person needed at that moment — this is the dialog that
               confirms a refund, a cancellation or a released report, and after clicking they can
               no longer see which of those they agreed to. */}
-          <Button type="button" onClick={onConfirm} loading={loading}>
+          <Button type="button" onClick={onConfirm} loading={loading} disabled={confirmDisabled}>
             {confirmLabel}
           </Button>
         </DialogFooter>

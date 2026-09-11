@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import api from '../config/api';
 import { usePolling } from './usePolling';
 import { toastSuccess, toastError } from '../lib/toast';
+import { reviewConcerns } from '../lib/paymentReview';
 
 /**
  * The cashier's queue of online payments awaiting a human check. [1.48.0]
@@ -24,6 +25,8 @@ export function usePaymentReview({ enabled = true } = {}) {
   const [loading, setLoading] = useState(true);
 
   const [acting, setActing] = useState(null);
+  const [verifying, setVerifying] = useState(null);
+  const [verifyAck, setVerifyAck] = useState(false);
   const [rejecting, setRejecting] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -58,16 +61,47 @@ export function usePaymentReview({ enabled = true } = {}) {
   // thing between them and it. Faster than the 30s default for that reason.
   usePolling(load, 20000, { enabled });
 
-  const verify = async (submission) => {
-    if (acting) return;
-    setActing(submission.id);
+  // ── Verification asks twice, because it cannot be taken back here ──────────────────────────
+  //
+  // Verifying is not a status change. It runs the same writer the counter uses: a receipt number
+  // comes off daily_counters, the visit is released, a cash-up entry is written and the patient is
+  // told their pass is ready. Undoing it means a cash-up reversal, which is a different screen, a
+  // different permission and a line in the day's reconciliation that somebody has to explain.
+  //
+  // It was also the one irreversible action on this panel that took a single click, while REJECT —
+  // which the patient can simply answer by submitting again — already asked for a confirmation and
+  // a written reason. The guard was on the recoverable action and not on the expensive one.
+  //
+  // The queue makes that easy to do by accident: rows are stacked, every row carries the same
+  // three buttons in the same places, and "Verify & issue receipt" sits between "Review" and
+  // "Reject". A slip of one row books somebody else's money.
+  const askVerify = (submission) => { setVerifyAck(false); setVerifying(submission); };
+  const dismissVerify = () => { if (!acting) setVerifying(null); };
+
+  const confirmVerify = async () => {
+    if (!verifying || acting) return;
+
+    // The graduated half. A clean payment is confirmed by confirming; one the system has already
+    // called out — the claim not matching the bill, or a reference seen before — additionally has
+    // to be acknowledged for what it is. Asserted here as well as disabling the button, because a
+    // button is a courtesy and this is the rule.
+    if (reviewConcerns(verifying).concerning && !verifyAck) {
+      toastError('Tick the box to confirm you have checked what was flagged.');
+      return;
+    }
+
+    setActing(verifying.id);
     try {
-      const res = await api.post(`/payment-submissions/${submission.id}/verify`);
+      const res = await api.post(`/payment-submissions/${verifying.id}/verify`);
       const receipt = res.data.data?.payment?.receipt_number;
+      const name = `${verifying.first_name} ${verifying.last_name}`;
+      // Closed before the reload, matching confirmReject — the row this dialog describes is about
+      // to leave the pending queue, and a dialog still naming it would be describing nothing.
+      setVerifying(null);
       await load();
       // Names the patient and the receipt: a bare "Verified" on a queue of six confirms nothing,
       // and the receipt number is what the cashier writes down.
-      toastSuccess(`${submission.first_name} ${submission.last_name} — paid. Receipt ${receipt}.`);
+      toastSuccess(`${name} — paid. Receipt ${receipt}.`);
     } catch (err) {
       toastError(err.response?.data?.message || 'The payment could not be verified.');
     } finally {
@@ -98,9 +132,13 @@ export function usePaymentReview({ enabled = true } = {}) {
     }
   };
 
+  // `verify` is deliberately NOT returned. The only way to reach the POST from a component is
+  // askVerify -> confirmVerify, so the confirmation cannot be skipped by wiring a button straight
+  // to it later — the same shape confirmReject has always had.
   return {
     submissions, reviewed, loading, error, reload: load,
-    acting, verify,
+    acting,
+    verifying, verifyAck, setVerifyAck, askVerify, dismissVerify, confirmVerify,
     rejecting, rejectReason, setRejectReason, askReject, dismissReject, confirmReject,
   };
 }

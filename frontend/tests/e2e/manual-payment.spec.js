@@ -1,6 +1,8 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
-import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import {
+  API, CREDS, loginAs, billedVisit, submitProof, ensureMethod,
+} from './helpers/payments.js';
 
 /**
  * Paying into the clinic's own account, verified by hand. [1.48.0]
@@ -21,84 +23,12 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
  *  * One live claim per visit, so two cashiers cannot take the same money twice.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
-const API = `${BACKEND_URL}/api`;
-
-const SUPERADMIN = { email: 'admin@enlogada.com', password: 'Password123!' };
-const ADMIN = { email: 'clinicadmin@enlogada.com', password: 'Password123!' };
-const CASHIER = { email: 'cashier@enlogada.com', password: 'Password123!' };
-const RECEPTIONIST = { email: 'receptionist@enlogada.com', password: 'Password123!' };
-
-// A 1x1 PNG. The smallest thing that is genuinely an image, so the mime check is exercised
-// without carrying a fixture file around.
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  'base64'
-);
-
-async function loginAs(api, creds) {
-  const res = await api.post(`${API}/auth/login`, { data: creds });
-  return (await res.json()).data.token;
-}
-
-/** A walk-in carrying a real bill, so there is something to pay. */
-async function billedVisit(api, token) {
-  const H = { Authorization: `Bearer ${token}` };
-  const types = (await (await api.get(`${API}/patients/types`, { headers: H })).json()).data.patientTypes;
-  const selfPay = types.find((t) => t.name === 'Self Pay');
-
-  const patient = (await (await api.post(`${API}/patients`, {
-    headers: H,
-    data: {
-      ...fixturePerson(), birthdate: '1990-01-01', sex: 'Female',
-      address: 'Bugo, Cagayan de Oro City', contactNumber: FIXTURE_CONTACT,
-      patientTypeId: selfPay.id,
-    },
-  })).json()).data.patient;
-
-  const visit = (await (await api.post(`${API}/visits`, {
-    headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e manual payment' },
-  })).json()).data.visit;
-
-  const packages = (await (await api.get(`${API}/packages`)).json()).data.packages;
-  await api.post(`${API}/tests/visit-tests`, {
-    headers: H, data: { patientVisitId: visit.id, packageIds: [packages[0].id] },
-  });
-
-  const bill = (await (await api.get(`${API}/payments/bill/${visit.id}`, {
-    headers: { Authorization: `Bearer ${await loginAs(api, CASHIER)}` },
-  })).json()).data.bill;
-
-  return { visit, total: Number(bill.totalAmount) };
-}
-
-async function submitProof(api, token, visitId, { amount, reference, methodId }) {
-  return api.post(`${API}/payment-submissions`, {
-    headers: { Authorization: `Bearer ${token}` },
-    multipart: {
-      patientVisitId: String(visitId),
-      ...(methodId ? { paymentMethodId: String(methodId) } : {}),
-      referenceNumber: reference,
-      amountClaimed: String(amount),
-      proof: { name: 'receipt.png', mimeType: 'image/png', buffer: PNG },
-    },
-  });
-}
-
-/** A published account to pay into, created once for the file. */
-async function ensureMethod(api, superToken) {
-  const existing = (await (await api.get(`${API}/payment-methods`)).json()).data.methods;
-  if (existing.length) return existing[0];
-
-  const res = await api.post(`${API}/payment-methods`, {
-    headers: { Authorization: `Bearer ${superToken}` },
-    data: {
-      kind: 'GCash', label: 'E2E GCash', accountName: 'Enlogada Clinic',
-      accountNumber: '09000000000',
-    },
-  });
-  return (await res.json()).data.method;
-}
+// Shared with proof-review.spec.js, which needs the same scaffolding to put a claim in front of
+// the cashier's queue. [1.72.0] See helpers/payments.js for why these stopped living here.
+const SUPERADMIN = CREDS.superadmin;
+const ADMIN = CREDS.admin;
+const CASHIER = CREDS.cashier;
+const RECEPTIONIST = CREDS.receptionist;
 
 test.describe('Manual proof of payment', () => {
   test('only SuperAdmin may publish an account number', async () => {

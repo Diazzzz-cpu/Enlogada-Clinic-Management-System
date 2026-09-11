@@ -8,8 +8,10 @@ import { ConfirmDialog } from '../ui/confirm-dialog';
 import ProofReviewDialog from './ProofReviewDialog';
 import DataBadge from '../ui/data-badge';
 import { Textarea } from '../ui/textarea';
+import { Checkbox } from '../ui/checkbox';
 import EmptyState from '../ui/empty-state';
 import { formatCurrency } from '../../lib/currency';
+import { reviewConcerns } from '../../lib/paymentReview';
 
 /**
  * Online payments waiting for a cashier to look at the screenshot. [1.48.0]
@@ -64,9 +66,7 @@ export default function OnlinePaymentsPanel({ review }) {
           ) : (
             <ul className="m-0 list-none divide-y divide-line p-0">
               {review.submissions.map((s) => {
-                const claimed = Number(s.amount_claimed);
-                const due = Number(s.amount_due);
-                const mismatch = Math.abs(claimed - due) > 0.01;
+                const { claimed, due, mismatch } = reviewConcerns(s);
                 const busy = review.acting === s.id;
 
                 return (
@@ -137,7 +137,10 @@ export default function OnlinePaymentsPanel({ review }) {
                         <Eye className="h-3.5 w-3.5" />
                         Review
                       </Button>
-                      <Button size="sm" loading={busy} onClick={() => review.verify(s)}>
+                      {/* Asks. This used to POST on the click — the one irreversible action on
+                          the panel, in the middle of three identical buttons repeated down a
+                          stacked list. */}
+                      <Button size="sm" loading={busy} onClick={() => review.askVerify(s)}>
                         <Check className="h-3.5 w-3.5" />
                         Verify &amp; issue receipt
                       </Button>
@@ -211,11 +214,81 @@ export default function OnlinePaymentsPanel({ review }) {
         <ProofReviewDialog
           submission={reviewing}
           onClose={() => setReviewing(null)}
-          onVerify={(sub) => { setReviewing(null); review.verify(sub); }}
+          onVerify={(sub) => { setReviewing(null); review.askVerify(sub); }}
           onReject={(sub) => { setReviewing(null); review.askReject(sub); }}
           busy={review.acting === reviewing.id}
         />
       )}
+
+      {/* ── Asking before the money moves ──────────────────────────────────────────────────
+          The description restates the figure that will ACTUALLY be recorded, because that is the
+          number the cashier is agreeing to and it is not necessarily the one on the screenshot
+          they just read. Everything the queue row warned about is repeated here: a confirmation
+          that drops the warning is a confirmation that launders it. */}
+      {review.verifying && (() => {
+        const { claimed, due, mismatch, duplicates, concerning } = reviewConcerns(review.verifying);
+        const name = `${review.verifying.first_name} ${review.verifying.last_name}`;
+
+        return (
+          <ConfirmDialog
+            open
+            onOpenChange={(open) => { if (!open) review.dismissVerify(); }}
+            title="Record this payment?"
+            description={`${name} · reference ${review.verifying.reference_number}`}
+            confirmLabel="Record payment"
+            onConfirm={review.confirmVerify}
+            loading={!!review.acting}
+            confirmDisabled={concerning && !review.verifyAck}
+          >
+            <div className="rounded-lg border border-line bg-sunken p-3">
+              <p className="m-0 text-fine leading-relaxed text-ink-muted">
+                This records{' '}
+                <strong className="font-bold tabular-nums text-ink">{formatCurrency(due)}</strong>{' '}
+                as received, issues a receipt and releases the visit. It cannot be undone here — a
+                mistake has to be reversed at cash-up.
+              </p>
+            </div>
+
+            {mismatch && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-700" aria-hidden="true" />
+                <span className="text-fine leading-relaxed text-amber-900">
+                  The patient claims <strong className="font-bold">{formatCurrency(claimed)}</strong>,
+                  but this visit owes <strong className="font-bold">{formatCurrency(due)}</strong>. The
+                  larger figure is the one recorded.
+                </span>
+              </div>
+            )}
+
+            {duplicates > 0 && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-2.5">
+                <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-rose-700" aria-hidden="true" />
+                <span className="text-fine leading-relaxed text-rose-900">
+                  This reference already appears on {duplicates} other{' '}
+                  {duplicates === 1 ? 'record' : 'records'}. Make sure this is not the same transfer
+                  being counted twice.
+                </span>
+              </div>
+            )}
+
+            {/* The graduated step. Only for submissions the screen has already objected to, so it
+                stays meaningful — a tick demanded on every payment is a tick nobody reads. */}
+            {concerning && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-line p-2.5">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={review.verifyAck}
+                  onChange={(e) => review.setVerifyAck(e.target.checked)}
+                />
+                <span className="text-fine leading-relaxed text-ink">
+                  I have checked the proof and mean to record{' '}
+                  <strong className="font-bold tabular-nums">{formatCurrency(due)}</strong>.
+                </span>
+              </label>
+            )}
+          </ConfirmDialog>
+        );
+      })()}
 
       <ConfirmDialog
         open={!!review.rejecting}

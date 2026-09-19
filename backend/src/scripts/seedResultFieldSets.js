@@ -36,8 +36,37 @@
  *
  * `seedRealCatalogue.js` replaces `test_package_items` wholesale with a DELETE, because a stale
  * component would be billed forever. That is not available here: `result_measurements.field_id`
- * references these rows, so deleting one would take recorded clinical values with it. This script
- * refuses to touch any field that has measurements against it.
+ * references these rows, so deleting one would take recorded clinical values with it. Nothing here
+ * ever deletes a field; a field that leaves the constants file is simply left where it is.
+ *
+ * ── What "has measurements against it" actually protects ─────────────────────────────────────
+ *
+ * This said the script "refuses to touch any field that has measurements against it". It does not,
+ * and reading it that way is how someone concludes a re-run is safe over recorded data. [1.93.0]
+ *
+ * The recorded-values guard covers exactly ONE column: `value_kind`. A field carrying measurements
+ * keeps its type, and the change is reported as SKIPPED. Every other column — `label`, `unit`,
+ * `section`, `reference_note`, `display_order`, `applies_to_sex`, `is_required`, `derivation`,
+ * `derived_from` — is overwritten from the constants file regardless of how many values exist, and
+ * `is_active` is forced back to TRUE.
+ *
+ * That is deliberate and it is why the footer facts in [1.64.0] reached forms that were already
+ * seeded. But it matters far more than it used to, because a released report does not store its
+ * own labels: `resultMeasurementRepository.findByResultIds` JOINs `result_fields` at print time
+ * for `label`, `unit`, `reference_note`, `section` and `display_order`. So editing this file and
+ * re-running changes the text of clinical documents that were signed, sealed and emailed months
+ * ago. `result_measurements` stores the NUMBER; everything framing it is read live.
+ *
+ * A unit is the dangerous one. Changing cm to mm converts nothing — the stored 5.0 simply starts
+ * printing as 5.0 mm.
+ *
+ * Two consequences for anything that edits these rows from outside this script:
+ *
+ *   - The 35 sets named in the constants file are owned BY the constants file. An edit made
+ *     elsewhere to one of their fields is reverted on the next `--confirm`, and `display_order` is
+ *     recomputed positionally from the array, so a reordering is lost too.
+ *   - A set NOT named in the constants file is never visited: there is no prune step and no
+ *     DELETE. Sets created elsewhere are left entirely alone.
  */
 const db = require('../config/database');
 const logger = require('../config/logger');

@@ -125,7 +125,7 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
           onPreviewDocument={setPreviewDoc}
         />
 
-        <ResultEntryDialog worklist={worklist} entry={entry} patientHistory={patientHistory} />
+        <ResultEntryDialog entry={entry} patientHistory={patientHistory} />
 
       </div>
       <ResultDocument

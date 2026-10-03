@@ -391,76 +391,6 @@ test.describe('Ultrasound structured measurements', () => {
   // Each of these was reachable in a 228-passing suite. They are here because the specs above
   // asserted the API payload and the presence of a grid, and never drove the two buttons a
   // technician actually presses.
-  test('releasing a form with an empty comment box still saves the grid', async ({ page }) => {
-    // [1.53.0] validate() was relaxed so a filled grid with no narrative is a legal save, and
-    // release()'s `if (findings)` guard was its silent partner: authorising that result skipped
-    // the save, reported "released" and notified the patient, and discarded the typed values.
-    //
-    // This drives the BROWSER on purpose. The first version of this test posted to the API and
-    // passed with the bug still in place, because the defect lives in the hook that the two
-    // buttons call — which is exactly the gap a review found in a 228-passing suite.
-    const person = fixturePerson();
-    const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
-      .data.patientTypes;
-    const selfPay = types.find((t) => /self.?pay/i.test(t.name)) || types[0];
-    const patient = (await (await apiContext.post(`${API}/patients`, {
-      headers: auth(reception),
-      data: {
-        patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
-        birthdate: '1990-06-06', sex: 'Female', contactNumber: FIXTURE_CONTACT,
-      },
-    })).json()).data.patient;
-    const visit = (await (await apiContext.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e empty comment' },
-    })).json()).data.visit;
-    const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
-    const ua = tests.find((t) => t.name === 'Urinalysis');
-    const attached = (await (await apiContext.post(`${API}/tests/visit-tests`, {
-      headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: [ua.id] },
-    })).json()).data.visitTests[0];
-    const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())
-      .data.bill;
-    await apiContext.post(`${API}/payments`, {
-      headers: auth(cashier),
-      data: { patientVisitId: visit.id, paymentMethod: 'Cash', amount: parseFloat(bill.totalAmount) },
-    });
-
-    await page.goto('/');
-    await page.getByText('Sign In', { exact: true }).first().click();
-    await page.fill('input[type="email"]', 'lab@enlogada.com');
-    await page.fill('input[type="password"]', PASSWORD);
-    await page.locator('button[type="submit"]').click();
-    // Staff land on Today since [1.77.0].
-    await page.getByRole('button', { name: 'Laboratory Worklist', exact: true }).first().click({ timeout: 20000 });
-
-    await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
-    const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]');
-    await expect(row).toBeVisible({ timeout: 15000 });
-    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
-    // and recording through the API above is exactly what puts it in that state.
-    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
-
-    // Fill ONE grid field and leave the comment box untouched — the legal state [1.52.0] created.
-    await page.getByTestId('measurement-color').fill('YELLOW');
-    await expect(page.locator('textarea')).toHaveValue('');
-
-    // Authorise straight from the form, which is the path that skipped the save.
-    await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
-    // ConfirmDialog's own button, which is labelled 'Authorize & Release' (no 'Result').
-    await page.getByRole('button', { name: 'Authorize & Release', exact: true }).click();
-
-    // The value must be in the database, not merely on the screen that said it was released.
-    const lab = await login('lab@enlogada.com');
-    await expect(async () => {
-      const saved = (await (await apiContext.get(`${API}/results/${attached.id}`, { headers: auth(lab) })).json())
-        .data.result;
-      expect(saved, 'the release must not report success with nothing stored').toBeTruthy();
-      expect(saved.measurements.find((m) => m.field_code === 'color')?.value_text).toBe('YELLOW');
-    }).toPass({ timeout: 15000 });
-  });
-
   test('the patient copy carries the same header block as the clinic copy', async () => {
     // [1.53.0] The two are the same document by requirement, but they came from two queries and
     // only one of them selected birthdate, sex, patient type and discipline — so the patient's
@@ -605,7 +535,7 @@ test.describe('Ultrasound structured measurements', () => {
     await expect(page.getByPlaceholder('Search patient, test, queue...')).toBeVisible({ timeout: 15000 });
   });
 
-  test('a Laboratory ticket renders its own grid, and still has exactly one textarea', async ({ page }) => {
+  test('the entry dialog offers exactly one file input, which laboratory.spec.js depends on', async ({ page }) => {
     // Its own ticket, so it does not consume a seeded demo stage.
     const person = fixturePerson();
     const types = (await (await apiContext.get(`${API}/patients/types`, { headers: auth(reception) })).json())
@@ -650,14 +580,19 @@ test.describe('Ultrasound structured measurements', () => {
     // and recording through the API above is exactly what puts it in that state.
     await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
 
-    // The assertion `laboratory.spec.js` depends on without saying so: it drives the findings box
-    // with a BARE page.locator('textarea'), so a second one anywhere in this dialog breaks two of
-    // its tests with a strict-mode violation, from a file that never mentions the grid. [1.52.0]
-    // gave Laboratory its own field sets, so this now guards a grid that IS rendered — every input
-    // in it must remain an <input>.
-    await expect(page.locator('textarea')).toHaveCount(1);
-    // And the grid is present, because [1.52.0] seeded the clinic's laboratory forms.
-    await expect(page.locator('[data-testid^="measurement-row-"]').first()).toBeVisible();
+    // The assertion `laboratory.spec.js` depends on without saying so. [1.94.0]
+    //
+    // It used to guard the findings TEXTAREA, because that spec filled it with a bare
+    // page.locator('textarea') and a second one anywhere in this dialog broke two of its tests
+    // with a strict-mode violation, from a file that never mentions this one. The textarea is
+    // gone and the hazard moved: that spec now attaches the report with a bare
+    // page.locator('input[type="file"]'), so the same rule applies to file inputs.
+    await expect(
+      page.locator('input[type="file"]'),
+      'a second file input would break laboratory.spec.js from a file that never names it'
+    ).toHaveCount(1);
+    // And nothing types a report any more — the document is the result.
+    await expect(page.locator('textarea')).toHaveCount(0);
   });
 
   test('a Laboratory result records its clinic form, and keeps its free text', async () => {
@@ -763,30 +698,28 @@ test.describe('Ultrasound structured measurements', () => {
         measurements: JSON.stringify({ right_kidney: { value_1: 10.35, value_2: 4.05, value_3: 4.64 } }),
       },
     });
-    // NOT released here. A released result leaves the active worklist, and the certificate this
-    // asserts on is the one the dialog renders at the moment of release — the copy actually handed
-    // across the counter.
+    // Released through the API, because what is under test here is the RENDERING, not the release
+    // path. [1.94.0] The form no longer prints a certificate at the moment of release — the
+    // clinic's attached document is the report — so the generated rendering now survives only for
+    // a result that carries measurements, and History is where it is read.
+    await apiContext.post(`${API}/results/${attached.id}/release`, { headers: auth(ultra) });
 
     await page.goto('/');
     await page.getByText('Sign In', { exact: true }).first().click();
     await page.fill('input[type="email"]', 'ultrasound@enlogada.com');
     await page.fill('input[type="password"]', PASSWORD);
     await page.locator('button[type="submit"]').click();
-    // Staff land on Today since [1.77.0].
-    await page.getByRole('button', { name: 'Ultrasound Worklist', exact: true }).first().click({ timeout: 20000 });
-    await expect(page.getByPlaceholder('Search patient, test, queue...')).toBeVisible({ timeout: 15000 });
+    // Staff land on Today since [1.77.0]; a released result lives in History, not the worklist.
+    await page.getByText('Ultrasound History').first().click({ timeout: 20000 });
 
-    await page.getByPlaceholder('Search patient, test, queue...').fill(person.lastName);
-    const row = page.getByText(`${person.firstName} ${person.lastName}`).locator('xpath=ancestor::tr[1]').first();
-    await expect(row).toBeVisible({ timeout: 15000 });
-    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
-    // and recording through the API above is exactly what puts it in that state.
-    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
+    const search = page.getByPlaceholder(/search/i).first();
+    await expect(search).toBeVisible({ timeout: 15000 });
+    await search.fill(person.lastName);
 
-    // Authorise from the form; the grid is already filled from the API call above.
-    await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
-    // ConfirmDialog's own button is labelled without the trailing 'Result'.
-    await page.getByRole('button', { name: 'Authorize & Release', exact: true }).click();
+    const historyRow = page.getByText(`${person.firstName} ${person.lastName}`)
+      .locator('xpath=ancestor::tr[1]').first();
+    await expect(historyRow).toBeVisible({ timeout: 20000 });
+    await historyRow.getByRole('button').first().click();
 
     const report = page.locator('.print-area').first();
     await expect(report).toBeVisible({ timeout: 15000 });

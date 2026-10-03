@@ -158,10 +158,10 @@ test.describe('Laboratory — browser flow', () => {
 
     const row1 = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
     await row1.getByRole('button', { name: 'Record Findings' }).click();
-    await page.locator('textarea').fill('Findings text.');
 
     // The free-text attachment URL field this test used to drive was replaced by a real file
     // upload, so the unsafe-attachment guard is now a MIME allowlist rather than URL parsing.
+    // The findings box it also used to fill is gone with [1.94.0] — the report is the file.
     await page.locator('input[type="file"]').setInputFiles({
       name: 'payload.html',
       mimeType: 'text/html',
@@ -173,11 +173,10 @@ test.describe('Laboratory — browser flow', () => {
   test('recording findings and releasing removes the test from the worklist', async ({ page }) => {
     const apiContext = await request.newContext();
     const recToken = await loginAs(apiContext, RECEPTIONIST);
-    const { patient } = await createLabVisitTest(apiContext, recToken);
+    const { patient, visitTestId } = await createLabVisitTest(apiContext, recToken);
     // The fixture's payment already released this ticket, which is what sets it to
     // 'Processing'. The explicit status PUT that used to sit here is now both redundant and
     // forbidden — diagnostic staff may no longer set 'Processing' themselves.
-    await apiContext.dispose();
 
     await page.goto('/');
     await page.getByText('Sign In', { exact: true }).first().click();
@@ -192,14 +191,48 @@ test.describe('Laboratory — browser flow', () => {
 
     const row2 = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
     await row2.getByRole('button', { name: 'Record Findings' }).click();
-    await page.locator('textarea').fill('Normal CBC findings.');
-    await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
+
+    // Release is refused until the report is attached. [1.94.0] This is the whole shape of the
+    // feature in one assertion: the result IS the document, so there is nothing to authorise
+    // until one is there.
+    const release = page.getByRole('button', { name: 'Authorize & Release Result' });
+    await expect(release, 'nothing to release until a report is attached').toBeDisabled();
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'cbc-report.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 E2E laboratory report'),
+    });
+    await expect(page.getByText('cbc-report.pdf')).toBeVisible();
+    await expect(release, 'the attached report is what makes it releasable').toBeEnabled();
+
+    await release.click();
     await page.getByRole('button', { name: 'Authorize & Release' }).click();
 
-    // Scoped to the worklist table, not the page: releasing opens the printable
-    // certificate dialog, which legitimately still shows the patient's name.
+    // Scoped to the worklist table, not the page: releasing opens the confirmation panel, which
+    // legitimately still names the patient.
     await expect(
       page.locator('table').getByText(`${patient.first_name} ${patient.last_name}`)
     ).toHaveCount(0, { timeout: 10000 });
+
+    // The report must be IN THE DATABASE, not merely on the screen that said it was released.
+    //
+    // This is [1.53.0]'s property in the shape the feature now has. That release path once
+    // guarded its save on `if (findings)`, so authorising a result whose content was not typed
+    // skipped the save, reported success and notified the patient with nothing stored. The
+    // guard is now `if (resultFile)` and the content is a document, so the same class of bug
+    // would leave a released result carrying no report at all.
+    const labToken = await loginAs(apiContext, LAB_STAFF);
+    await expect(async () => {
+      const stored = (await (await apiContext.get(`${API}/results/${visitTestId}`, {
+        headers: { Authorization: `Bearer ${labToken}` },
+      })).json()).data.result;
+      expect(stored, 'a released result must exist').toBeTruthy();
+      expect(stored.file_original_name, 'the attached report must be stored, not just accepted')
+        .toBe('cbc-report.pdf');
+      expect(stored.authorised_at, 'and it must be authorised').toBeTruthy();
+    }).toPass({ timeout: 15000 });
+
+    await apiContext.dispose();
   });
 });

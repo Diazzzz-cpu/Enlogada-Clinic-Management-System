@@ -522,7 +522,9 @@ class ResultService {
       throw error;
     }
 
-    if (requestingUser.roles.includes('Client')) {
+    const isClient = requestingUser.roles.includes('Client');
+
+    if (isClient) {
       if (ownership.patient_user_id !== requestingUser.userId) {
         const error = new Error('Access forbidden. This result does not belong to your account.');
         error.statusCode = 403;
@@ -532,7 +534,28 @@ class ResultService {
       assertStaffAllowedCategory(requestingUser, ownership.category_name);
     }
 
-    const result = await resultRepository.findResultByVisitTestId(visitTestId);
+    // A patient gets the last version that was AUTHORISED; staff get the current one. [1.94.0]
+    //
+    // This route checked ownership and department and then streamed whatever was current. That
+    // was survivable while the file supplemented typed findings and the portal simply did not
+    // offer a button for an unreleased result — but hiding a control is not enforcing a rule, and
+    // the file is now the entire report.
+    //
+    // Two things were wrong at once. A result recorded and not yet released is current, so a
+    // patient could fetch a draft clinical report nobody had authorised. And an amendment makes
+    // the unreleased v2 current while reopening the visit, which both served that draft AND —
+    // because the portal gates its buttons on the visit being Completed — took away the copy the
+    // patient had already legitimately been sent, for as long as the correction took to write.
+    //
+    // Reading the latest authorised version answers both: the draft is unreachable, and the
+    // superseded-but-released copy stays readable until its replacement is authorised.
+    //
+    // Gated on authorised_at and never released_at: released_at defaults to CURRENT_TIMESTAMP at
+    // insert, so it is never null and would gate nothing.
+    const result = isClient
+      ? await resultRepository.findLatestAuthorisedByVisitTestId(visitTestId)
+      : await resultRepository.findResultByVisitTestId(visitTestId);
+
     if (!result || !result.file_path) {
       const error = new Error('No uploaded file exists for this result.');
       error.statusCode = 404;

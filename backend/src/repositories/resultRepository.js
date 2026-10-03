@@ -376,6 +376,34 @@ class ResultRepository {
     return result.rows[0];
   }
 
+  /**
+   * The newest version of this result that was actually AUTHORISED, file columns only.
+   *
+   * What a patient is entitled to, as distinct from what is current. [1.94.0] Two cases make the
+   * difference matter, and both only became serious once the attached document became the whole
+   * report rather than a supplement to typed findings:
+   *
+   *   - A result recorded but not yet released is `is_current`. Serving that to the patient hands
+   *     them a draft clinical report nobody has authorised.
+   *   - An amendment sets the visit back to 'Waiting for Release' and makes the UNRELEASED v2
+   *     current. Reading `is_current` would both serve that draft and, if simply gated on
+   *     release, take away the copy they were legitimately sent while the correction is written.
+   *
+   * Ordering by version rather than by authorised_at: version is the chain's own sequence, while
+   * authorised_at is a wall-clock time that a backdating script or a clock change can reorder.
+   */
+  async findLatestAuthorisedByVisitTestId(visitTestId) {
+    const { rows } = await db.query(
+      `SELECT id, file_path, file_original_name, file_mime_type, version, authorised_at
+         FROM test_results
+        WHERE visit_test_id = $1 AND authorised_at IS NOT NULL
+        ORDER BY version DESC
+        LIMIT 1`,
+      [visitTestId]
+    );
+    return rows[0] || null;
+  }
+
   async findResultByVisitTestId(visitTestId) {
     const queryText = `
       SELECT tr.*, u.first_name as released_by_first_name, u.last_name as released_by_last_name,

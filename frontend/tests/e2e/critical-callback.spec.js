@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
+import { reportPart } from './helpers/reportFile.js';
 
 /**
  * A critical result's phone call can be RECORDED, from the screen that counts it. [1.74.0]
@@ -72,7 +73,7 @@ test.describe('Recording a critical-result callback', () => {
     // Findings flagged critical, then released: the state the tile counts.
     const recorded = await ctx.post(`${API}/results/${visitTestId}`, {
       headers: auth(lab),
-      multipart: { findings: 'Potassium 7.2 mmol/L. CRITICALLY HIGH.', remarks: 'Repeat sample confirms', isCritical: 'true' },
+      multipart: { findings: 'Potassium 7.2 mmol/L. CRITICALLY HIGH.', remarks: 'Repeat sample confirms', isCritical: 'true', file: reportPart('critical') },
     });
     expect(recorded.status()).toBe(201);
     const released = await ctx.post(`${API}/results/${visitTestId}/release`, { headers: auth(lab) });

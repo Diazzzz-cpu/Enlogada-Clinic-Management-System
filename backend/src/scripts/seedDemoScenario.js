@@ -537,14 +537,18 @@ async function main() {
     if (remarks) body.append('remarks', remarks);
     body.append('isCritical', String(isCritical));
     if (form) body.append('measurements', JSON.stringify(fillForm(form, v.sex, v.seed, values)));
-    if (imaging) {
-      const pdf = makeSamplePdf(`${v.test.name} - ${v.patient.first_name} ${v.patient.last_name}`, text);
-      body.append(
-        'file',
-        new Blob([pdf], { type: 'application/pdf' }),
-        `${v.category.toLowerCase()}-report-${v.patient.last_name.toLowerCase().replace(/\s+/g, '-')}.pdf`
-      );
-    }
+    // Every result carries its report, not only the imaging ones. [1.94.0]
+    //
+    // This attached a PDF for Ultrasound and X-ray and left Laboratory with findings text alone,
+    // which was right while findings WERE the report. A release now requires the document, so the
+    // old shape would have stopped the seeder dead on the first laboratory visit — and, worse for
+    // a demo, shown the clinic a system where half the results have nothing to open.
+    const pdf = makeSamplePdf(`${v.test.name} - ${v.patient.first_name} ${v.patient.last_name}`, text);
+    body.append(
+      'file',
+      new Blob([pdf], { type: 'application/pdf' }),
+      `${v.category.toLowerCase()}-report-${v.patient.last_name.toLowerCase().replace(/\s+/g, '-')}.pdf`
+    );
     return postResult(v, body);
   };
 
@@ -556,6 +560,19 @@ async function main() {
     body.append('amendmentReason', reason);
     body.append('isCritical', 'false');
     if (values) body.append('measurements', JSON.stringify(values));
+    // A corrected result carries a CORRECTED document. [1.94.0] Without this the amendment would
+    // inherit the original file and the demo would show an "amendment" whose report is identical
+    // to the one it replaced — which is exactly the empty-amendment problem the clinic should not
+    // be shown, and which the real workflow avoids by attaching the new report.
+    const pdf = makeSamplePdf(
+      `${v.test.name} (corrected) - ${v.patient.first_name} ${v.patient.last_name}`,
+      findings || reason
+    );
+    body.append(
+      'file',
+      new Blob([pdf], { type: 'application/pdf' }),
+      `${v.category.toLowerCase()}-report-${v.patient.last_name.toLowerCase().replace(/\s+/g, '-')}-corrected.pdf`
+    );
     return postResult(v, body);
   };
 

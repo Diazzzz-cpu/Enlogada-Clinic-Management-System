@@ -1,6 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import { reportPart } from './helpers/reportFile.js';
 
 // Structured measurements on an ultrasound report. [1.50.0]
 //
@@ -42,6 +43,8 @@ test.describe('Ultrasound structured measurements', () => {
       Object.entries(fields).map(([k, v]) => [k, String(v)])
     );
     if (measurements !== undefined) multipart.measurements = JSON.stringify(measurements);
+    // A release needs its report document [1.94.0]; findings are no longer typed.
+    if (multipart.file === undefined) multipart.file = reportPart('ultrasound');
     const res = await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: auth(token), multipart,
     });
@@ -290,6 +293,8 @@ test.describe('Ultrasound structured measurements', () => {
       const res = await apiContext.post(`${API}/results/${attached.id}`, {
         headers: auth(ultra),
         multipart: {
+          // A release needs its report document [1.94.0]; findings are no longer typed.
+          file: reportPart('ultrasound'),
           findings: 'Biophysical profile performed.',
           measurements: JSON.stringify(measurements),
           ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])),
@@ -365,6 +370,8 @@ test.describe('Ultrasound structured measurements', () => {
     const res = await apiContext.post(`${API}/results/${attached.id}`, {
       headers: auth(ultra),
       multipart: {
+        // A release needs its report document [1.94.0]; findings are no longer typed.
+        file: reportPart('ultrasound'),
         findings: 'The anteverted uterus is normal in size and echopattern.',
         measurements: JSON.stringify({ endometrial_thickness: { value_1: 0.76 } }),
       },
@@ -463,6 +470,8 @@ test.describe('Ultrasound structured measurements', () => {
     const rec = await apiContext.post(`${API}/results/${attached.id}`, {
       headers: auth(lab),
       multipart: {
+        // A release needs its report document [1.94.0]; findings are no longer typed.
+        file: reportPart('ultrasound'),
         findings: '',
         measurements: JSON.stringify({
           specimen: { value_text: 'RANDOM' },
@@ -694,6 +703,8 @@ test.describe('Ultrasound structured measurements', () => {
     await apiContext.post(`${API}/results/${attached.id}`, {
       headers: auth(ultra),
       multipart: {
+        // A release needs its report document [1.94.0]; findings are no longer typed.
+        file: reportPart('ultrasound'),
         findings: 'Both kidneys are normal in size and echopattern.\n\nImpression: NEGATIVE ULTRASOUND STUDY.',
         measurements: JSON.stringify({ right_kidney: { value_1: 10.35, value_2: 4.05, value_3: 4.64 } }),
       },

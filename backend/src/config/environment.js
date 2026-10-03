@@ -73,6 +73,17 @@ module.exports = {
   // worse than not claiming one you are. Getting it wrong costs 85.71 per 1,000 on every senior
   // and PWD sale, and no test catches it — the specs read this value and adapt. — and confirm with your accountant before changing it.
   CLINIC_VAT_REGISTERED: process.env.CLINIC_VAT_REGISTERED !== 'false',
+
+  // A diagnostic result may not be released without its report document. [1.94.0]
+  //
+  // Default ON: the clinic asked for this, and it is what makes a released result mean something
+  // now that findings are no longer typed. Set RESULTS_REQUIRE_FILE=false to restore the previous
+  // behaviour without a deploy — this changes how clinical records are stored, and a flag that can
+  // be flipped in a minute is worth more than a revert that needs a release.
+  //
+  // Deliberately gates RELEASE and not recording. A technologist still parks a ticket in
+  // 'Waiting for Release' while the report is being produced, which is what that state is for.
+  RESULTS_REQUIRE_FILE: process.env.RESULTS_REQUIRE_FILE !== 'false',
   VAT_RATE: parseFloat(process.env.VAT_RATE || '0.12'),
 
   /**

@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 import { registerClient } from './helpers/accounts.js';
+import { reportPart } from './helpers/reportFile.js';
 
 /**
  * Getting the report to the patient, and being able to say that you did. [1.59.0]
@@ -106,7 +107,7 @@ test.describe('Emailing a released report', () => {
     });
     await ctx.post(`${API}/results/${visitTestId}`, {
       headers: auth(lab),
-      multipart: { findings: 'Within normal limits.', remarks: 'E2E' },
+      multipart: { findings: 'Within normal limits.', remarks: 'E2E', file: reportPart('delivery') },
     });
 
     const unreleased = await ctx.post(`${API}/results/${visitTestId}/email`, { headers: auth(lab) });
@@ -120,7 +121,7 @@ test.describe('Emailing a released report', () => {
       headers: auth(lab), data: { status: 'Processing' },
     });
     await ctx.post(`${API}/results/${visitTestId}`, {
-      headers: auth(lab), multipart: { findings: 'Within normal limits.', remarks: 'E2E' },
+      headers: auth(lab), multipart: { findings: 'Within normal limits.', remarks: 'E2E', file: reportPart('delivery') },
     });
     expect((await ctx.post(`${API}/results/${visitTestId}/release`, { headers: auth(lab) })).status()).toBe(200);
 

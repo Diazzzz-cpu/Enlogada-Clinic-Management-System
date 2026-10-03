@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
 import { selfPayTypeId } from './helpers/patients.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import { reportPart } from './helpers/reportFile.js';
 
 // Module 9 (Laboratory Staff) coverage. The worklist UI (start-processing, template-assisted
 // findings entry, confirm-before-release) was already built; the real gap found on inspection
@@ -91,7 +92,9 @@ test.describe('Laboratory worklist (API)', () => {
 
     const uploadRes = await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: { Authorization: `Bearer ${labToken}` },
-      data: { findings: 'CBC within normal limits.', remarks: '' },
+      // multipart, not JSON: a release needs its report document [1.94.0], and the
+      // document can only travel as a file part.
+      multipart: { findings: 'CBC within normal limits.', remarks: '', file: reportPart('cbc') },
     });
     expect(uploadRes.status()).toBe(201);
 
@@ -111,7 +114,7 @@ test.describe('Laboratory worklist (API)', () => {
     const { visitTestId } = await createLabVisitTest(apiContext, recToken);
     await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: { Authorization: `Bearer ${labToken}` },
-      data: { findings: 'Done.', remarks: '' },
+      multipart: { findings: 'Done.', remarks: '', file: reportPart('done') },
     });
     await apiContext.post(`${API}/results/${visitTestId}/release`, { headers: { Authorization: `Bearer ${labToken}` } });
 

@@ -781,7 +781,29 @@ class ResultService {
     // Fetch result to confirm it exists
     const result = await resultRepository.findResultByVisitTestId(visitTestId);
     if (!result) {
-      const error = new Error('No result found for this visit test. Please upload findings first.');
+      const error = new Error('No result found for this visit test. Attach the report first.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // The report document is what is being authorised. [1.94.0]
+    //
+    // Findings are no longer typed — the clinic attaches the report it already produces — so a
+    // release with no file would send a patient an email about a result that contains nothing,
+    // and leave a 'Completed' ticket whose record is empty. The browser disables the release
+    // button for the same reason; this is the rule rather than the courtesy.
+    //
+    // On RELEASE and not on recording, deliberately: parking a ticket in 'Waiting for Release'
+    // while the report is being produced is what that state has always been for, and demanding
+    // the document to save it would remove a step the department actually uses.
+    //
+    // Reads the stored result rather than the request, so an amendment that carries no new upload
+    // passes on the file it inherited. Checking the upload instead would make every correction
+    // impossible.
+    if (env.RESULTS_REQUIRE_FILE && !result.file_path) {
+      const error = new Error(
+        'Attach the report file before releasing this result. The report is what the patient receives.'
+      );
       error.statusCode = 400;
       throw error;
     }

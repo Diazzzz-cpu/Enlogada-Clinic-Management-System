@@ -27,6 +27,13 @@ class ResultRepository {
   async findOutstandingCriticals() {
     const queryText = `
       SELECT tr.id AS result_id, tr.visit_test_id, tr.findings, tr.released_at,
+             -- The attachment, because that is where the panic value is once findings stop being
+             -- typed. [1.94.0] The callback row is the only thing the person on the phone reads
+             -- before dialling, and a blank card tells them nothing about what they are calling
+             -- about. Note the file itself is NOT openable from here: this list is deliberately
+             -- not department-scoped (a receptionist makes the call) while the file route is, so
+             -- the name is shown and the report is opened from the patient's record.
+             tr.file_original_name, tr.file_path IS NOT NULL AS has_file,
              t.name AS test_name, tc.name AS category_name,
              p.id AS patient_id, p.first_name, p.last_name, p.contact_number,
              pv.id AS visit_id, pv.queue_number,
@@ -61,6 +68,13 @@ class ResultRepository {
              -- worklist and the report both need to be able to name them. [1.23.0]
              pv.referring_physician, pv.referring_physician_prc,
              p.id as patient_id, p.first_name, p.last_name, p.birthdate, p.sex,
+             -- The current version's attachment, so the entry dialog can tell a technician that a
+             -- report is already on this ticket. [1.94.0] Without it the dialog can only see what
+             -- is in its own form state, so re-opening a parked ticket showed an empty file input
+             -- over a ticket that already had one, and a release from the row could not tell
+             -- whether there was anything to release. is_critical rides along for the same reason:
+             -- releasing from the row must not write a stale flag over a real one.
+             tr.file_path, tr.file_original_name, tr.is_critical,
              (
                SELECT hrt.approval_status
                FROM hmo_request_tests hrt
@@ -73,6 +87,9 @@ class ResultRepository {
       JOIN test_categories tc ON t.category_id = tc.id
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id
+      -- At most one row: uq_test_results_current_per_test is a partial unique index on
+      -- visit_test_id WHERE is_current, so this cannot multiply the worklist.
+      LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
       WHERE tc.name = $1
         AND pv.status = 'Processing'
         AND vt.status IN ('Processing', 'Waiting for Release')
@@ -281,6 +298,10 @@ class ResultRepository {
   async findVersionHistoryByVisitTestId(visitTestId) {
     const queryText = `
       SELECT tr.id, tr.version, tr.is_current, tr.findings, tr.remarks,
+             -- Which document each version carried. [1.94.0] The timeline rendered findings and
+             -- nothing else, so once the report is a file every row in an amendment chain would
+             -- have shown an empty expander — a history that cannot say what changed.
+             tr.file_original_name, tr.file_path IS NOT NULL AS has_file,
              tr.amendment_reason, tr.is_critical,
              tr.released_at, tr.authorised_at, tr.superseded_by,
              rec.first_name AS recorded_by_first_name, rec.last_name AS recorded_by_last_name,

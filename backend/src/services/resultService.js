@@ -631,16 +631,26 @@ class ResultService {
          </p>`
       : '';
 
+    // "Set out below" is only true when something is actually set out below. [1.94.0] Once the
+    // report is an attached document rather than typed findings, that sentence and findingsBlock's
+    // wording both have to follow what the email really contains.
+    const hasWrittenFindings = Boolean(
+      (patientInfo.findings || '').trim() || (patientInfo.remarks || '').trim()
+    );
+
     const emailResult = await sendEmail({
       to: patientInfo.email,
       subject,
       html: wrapEmail(`
         <h2 style="margin:0 0 16px;font-size:18px;color:#0f172a;">Hello ${escapeHtml(patientName)},</h2>
         ${amendmentBanner}
-        <p>Your <strong>${escapeHtml(patientInfo.test_name)}</strong> report is ready, and is set out
-           below.${attachment ? ' A copy is attached to this email as well.' : ''}</p>
+        <p>Your <strong>${escapeHtml(patientInfo.test_name)}</strong> report is ready.${
+          hasWrittenFindings
+            ? ` It is set out below.${attachment ? ' A copy is attached to this email as well.' : ''}`
+            : attachment ? ' It is attached to this email.' : ''
+        }</p>
         ${reportTable(patientInfo)}
-        ${findingsBlock(patientInfo)}
+        ${findingsBlock(patientInfo, { attached: Boolean(attachment) })}
         <p style="margin:20px 0 0;font-size:13px;color:#475569;">
           These findings are for your doctor to interpret. If anything here is unclear, or if you
           feel unwell, please contact the clinic on ${escapeHtml(env.CLINIC_PHONE)}.

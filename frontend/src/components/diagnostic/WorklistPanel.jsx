@@ -71,7 +71,7 @@ export default function WorklistPanel({ worklist, entry, criticals }) {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {/* "—" on a failure, and the table below says why with its Try again — not a caption here too. */}
         <MetricCard label="Awaiting Exam" value={worklistFailed ? '—' : processingCount} caption="Paid and released to you" captionTone="slate" icon={Clock} tone="indigo" />
-        <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Findings recorded, not authorised" captionTone="slate" icon={FileText} tone="amber" />
+        <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />
         {/* The tile this replaced said "Active Modality: Laboratory — Your department", which
             is the page title, the breadcrumb and the sidebar selection restated a fourth time
             in a third of the metric strip. A metric strip is the most valuable space on an
@@ -216,7 +216,7 @@ export default function WorklistPanel({ worklist, entry, criticals }) {
                             size="xs"
                           >
                             <FileText className="h-3 w-3" />
-                            <span>{test.test_status === 'Waiting for Release' ? 'Edit Findings' : 'Record Findings'}</span>
+                            <span>{test.test_status === 'Waiting for Release' ? 'Edit Report' : 'Attach Report'}</span>
                           </Button>
                         )}
                         {canRelease && test.test_status === 'Waiting for Release' && (

@@ -576,9 +576,9 @@ test.describe('Ultrasound structured measurements', () => {
     await page.getByPlaceholder('Search patient, test, queue...').fill(patient.last_name);
     await expect(page.getByText(`${patient.first_name} ${patient.last_name}`)).toBeVisible({ timeout: 15000 });
     const row = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
-    // 'Record Findings' or 'Edit Findings' — WorklistPanel swaps the label once a result exists,
+    // 'Attach Report' or 'Edit Report' — WorklistPanel swaps the label once a result exists,
     // and recording through the API above is exactly what puts it in that state.
-    await row.getByRole('button', { name: /Record Findings|Edit Findings/ }).click();
+    await row.getByRole('button', { name: /Attach Report|Edit Report/ }).click();
 
     // The assertion `laboratory.spec.js` depends on without saying so. [1.94.0]
     //

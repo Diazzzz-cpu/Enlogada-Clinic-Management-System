@@ -157,7 +157,7 @@ test.describe('Laboratory — browser flow', () => {
     await expect(page.getByText(`${patient.first_name} ${patient.last_name}`)).toBeVisible({ timeout: 10000 });
 
     const row1 = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
-    await row1.getByRole('button', { name: 'Record Findings' }).click();
+    await row1.getByRole('button', { name: 'Attach Report' }).click();
 
     // The free-text attachment URL field this test used to drive was replaced by a real file
     // upload, so the unsafe-attachment guard is now a MIME allowlist rather than URL parsing.
@@ -190,7 +190,7 @@ test.describe('Laboratory — browser flow', () => {
     await expect(page.getByText(`${patient.first_name} ${patient.last_name}`)).toBeVisible({ timeout: 10000 });
 
     const row2 = page.getByText(`${patient.first_name} ${patient.last_name}`).locator('xpath=ancestor::tr[1]');
-    await row2.getByRole('button', { name: 'Record Findings' }).click();
+    await row2.getByRole('button', { name: 'Attach Report' }).click();
 
     // Release is refused until the report is attached. [1.94.0] This is the whole shape of the
     // feature in one assertion: the result IS the document, so there is nothing to authorise

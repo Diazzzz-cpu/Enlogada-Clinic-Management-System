@@ -69,7 +69,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
             <>
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              {entry.isEditing ? 'Correct Released Result' : 'Record Findings & Release Diagnostic Certificate'}
+              {entry.isEditing ? 'Correct Released Result' : 'Attach Report & Release Result'}
             </DialogTitle>
             <DialogDescription>
               Patient: <strong>{entry.activeTest?.first_name} {entry.activeTest?.last_name}</strong> &bull; Examination: <strong>{entry.activeTest?.test_name}</strong>

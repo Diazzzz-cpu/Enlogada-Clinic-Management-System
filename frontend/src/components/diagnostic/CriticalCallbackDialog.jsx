@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, PhoneCall } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Paperclip, PhoneCall } from 'lucide-react';
 import EmptyState from '../ui/empty-state';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -97,8 +97,28 @@ export default function CriticalCallbackDialog({ criticals }) {
                     </a>
                   )}
                 </div>
-                {c.findings && (
+                {/* What the call is ABOUT. [1.94.0] This was the findings snippet and nothing
+                    else, so once a report became an attached document rather than typed text the
+                    person picking up the phone would have seen a blank card — a panic result with
+                    no indication of what the panic value was.
+
+                    The file is named but deliberately not openable from here. This queue is not
+                    department-scoped, because the front desk makes the call, while the file route
+                    IS scoped through assertStaffAllowedCategory — and a Receptionist belongs to no
+                    department, so an open button here would 403 for the one role it exists for.
+                    The report is opened from the patient's record. */}
+                {c.findings ? (
                   <p className="m-0 mt-1.5 line-clamp-2 text-fine text-slate-700">{c.findings}</p>
+                ) : c.has_file ? (
+                  <p className="m-0 mt-1.5 flex items-center gap-1.5 text-fine text-slate-700">
+                    <Paperclip className="h-3 w-3 flex-shrink-0" />
+                    <span className="truncate">{c.file_original_name || 'Report attached'}</span>
+                    <span className="text-slate-500">— open it on the patient&apos;s record</span>
+                  </p>
+                ) : (
+                  <p className="m-0 mt-1.5 text-fine font-semibold text-rose-700">
+                    No report on this result — check the record before calling.
+                  </p>
                 )}
                 {!c.contact_number && (
                   <p className="m-0 mt-1.5 text-fine font-semibold text-rose-700">

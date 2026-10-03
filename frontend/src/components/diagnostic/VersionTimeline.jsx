@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, FileClock, History, ShieldAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileClock, History, Paperclip, ShieldAlert } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import LoadingState from '../ui/loading-state';
 import FindingsText from './FindingsText';
@@ -96,6 +96,19 @@ const VersionEntry = ({ version, isLatest }) => {
           <p className="m-0 rounded-md bg-amber-50 px-2 py-1.5 text-fine leading-relaxed text-amber-900 ring-1 ring-inset ring-amber-200">
             <span className="font-semibold">Reason for amendment: </span>
             {version.amendment_reason}
+          </p>
+        )}
+
+        {/* Which document this version carried. [1.94.0] A version used to be its findings text,
+            so the expander below was gated on findings alone — and once the report became an
+            attached file, every row in an amendment chain would have rendered with nothing in it.
+            A history that cannot say what changed is not a history. Named, not linked: the file
+            is opened from the result itself, which is one click away and already authorises
+            properly. */}
+        {version.has_file && (
+          <p className="m-0 flex items-center gap-1.5 text-fine text-ink-soft">
+            <Paperclip className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{version.file_original_name || 'Report attached'}</span>
           </p>
         )}
 

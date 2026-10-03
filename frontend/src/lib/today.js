@@ -109,27 +109,6 @@ export function todaysBookings(appointments = [], now = new Date()) {
     .sort((a, b) => String(a.scheduled_time).localeCompare(String(b.scheduled_time)));
 }
 
-/** One row for every panic value still waiting on a phone call, oldest first. */
-export function criticalNeed(outstanding = [], now = new Date()) {
-  if (!outstanding.length) return [];
-  const [first] = outstanding;
-  const since = waitedFor(first.released_at, now);
-  const more = outstanding.length - 1;
-  return [{
-    id: 'critical',
-    tone: 'rose',
-    icon: 'alert',
-    title: `${count(outstanding.length, 'critical result')} to phone`,
-    detail: [
-      `${personName(first)} · ${first.test_name}`,
-      since && `released ${since} ago`,
-      more > 0 && `and ${more} more`,
-    ].filter(Boolean).join(' · '),
-    action: { label: 'Record the call', run: 'call' },
-  }];
-}
-
-/** How many visits with no tests get a row each before the rest are summed up. */
 export const NO_TESTS_SHOWN = 3;
 
 /**

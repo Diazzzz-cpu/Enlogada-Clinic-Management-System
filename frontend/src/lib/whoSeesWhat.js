@@ -172,11 +172,6 @@ const AREAS = [
     },
   },
   {
-    key: 'critical', label: 'Critical-result calls',
-    permissions: [{ name: 'results:acknowledge_critical', label: 'Record a critical-result phone call' }],
-    summarize: (h) => (h('results:acknowledge_critical') ? 'See and record the call' : 'No'),
-  },
-  {
     key: 'reports', label: 'Clinic reports', note: 'revenue, workload, the activity log',
     permissions: [
       { name: 'reports:view', label: 'See clinic reports' },

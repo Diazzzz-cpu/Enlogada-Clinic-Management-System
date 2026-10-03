@@ -58,11 +58,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
 
   const [isEditing, setIsEditing] = useState(false);
 
-  /**
-   * A panic value released with the same silent email as a routine result is the failure this
-   * flag prevents: flagging it routes an urgent callback notification to the front desk.
-   */
-  const [isCritical, setIsCritical] = useState(false);
   /** Why a released report is being changed. Kept with the superseded version, so the amendment
    *  history says what changed and not merely that something did. */
   const [amendmentReason, setAmendmentReason] = useState('');
@@ -90,9 +85,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setActiveTest(test);
     setIsEditing(false);
     resetForm();
-    // Never carry a critical flag or an amendment reason over from the previous ticket — a stale
-    // flag raises a false callback, and a stale one cleared suppresses a real one.
-    setIsCritical(false);
+    // Never carry an amendment reason over from the previous ticket.
     setAmendmentReason('');
     setJustReleased(null);
     setOpen(true);
@@ -110,10 +103,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setIsEditing(true);
     setResultFile(null);
     setError('');
-    // Carry the existing critical flag into the amendment: correcting a typo in a panic result
-    // must not quietly downgrade it to routine. The reason starts empty on purpose — it
-    // describes THIS change, not the previous one.
-    setIsCritical(Boolean(test.is_critical));
+    // The reason starts empty on purpose — it describes THIS change, not the previous one.
     setAmendmentReason('');
     setJustReleased(null);
     setOpen(true);
@@ -124,12 +114,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   const openRelease = (test) => {
     setActiveTest(test);
     resetForm();
-    // Read the flag off the TICKET, not off form state. resetForm leaves isCritical alone and
-    // openRelease never opens the form, so without this a release from the row would carry
-    // whatever the last ticket left behind. It only matters if something later submits the form
-    // on this path — release() deliberately does not — but a stale panic flag is the worst thing
-    // on this screen to leave one assumption away from being written.
-    setIsCritical(Boolean(test.is_critical));
     setAmendmentReason('');
     setConfirmingRelease(true);
   };
@@ -196,14 +180,12 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
    * One submit path for both exits from the form. Multipart when a file is attached, plain JSON
    * otherwise — the same endpoint accepts both, since uploadResultFileMiddleware only engages
    * for multipart bodies. `amendmentReason` is meaningful only when correcting an already
-   * recorded result and is ignored by the backend on a first version; `isCritical` travels as a
-   * string over multipart, which the controller parses explicitly rather than by truthiness.
+   * recorded result and is ignored by the backend on a first version.
    */
   const submitReport = async () => {
     if (resultFile) {
       const formData = new FormData();
       formData.append('file', resultFile);
-      formData.append('isCritical', String(isCritical));
       if (isEditing) formData.append('amendmentReason', amendmentReason);
       await api.post(`/results/${activeTest.visit_test_id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -213,7 +195,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     // No new document: the flag or the amendment reason is the only thing being recorded, and the
     // server carries the existing file forward.
     await api.post(`/results/${activeTest.visit_test_id}`, {
-      isCritical,
       ...(isEditing ? { amendmentReason } : {}),
     });
   };
@@ -255,8 +236,8 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       // already has its report on the server, so there is nothing to save and only to release.
       //
       // The narrowness matters. A predicate that also fired on "a file exists on the record"
-      // would post the form on every release-from-row — writing isCritical over the stored flag,
-      // and minting a second version, with an "Amended" badge, for an amendment nobody made.
+      // would post the form on every release-from-row, minting a second version with an
+      // "Amended" badge for an amendment nobody made.
       if (resultFile) await submitReport();
 
       const releaseRes = await api.post(`/results/${activeTest.visit_test_id}/release`);
@@ -326,7 +307,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     confirmingRelease, releasing,
     justReleased,
     isEditing, isAmendingReleased,
-    isCritical, setIsCritical,
     amendmentReason, setAmendmentReason,
     openFor, openForEdit, openRelease,
     close, dismissReleaseConfirm,

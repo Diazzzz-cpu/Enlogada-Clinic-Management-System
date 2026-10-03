@@ -88,7 +88,7 @@ test("the Reports snapshot refuses to state a revenue figure it could not load",
 //
 // Each role's first screen opens with counters that start at zero, and a failed load left them
 // there: the till read "Collected Today ₱0.00" and "Nothing awaiting payment", the front desk
-// "Active Queue Visits 0", the worklist "Critical Callbacks 0 — Nothing outstanding". The last
+// "Active Queue Visits 0". The last
 // is the most confident possible way to be wrong about a panic value.
 //
 // Reloaded after breaking the API, because a landing screen has already loaded once, successfully,
@@ -106,9 +106,13 @@ const LANDING_SCREENS = [
     mustNotSay: [/(^|\s)0\s+in the queue/i, /showing 0 of 0/i, /nobody is waiting/i, /no bookings left to arrive/i],
   },
   {
+    // "Couldn't check" and "Nothing outstanding" were the Critical Callbacks tile's two
+    // captions, and that tile went with the callback feature in [1.95.0]. What this screen
+    // still has to prove is the property the whole file is about: a failed count reads as a
+    // dash, never as 0.
     email: 'lab@enlogada.com', screen: 'Laboratory Worklist',
-    mustSay: [/awaiting exam\s+—/i, /couldn.t check/i],
-    mustNotSay: [/awaiting exam\s+0\b/i, /nothing outstanding/i, /nothing waiting in/i],
+    mustSay: [/awaiting exam\s+—/i],
+    mustNotSay: [/awaiting exam\s+0\b/i, /nothing waiting in/i],
   },
 ];
 
@@ -163,7 +167,7 @@ const TODAY_FAILURES = [
   },
   {
     who: 'The laboratory', email: 'lab@enlogada.com',
-    mustSay: [/couldn.t check critical results/i, /released today\s+—/i],
+    mustSay: [/released today\s+—/i],
     mustNotSay: [/nothing needs you/i, /released today\s+0\b/i],
   },
   {
@@ -185,20 +189,6 @@ for (const { who, email, mustSay, mustNotSay } of TODAY_FAILURES) {
     for (const pattern of mustNotSay) expect(body, `${who}'s Today stated ${pattern} over a 500`).not.toMatch(pattern);
   });
 }
-
-test('the critical-callback list says it could not check, not that every call was made', async ({ page }) => {
-  await signInThenBreakApi(page, 'lab@enlogada.com');
-  await page.reload();
-  // Staff land on Today since [1.77.0]; the tile is on the worklist.
-  await page.getByRole('button', { name: 'Laboratory Worklist', exact: true }).first().click({ timeout: 20000 });
-
-  // A button only while there is something to open — which a failed check now is.
-  await page.getByRole('button', { name: /Critical Callbacks/ }).click({ timeout: 20000 });
-  const dialog = page.getByRole('dialog');
-  await expect(dialog.getByText(/couldn't check for critical results/i)).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
-  await expect(dialog.getByText(/every critical result has been called through/i)).toHaveCount(0);
-});
 
 test('the public services page does not tell a stranger the clinic offers nothing', async ({ page }) => {
   // No sign-in: this is the one page with no account behind it, so nobody internal ever sees it

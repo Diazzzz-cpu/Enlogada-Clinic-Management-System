@@ -2,7 +2,7 @@
 import { test, expect, request } from 'playwright/test';
 import { reportPart } from './helpers/reportFile.js';
 
-// Result versioning and critical-value flagging.
+// Result versioning.
 //
 // Two clinical-safety failures that shared one table:
 //
@@ -14,15 +14,15 @@ import { reportPart } from './helpers/reportFile.js';
 //   A panic value released with the same silent "your results are ready" email as a routine CBC.
 //
 // The assertions below are the ones that must never regress: the original text survives, exactly
-// one version is live, lists do not repeat a row per version, and a critical result escalates.
+// one version is live, and lists do not repeat a row per version.
 
 const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 
-test.describe('Result versioning and critical values', () => {
+test.describe('Result versioning', () => {
   let apiContext;
-  let lab, reception, admin;
+  let lab, reception;
   let visitTestId;
 
   const login = async (email) => {
@@ -50,7 +50,6 @@ test.describe('Result versioning and critical values', () => {
     apiContext = await request.newContext();
     lab = await login('lab@enlogada.com');
     reception = await login('receptionist@enlogada.com');
-    admin = await login('admin@enlogada.com');
     const cashier = await login('cashier@enlogada.com');
 
     // Builds its own ticket rather than borrowing one from the demo seed. These tests release and
@@ -142,49 +141,6 @@ test.describe('Result versioning and critical values', () => {
     const released = (await (await apiContext.get(`${API}/results/released/Laboratory`, { headers: auth(lab) })).json())
       .data.released;
     expect(released.filter((r) => r.visit_test_id === visitTestId).length).toBeLessThanOrEqual(1);
-  });
-
-  test('a critical result escalates and can be acknowledged exactly once', async () => {
-    const critical = await record(lab, {
-      findings: 'Potassium 7.4 mmol/L. CRITICALLY HIGH.',
-      remarks: 'Urgent',
-      amendmentReason: 'Repeat sample confirms critical value',
-      isCritical: 'true',
-    });
-    expect(critical.status).toBe(201);
-    expect(critical.body.data.result.is_critical).toBe(true);
-
-    const release = await apiContext.post(`${API}/results/${visitTestId}/release`, { headers: auth(lab) });
-    expect(release.status()).toBe(200);
-    expect((await release.json()).data.result.isCritical).toBe(true);
-
-    // Reception is included on purpose: the front desk usually makes the call, and a callback
-    // that cannot be recorded by whoever made it does not get recorded.
-    const ack = await apiContext.post(`${API}/results/${visitTestId}/acknowledge-critical`, {
-      headers: auth(reception),
-      data: { note: 'Phoned patient 14:20, spoke to Dr Reyes' },
-    });
-    expect(ack.status()).toBe(200);
-
-    // Acknowledging twice would make the callback record ambiguous about when contact happened.
-    const again = await apiContext.post(`${API}/results/${visitTestId}/acknowledge-critical`, {
-      headers: auth(reception),
-      data: { note: 'duplicate' },
-    });
-    expect(again.status()).toBe(409);
-  });
-
-  test('the escalation reaches staff as a critical-severity notification', async () => {
-    const res = await apiContext.get(`${API}/notifications`, { headers: auth(admin) });
-    expect(res.status()).toBe(200);
-    const notifications = (await res.json()).data.notifications;
-
-    const alert = notifications.find((n) => /CRITICAL RESULT/i.test(n.title));
-    expect(alert, 'a critical release must raise a notification').toBeTruthy();
-    // Severity matters as much as the message: notification_events.type was CHECKed to
-    // ('info','success','warning') and the service silently downgrades anything else, so this
-    // escalation arrived looking exactly like "New Appointment Booked" until 'critical' existed.
-    expect(alert.type).toBe('critical');
   });
 
   test('the amendment history is department-scoped like every other result read', async () => {

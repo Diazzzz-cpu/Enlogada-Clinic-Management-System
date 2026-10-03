@@ -161,31 +161,6 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
               </div>
             )}
 
-            {/* Critical value. Deliberately styled as a warning rather than a quiet checkbox:
-                flagging it is what triggers the callback, and missing it is the most dangerous
-                thing that can happen on this screen. */}
-            <label
-              className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
-                entry.isCritical ? 'bg-rose-50 border-rose-300' : 'bg-slate-50/80 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={entry.isCritical}
-                onChange={e => entry.setIsCritical(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-rose-600 cursor-pointer flex-shrink-0"
-              />
-              <span className="space-y-0.5">
-                <span className={`block text-xs font-bold ${entry.isCritical ? 'text-rose-700' : 'text-gray-700'}`}>
-                  Flag as a CRITICAL result requiring patient callback
-                </span>
-                <span className="block text-fine text-gray-500">
-                  Alerts the front desk and administrators to telephone the patient, and replaces
-                  the routine &quot;results are ready&quot; email with one asking them to contact the clinic.
-                </span>
-              </span>
-            </label>
-
             <div className="flex justify-end space-x-2 pt-2 border-t border-line">
               <Button type="button" variant="outline" onClick={entry.close}>Cancel</Button>
               <Button

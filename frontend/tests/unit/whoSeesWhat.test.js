@@ -8,7 +8,7 @@ import {
 const RECEPTION = [
   'patients:create', 'patients:read', 'patients:update', 'visits:create', 'visits:read', 'visits:update',
   'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
-  'tests:assign', 'tests:read_assigned', 'hmo:read', 'hmo:request', 'results:acknowledge_critical',
+  'tests:assign', 'tests:read_assigned', 'hmo:read', 'hmo:request',
   'billing:submit_proof', 'billing:discount', 'patients:read_all_departments',
 ];
 const CASHIER = [
@@ -16,14 +16,14 @@ const CASHIER = [
   'billing:read', 'billing:process', 'billing:refund', 'billing:discount', 'hmo:read',
 ];
 const MODALITY = [
-  'results:read', 'results:write', 'results:release', 'results:acknowledge_critical',
+  'results:read', 'results:write', 'results:release',
   'patients:read', 'tests:read_assigned',
 ];
 const ADMIN = [
   'patients:create', 'patients:read', 'patients:read_all_departments', 'patients:update',
   'visits:create', 'visits:read', 'visits:update',
   'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
-  'tests:manage', 'tests:assign', 'tests:read_assigned', 'results:read', 'results:acknowledge_critical',
+  'tests:manage', 'tests:assign', 'tests:read_assigned', 'results:read',
   'billing:read', 'billing:refund', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve', 'reports:view', 'audit:view', 'staff:manage',
 ];

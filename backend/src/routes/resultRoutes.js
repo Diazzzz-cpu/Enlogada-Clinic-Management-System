@@ -48,25 +48,6 @@ router.get('/history/:patientId', verifyToken, authorizeRoles('SuperAdmin', 'Adm
 // included because reviewing what a report used to say is oversight, not clinical authorship.
 router.get('/:visitTestId/versions', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getVersionHistory);
 
-// Record that a critical result was actually communicated — the callback log.
-//
-// Deliberately wider than the other write routes here: Receptionist is included because the front
-// desk is usually who makes the call, and a callback that cannot be recorded by the person who
-// made it does not get recorded at all. Admin is included for the same reason — this records a
-// communication, not a clinical finding, so it does not put a manager's name on a diagnosis.
-router.post('/:visitTestId/acknowledge-critical', verifyToken, authorizeStaff, authorizePermissions('results:acknowledge_critical'), resultController.acknowledgeCritical);
-
-// Every released critical result still awaiting that call. [1.26.0]
-//
-// Until now the only sign of a panic value was a badge on one department's worklist row, so
-// nothing anywhere answered "is there a patient we still have to telephone?" — the escalation
-// depended on the technician who flagged it staying at that screen, and one flagged near the end
-// of a shift had nobody watching it. Same permission as recording the callback, and deliberately
-// NOT department-scoped: a potassium of 7.4 belongs to whoever can act on it, not to the room
-// that produced it. Declared above the '/:visitTestId' routes so 'critical' is not swallowed as
-// an id.
-router.get('/critical/outstanding', verifyToken, authorizeStaff, authorizePermissions('results:acknowledge_critical'), resultController.getOutstandingCriticals);
-
 // Fetch the recorded result for one visit_test, so staff can edit findings already saved
 // against a 'Waiting for Release' ticket. Registered last: a bare '/:visitTestId' would
 // otherwise shadow nothing here (every route above has two segments), but keeping catch-all

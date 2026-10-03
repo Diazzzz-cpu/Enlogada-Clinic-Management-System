@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   greeting, minutesBetween, listWords, waitingToPay, bookingState, todaysBookings,
-  criticalNeed, deskNeeds, NO_TESTS_SHOWN, tillNeeds, departmentNeeds, decisionNeed, failedNeed,
+  deskNeeds, NO_TESTS_SHOWN, tillNeeds, departmentNeeds, decisionNeed, failedNeed,
   topServices, hoursSoFar, departmentRows, nextSevenDays,
 } from '../../src/lib/today.js';
 import { formatTime12 } from '../../src/lib/date.js';
@@ -78,20 +78,6 @@ describe('todaysBookings', () => {
       { id: 3, status: 'Confirmed', scheduled_time: '08:30:00' },
     ], at(9));
     expect(rows.map((r) => [r.id, r.state])).toEqual([[3, 'arrived'], [1, 'due']]);
-  });
-});
-
-describe('criticalNeed', () => {
-  it('is one row however many calls are owed, naming the oldest', () => {
-    expect(criticalNeed([], at(10))).toEqual([]);
-    const [row] = criticalNeed([
-      { first_name: 'Liza', last_name: 'Tan', test_name: 'CBC', released_at: iso(9, 5) },
-      { first_name: 'Ben', last_name: 'Cruz', test_name: 'Potassium', released_at: iso(9, 40) },
-      { first_name: 'Ana', last_name: 'Reyes', test_name: 'Sodium', released_at: iso(9, 50) },
-    ], at(10, 5));
-    expect(row.title).toBe('3 critical results to phone');
-    expect(row.detail).toBe('Liza Tan · CBC · released 1h ago · and 2 more');
-    expect(row.action).toEqual({ label: 'Record the call', run: 'call' });
   });
 });
 

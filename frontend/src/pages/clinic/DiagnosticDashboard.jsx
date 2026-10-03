@@ -5,12 +5,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import ResultDocument from '../../components/ResultDocument';
 import useOperationsReport from '../../hooks/useOperationsReport';
 import { useDiagnosticWorklist } from '../../hooks/useDiagnosticWorklist';
-import { useCriticalCallbacks } from '../../hooks/useCriticalCallbacks';
 import WorklistPanel from '../../components/diagnostic/WorklistPanel';
 import ResultHistoryPanel from '../../components/diagnostic/ResultHistoryPanel';
 import ResultViewerDialog from '../../components/diagnostic/ResultViewerDialog';
 import ResultEntryDialog from '../../components/diagnostic/ResultEntryDialog';
-import CriticalCallbackDialog from '../../components/diagnostic/CriticalCallbackDialog';
 import { useResultEntry } from '../../hooks/useResultEntry';
 import { usePatientResultHistory } from '../../hooks/usePatientResultHistory';
 import { useResultDelivery } from '../../hooks/useResultDelivery';
@@ -59,7 +57,6 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
     paused: entry.open,
   });
 
-  const criticals = useCriticalCallbacks({ enabled: mode === 'worklist', paused: entry.open });
 
   // Today's "Open History" for reports never sent arrives with History already showing only those.
   // [1.77.0] Once per navigation, like every intent (see App.jsx).
@@ -105,7 +102,7 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
         />
 
         {mode === 'worklist' && (
-          <WorklistPanel worklist={worklist} entry={entry} criticals={criticals} />
+          <WorklistPanel worklist={worklist} entry={entry} />
         )}
 
         {mode === 'history' && (
@@ -137,7 +134,6 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
         fileName={previewDoc?.fileName}
       />
 
-      <CriticalCallbackDialog criticals={criticals} />
     </SidebarLayout>
   );
 };

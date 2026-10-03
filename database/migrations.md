@@ -1,5 +1,120 @@
 # Database Migration & Schema History
 
+## [1.95.0] - 2026-10-03 (Critical-result callbacks are removed)
+
+**Run `node src/scripts/setupRbac.js` once per environment.** It is the only step; there is no
+schema migration.
+
+### Why
+
+The clinic produces clinical RESULTS and does not diagnose. A panic-value callback is an act of
+clinical judgement they do not perform, so there was no call for them to make and nothing to
+acknowledge. Asked directly, they said the function was unnecessary.
+
+### What went
+
+The checkbox on the entry dialog; the Critical Callbacks queue, its tile on the worklist and its
+acknowledge flow; the "please contact the clinic" email that replaced the routine one; the critical
+escalation notification to the front desk; Today's "results to phone" card; the critical column on
+the diagnostic throughput report; and `results:acknowledge_critical` with all six of its grants.
+
+Gated routes drop 78 -> 76. `GET /results/critical/outstanding` and
+`POST /results/:visitTestId/acknowledge-critical` are gone.
+
+### What stayed, and why
+
+`is_critical`, `critical_acknowledged_at`, `critical_acknowledged_by` and
+`critical_acknowledgement_note` keep their columns and their rows. Three results are flagged, one
+carries a logged callback, and the audit log holds four entries naming who telephoned whom. That is
+a record of a clinician judging a value dangerous and somebody acting on it; removing the feature
+is not a reason to erase it. Nothing writes those columns any more and nothing displays them.
+
+The notification severity styling in `SidebarLayout` also stays. It is generic rendering keyed on a
+`type` value shared by all four severities, not part of this feature, and four historical
+notifications still carry `critical`. Stripping a severity branch out of a shared component for
+four rows is regression risk with no benefit.
+
+### setupRbac learned to retire a permission
+
+It adds and reconciles; it has never pruned, and its own comment says absence from the template is
+not enough. So deleting the entry would have left the row and all six grants in every database that
+had already run the old version — and a retired permission is worse than a stale grant, because it
+appears on SuperAdmin's "Who sees what" grid as a capability somebody can tick while nothing checks
+it.
+
+`RETIRED` mirrors `REVOKED`: an explicit list, a stated reason per entry, applied on every run,
+grants deleted before the permission row they reference. Verified on this database — six grants and
+one permission row removed, 32 permissions down to 31, `verifyRbacWiring` still "All good".
+
+### Caught during the removal
+
+Deleting the column from `createResult`'s INSERT left `$11` behind in the VALUES list: 13
+expressions against 12 columns, so every result write returned 500 with "INSERT has more
+expressions than target columns". The E2E suite found it immediately. Worth recording because the
+same shape of error is invisible to a syntax check and to lint.
+
+## [1.94.0] - 2026-10-03 (A result is the report the clinic attached, not findings typed again)
+
+No migration. No column added, dropped or altered.
+
+### What the clinic asked for
+
+Recording findings by typing them into the website is work done twice: they already produce a
+report file for every diagnosis. The structured measurement grid, "Findings & Impression", "Remarks
+/ Recommendations" and the Clinical Report Templates are removed. The file input that was already
+on that dialog, marked Optional, is what a result now IS.
+
+The data agreed before the decision did. Across 35 seeded field sets and 133 fields, exactly **4**
+results in the database ever carried a structured measurement, while **84 of 90** already had a
+file attached. The grid was built and not used.
+
+### The rule
+
+`RESULTS_REQUIRE_FILE` (default on, `=false` to revert without a deploy) refuses a RELEASE whose
+current result has no `file_path`. Deliberately not a guard on recording: a technologist still
+parks a ticket in 'Waiting for Release' while the report is produced, which is what that state is
+for. The check reads the STORED result, so an amendment carrying no new upload passes on the file
+it inherited — checking the upload would make every correction impossible.
+
+### A patient is served the version that was AUTHORISED
+
+`GET /results/:visitTestId/file` checked ownership and department and then streamed whichever
+version was `is_current`. It never checked release. Two failures lived in that, pulling opposite
+ways: an unreleased draft was reachable by the patient, and an amendment — which makes the
+unreleased v2 current and reopens the visit — would, under a naive "must be released" gate, have
+taken away the copy they had already been sent. `findLatestAuthorisedByVisitTestId` answers both.
+Gated on `authorised_at`, never `released_at`, which carries DEFAULT CURRENT_TIMESTAMP and is never
+null.
+
+### What was kept, and why
+
+- `findings` and `remarks` columns, and every READ path. 90 results carry findings text.
+- `ResultReport.jsx` as the LEGACY renderer for results with measurements or no file. The generated
+  certificate is no longer produced for new results.
+- The measurement WRITE path (`mergeMeasurements`, the derivation pass,
+  `GET /results/field-set/:visitTestId`). Unreachable from the product, retained: deleting the
+  field-set lookup also deletes the "does not record structured measurements" 400, after which a
+  `measurements` key would be silently ignored.
+- `result_field_sets` / `result_fields` / `result_measurements` and all 35 seeded forms. Nothing
+  was dropped; this change is reversible at the schema level because it touches no schema.
+
+### Three screens that only knew findings
+
+Critical Callbacks showed a findings snippet as the only context before a panic-value phone call;
+it now names the attached report. It does NOT offer to open it: that queue is deliberately not
+department-scoped because the front desk makes the call, while the file route IS scoped, and a
+Receptionist belongs to no department — an open button there would 403 for the one role it serves.
+The amendment timeline gated its expander on findings and would have shown empty rows. The worklist
+says "Attach Report" where it said "Record Findings".
+
+### Not executed
+
+`seedDemoScenario.js` attached a PDF only for Ultrasound and X-ray, so the guard would have stopped
+it on the first Laboratory visit. Every result now carries one, and `amend()` attaches a corrected
+document rather than inheriting the original. **This was not run**: `npm run demo` chains
+`resetDemoData --confirm`, which deletes the clinic's demo dataset, and the seeder has no dry run.
+Exercise it on a disposable database before the next demo.
+
 ## [1.92.0] - 2026-09-15 (A booking joins the queue when the patient checks in)
 
 No migration: `queue_number` was already nullable, and the unique ticket index skips NULL.

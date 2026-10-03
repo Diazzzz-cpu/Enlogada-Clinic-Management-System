@@ -272,7 +272,6 @@ class ReportRepository {
     const queryText = `
       SELECT tc.name AS category_name,
              COUNT(*)::int                                        AS released,
-             COUNT(*) FILTER (WHERE tr.is_critical)::int          AS critical,
              COUNT(*) FILTER (WHERE tr.version > 1)::int          AS amended,
              COALESCE(AVG(EXTRACT(EPOCH FROM (tr.released_at - pay.paid_at)) / 60)
                       FILTER (WHERE pay.paid_at IS NOT NULL), 0)::int AS avg_turnaround_minutes,

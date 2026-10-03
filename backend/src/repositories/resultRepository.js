@@ -10,51 +10,6 @@ class ResultRepository {
   // vt.status is correspondingly narrowed to the two states a released ticket can be in.
   // 'Pending'/'Approved' tests are by definition not released and belong to the front desk
   // and cashier only.
-  /**
-   * Critical results that have been released and not yet called back. [1.26.0]
-   *
-   * A panic value is the most time-critical thing this system holds, and the only place it
-   * appeared was a badge on one department's worklist row. Nothing anywhere answered "is there a
-   * patient we still have to telephone?" — so the escalation depended on the technician who
-   * flagged it staying at that screen, and a critical result flagged at the end of a shift had
-   * nobody watching it at all.
-   *
-   * Not department-scoped: whoever is free calls the patient, and a potassium of 7.4 is not the
-   * Laboratory's problem to solve alone. Ordered oldest first, because that is the order they
-   * become dangerous in, and it carries the contact number so the person acting on it does not
-   * have to go and look it up.
-   */
-  async findOutstandingCriticals() {
-    const queryText = `
-      SELECT tr.id AS result_id, tr.visit_test_id, tr.findings, tr.released_at,
-             -- The attachment, because that is where the panic value is once findings stop being
-             -- typed. [1.94.0] The callback row is the only thing the person on the phone reads
-             -- before dialling, and a blank card tells them nothing about what they are calling
-             -- about. Note the file itself is NOT openable from here: this list is deliberately
-             -- not department-scoped (a receptionist makes the call) while the file route is, so
-             -- the name is shown and the report is opened from the patient's record.
-             tr.file_original_name, tr.file_path IS NOT NULL AS has_file,
-             t.name AS test_name, tc.name AS category_name,
-             p.id AS patient_id, p.first_name, p.last_name, p.contact_number,
-             pv.id AS visit_id, pv.queue_number,
-             u.first_name AS released_by_first_name, u.last_name AS released_by_last_name
-      FROM test_results tr
-      JOIN visit_tests vt ON tr.visit_test_id = vt.id
-      JOIN tests t ON vt.test_id = t.id
-      JOIN test_categories tc ON t.category_id = tc.id
-      JOIN patient_visits pv ON vt.patient_visit_id = pv.id
-      JOIN patients p ON pv.patient_id = p.id
-      LEFT JOIN users u ON tr.released_by = u.id
-      WHERE tr.is_current
-        AND tr.is_critical
-        AND tr.critical_acknowledged_at IS NULL
-        AND tr.released_at IS NOT NULL
-      ORDER BY tr.released_at ASC
-    `;
-    const result = await db.query(queryText);
-    return result.rows;
-  }
-
   async findPendingByCategory(categoryName) {
     const queryText = `
       SELECT vt.id as visit_test_id, vt.status as test_status, vt.price_at_time, vt.remarks,
@@ -74,7 +29,7 @@ class ResultRepository {
              -- over a ticket that already had one, and a release from the row could not tell
              -- whether there was anything to release. is_critical rides along for the same reason:
              -- releasing from the row must not write a stale flag over a real one.
-             tr.file_path, tr.file_original_name, tr.is_critical,
+             tr.file_path, tr.file_original_name,
              (
                SELECT hrt.approval_status
                FROM hmo_request_tests hrt
@@ -181,7 +136,7 @@ class ResultRepository {
              pt.name as patient_type_name, tr.id as result_id,
              tr.findings, tr.remarks as result_remarks, tr.file_path, tr.file_original_name,
              tr.released_at,
-             tr.version, tr.is_critical, tr.critical_acknowledged_at,
+             tr.version,
              -- Whether this report actually reached the patient. [1.59.0] Without it the history
              -- can say a result was released and cannot say whether anyone was told, which is
              -- the question the technician is asked when a patient rings up.
@@ -216,7 +171,7 @@ class ResultRepository {
     return result.rows;
   }
 
-  async createResult({ visitTestId, filePath, fileOriginalName, fileMimeType, fileSizeBytes, findings, remarks, releasedBy, amendmentReason, isCritical }) {
+  async createResult({ visitTestId, filePath, fileOriginalName, fileMimeType, fileSizeBytes, findings, remarks, releasedBy, amendmentReason }) {
     // Writes a NEW VERSION rather than overwriting the previous one.
     //
     // This used to be `ON CONFLICT (visit_test_id) DO UPDATE`, which overwrote findings, remarks
@@ -261,9 +216,9 @@ class ResultRepository {
         `INSERT INTO test_results (
            visit_test_id, file_path, file_original_name, file_mime_type, file_size_bytes,
            findings, remarks, released_by, recorded_by,
-           version, is_current, amendment_reason, is_critical
+           version, is_current, amendment_reason
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE, $10)
          RETURNING *`,
         [
           visitTestId, filePath || null, fileOriginalName || null,
@@ -271,7 +226,6 @@ class ResultRepository {
           previous ? previous.version + 1 : 1,
           // Only meaningful on an amendment; the first version has nothing to explain.
           previous ? (amendmentReason || null) : null,
-          Boolean(isCritical),
         ]
       );
       const current = inserted.rows[0];
@@ -302,7 +256,7 @@ class ResultRepository {
              -- nothing else, so once the report is a file every row in an amendment chain would
              -- have shown an empty expander — a history that cannot say what changed.
              tr.file_original_name, tr.file_path IS NOT NULL AS has_file,
-             tr.amendment_reason, tr.is_critical,
+             tr.amendment_reason,
              tr.released_at, tr.authorised_at, tr.superseded_by,
              rec.first_name AS recorded_by_first_name, rec.last_name AS recorded_by_last_name,
              rel.first_name AS released_by_first_name,  rel.last_name AS released_by_last_name
@@ -316,28 +270,6 @@ class ResultRepository {
     return result.rows;
   }
 
-  /**
-   * Records that a critical result was actually communicated to someone.
-   *
-   * The flag is the cheap half. What matters medico-legally is the evidence that a human picked
-   * up a phone and told a named person at a recorded time, which is what this stores.
-   */
-  async acknowledgeCritical(visitTestId, { acknowledgedBy, note }) {
-    const queryText = `
-      UPDATE test_results
-      SET critical_acknowledged_at = CURRENT_TIMESTAMP,
-          critical_acknowledged_by = $2,
-          critical_acknowledgement_note = $3
-      WHERE visit_test_id = $1 AND is_current AND is_critical
-      RETURNING *
-    `;
-    const result = await db.query(queryText, [visitTestId, acknowledgedBy, note || null]);
-    return result.rows[0];
-  }
-
-  // Phase B: single query backing the download route's ownership check — needs both the
-  // patient's user_id (Client-ownership check) and the test's category (staff-department check),
-  // matching the two branches assertStaffOwnsVisitTest/getPatientHistory already use elsewhere.
   async findOwnershipInfoByVisitTestId(visitTestId) {
     const queryText = `
       -- patient id as well as user_id: the PHI read audit keys on the patient, since
@@ -552,7 +484,7 @@ class ResultRepository {
              t.name as test_name, tc.name as category_name,
              pv.created_at as visit_date, pv.queue_number,
              pv.referring_physician, pv.referring_physician_prc,
-             tr.findings, tr.remarks, tr.released_at, tr.version, tr.is_critical,
+             tr.findings, tr.remarks, tr.released_at, tr.version,
              tr.file_path, tr.file_original_name, tr.file_mime_type, tr.file_size_bytes
       FROM visit_tests vt
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id

@@ -7,16 +7,14 @@ import DeskToday from '../components/today/DeskToday';
 import TillToday from '../components/today/TillToday';
 import DepartmentToday from '../components/today/DepartmentToday';
 import ClinicToday from '../components/today/ClinicToday';
-import CriticalCallbackDialog from '../components/diagnostic/CriticalCallbackDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { useTodayReads } from '../hooks/useTodayReads';
-import { useCriticalCallbacks } from '../hooks/useCriticalCallbacks';
 import { homeNavIds } from '../config/navigation';
 import api from '../config/api';
 import { daysAgoStr, todayStr } from '../lib/date';
 import { categoryLabel } from '../lib/categories';
 import {
-  criticalNeed, decisionNeed, departmentNeeds, deskNeeds, failedNeed, greeting, tillNeeds, waitingToPay,
+  decisionNeed, departmentNeeds, deskNeeds, failedNeed, greeting, tillNeeds, waitingToPay,
 } from '../lib/today';
 
 /** The department worklists, and the History each one's sent-or-not lives on. */
@@ -76,7 +74,6 @@ const Today = ({ onSelectNav }) => {
     decide: hasPermission('hmo:approve'),
     results: hasPermission('results:read'),
     send: hasPermission('results:release'),
-    call: hasPermission('results:acknowledge_critical'),
     checkIn: hasPermission('appointments:read') && hasPermission('appointments:update'),
     takeMoney: hasPermission('billing:process'),
   };
@@ -117,7 +114,6 @@ const Today = ({ onSelectNav }) => {
   });
 
   const reads = useTodayReads(fetchers);
-  const criticals = useCriticalCallbacks({ enabled: can.call });
 
   // The waits in "Needs you now" are worked out from the clock, so the clock has to move.
   const [now, setNow] = useState(() => new Date());
@@ -136,9 +132,7 @@ const Today = ({ onSelectNav }) => {
 
   const needs = [];
   const couldNot = [];
-  if (can.call) {
-    needs.push(...criticalNeed(criticals.outstanding, now));
-    if (criticals.error) couldNot.push('critical results');
+  {
   }
   if (desk) {
     if (queue.failed) couldNot.push('the queue');
@@ -179,8 +173,7 @@ const Today = ({ onSelectNav }) => {
   const allNeeds = [...failedNeed(couldNot), ...needs];
 
   const onAction = (action) => {
-    if (action.run === 'call') criticals.setExpanded(true);
-    else if (action.go) onSelectNav?.(action.go, action.intent || null);
+    if (action.go) onSelectNav?.(action.go, action.intent || null);
   };
 
   const work = home.find((id) => WORK_LABEL[id]);
@@ -188,7 +181,6 @@ const Today = ({ onSelectNav }) => {
 
   const refresh = () => {
     reads.reload();
-    if (can.call) criticals.reload();
   };
 
   const sections = [
@@ -278,7 +270,6 @@ const Today = ({ onSelectNav }) => {
         })}
       </div>
 
-      {can.call && <CriticalCallbackDialog criticals={criticals} />}
     </SidebarLayout>
   );
 };

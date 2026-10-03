@@ -527,7 +527,7 @@ async function main() {
    * report with the document attached. `values` overrides individual fields, `variant` picks an
    * abnormal imaging report, and `findings` replaces the written text entirely.
    */
-  const recordFindings = async (v, { findings, values, variant, isCritical = false, remarks } = {}) => {
+  const recordFindings = async (v, { findings, values, variant, remarks } = {}) => {
     const form = await formFor(v.test.id);
     const imaging = v.category === 'Ultrasound' || v.category === 'Xray';
     const text = findings ?? (imaging ? imagingReport(form, v.test, v.sex, variant) : (form ? '' : 'Within normal limits.'));
@@ -535,7 +535,6 @@ async function main() {
     const body = new FormData();
     if (text) body.append('findings', text);
     if (remarks) body.append('remarks', remarks);
-    body.append('isCritical', String(isCritical));
     if (form) body.append('measurements', JSON.stringify(fillForm(form, v.sex, v.seed, values)));
     // Every result carries its report, not only the imaging ones. [1.94.0]
     //
@@ -558,7 +557,6 @@ async function main() {
     if (findings) body.append('findings', findings);
     if (remarks) body.append('remarks', remarks);
     body.append('amendmentReason', reason);
-    body.append('isCritical', 'false');
     if (values) body.append('measurements', JSON.stringify(values));
     // A corrected result carries a CORRECTED document. [1.94.0] Without this the amendment would
     // inherit the original file and the demo would show an "amendment" whose report is identical
@@ -651,7 +649,6 @@ async function main() {
     await recordFindings(v, {
       values: { fbs: 452 },
       findings: 'Critically high fasting blood sugar. A repeat run on the same specimen confirms the value. For urgent physician review.',
-      isCritical: true,
     });
     await release(v);
     today.push({ ...v, stage: 'released' });

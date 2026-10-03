@@ -125,28 +125,6 @@ test.describe('Today', () => {
     await expect(card.getByRole('button', { name: 'Confirm Check-In Patient' })).toBeVisible();
   });
 
-  test('a critical result to phone opens the callback form on Today itself', async ({ page }) => {
-    const item = {
-      result_id: 987654323, visit_test_id: 987654323, test_name: 'Potassium', category_name: 'Laboratory',
-      first_name: 'Liza', last_name: 'Tan', contact_number: FIXTURE_CONTACT, findings: 'K+ 6.9 mmol/L',
-      released_at: new Date(Date.now() - 20 * 60000).toISOString(),
-    };
-    await page.route((url) => url.pathname === '/api/results/critical/outstanding', (route) => route.fulfill({
-      json: { status: 'success', data: { outstanding: [item] } },
-    }));
-
-    await signIn(page, 'lab@enlogada.com');
-    const need = page.locator('[data-need="critical"]');
-    await expect(need).toContainText('1 critical result to phone', { timeout: 20000 });
-    await expect(need).toContainText('Liza Tan · Potassium');
-    await need.getByRole('button', { name: 'Record the call' }).click();
-
-    await expect(page.getByRole('dialog').locator(`[data-testid="critical-callback"][data-visit-test-id="${item.visit_test_id}"]`))
-      .toBeVisible();
-    // Recorded from here: nobody is sent to another screen to make a call.
-    await expect(page.locator('[data-nav-id="today"]').first()).toHaveAttribute('aria-current', 'page');
-  });
-
   test('reports that never reached the patient open History already filtered to them', async ({ page }) => {
     const report = {
       visit_test_id: 987654324, test_status: 'Completed', test_name: 'Complete Blood Count (CBC)',

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, FileClock, History, Paperclip, ShieldAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileClock, History, Paperclip } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import LoadingState from '../ui/loading-state';
 import FindingsText from './FindingsText';
@@ -70,14 +70,6 @@ const VersionEntry = ({ version, isLatest }) => {
             </span>
           )}
 
-          {version.is_critical && (
-            // Colour plus a glyph plus the word, as everywhere else — a critical flag is the last
-            // thing that should depend on a reader distinguishing two pale rectangles.
-            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide text-rose-800 ring-1 ring-inset ring-rose-200">
-              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-              Critical
-            </span>
-          )}
         </div>
 
         <p className="m-0 text-fine text-ink-muted">

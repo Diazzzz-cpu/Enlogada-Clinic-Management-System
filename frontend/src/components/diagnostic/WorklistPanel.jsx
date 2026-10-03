@@ -1,6 +1,6 @@
 import React from 'react';
 import { categoryLabel as categoryLabelFor, categoryIcon } from '../../lib/categories';
-import { AlertTriangle, Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
+import { Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
 import Toolbar, { SegmentedFilter, ToolbarSpacer } from '../ui/toolbar';
@@ -29,7 +29,7 @@ const WORKLIST_STATUS_FILTERS = ['All', 'Processing', 'Waiting for Release'];
  * draws it the same way), a failed load is the standard error state with one Try again, and the
  * secondary lines use the muted ink that clears AA rather than a grey that did not.
  */
-export default function WorklistPanel({ worklist, entry, criticals }) {
+export default function WorklistPanel({ worklist, entry }) {
   const categoryLabel = categoryLabelFor(worklist.category);
   // Each action gated on the permission its own endpoint demands. [1.74.0] The worklist itself is
   // gated on `results:write` in navigation.js, so whoever sees it can record; releasing is
@@ -45,8 +45,6 @@ export default function WorklistPanel({ worklist, entry, criticals }) {
   // A failed load empties `pending`, so the counts above would read 0. That is a claim about the
   // department's workload, and a false one — the tiles say they don't know instead. [1.74.0]
   const worklistFailed = Boolean(worklist.worklistError);
-  const criticalCount = criticals.outstanding.length;
-  const criticalsFailed = Boolean(criticals.error);
 
   // Client-side, because the worklist a department holds at once is small — a handful of
   // tickets, not the payments table. Filtering here keeps the search instant while the polling
@@ -72,35 +70,6 @@ export default function WorklistPanel({ worklist, entry, criticals }) {
         {/* "—" on a failure, and the table below says why with its Try again — not a caption here too. */}
         <MetricCard label="Awaiting Exam" value={worklistFailed ? '—' : processingCount} caption="Paid and released to you" captionTone="slate" icon={Clock} tone="indigo" />
         <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />
-        {/* The tile this replaced said "Active Modality: Laboratory — Your department", which
-            is the page title, the breadcrumb and the sidebar selection restated a fourth time
-            in a third of the metric strip. A metric strip is the most valuable space on an
-            operational screen and it was spending it on something the reader already knew.
-
-            What goes there instead is the one thing on this screen nobody could see: a released
-            critical result still waiting on its phone call. The escalation used to depend on the
-            technician who flagged it staying on the worklist — one raised near the end of a
-            shift had nobody watching it. Clicking opens the list. [1.28.0]
-
-            It stays visible at zero, deliberately: a counter that only appears when it is
-            non-zero teaches people not to look for it, and "0 outstanding" is the reassurance
-            the tile exists to give. Which is exactly why a failed check must never say it: it
-            reads "Couldn't check" and opens the list with a Try again. [1.74.0] */}
-        <MetricCard
-          label="Critical Callbacks"
-          value={criticalsFailed && criticalCount === 0 ? '—' : criticalCount}
-          caption={
-            criticalsFailed
-              ? (criticalCount ? "Couldn't refresh — open to retry" : "Couldn't check — open to retry")
-              : criticalCount
-                ? 'Patient still to be telephoned'
-                : 'Nothing outstanding'
-          }
-          captionTone={criticalsFailed || criticalCount ? 'rose' : 'slate'}
-          icon={AlertTriangle}
-          tone={criticalsFailed || criticalCount ? 'rose' : 'slate'}
-          onClick={criticalsFailed || criticalCount ? () => criticals.setExpanded(true) : undefined}
-        />
       </div>
 
       <div>

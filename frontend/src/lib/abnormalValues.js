@@ -5,7 +5,7 @@
  *
  * `test_results.findings` is free TEXT, and deliberately so: it holds a CBC panel, a radiologist's
  * prose impression and a one-line note, and a schema that fits all three would fit none of them
- * well. `lib/resultTemplates.js` gives the analyte panels a consistent shape —
+ * well. The clinic's analyte panels had a consistent shape —
  *
  *     Hemoglobin: 14.5 g/dL (Normal: 13.0 - 17.5)
  *

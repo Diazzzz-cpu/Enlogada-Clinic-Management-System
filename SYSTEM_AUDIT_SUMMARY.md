@@ -115,7 +115,7 @@ This is materially more than the proposal describes — see §4.2 and §3.4.
 - Upload → record → **release** are separate gated actions (`results:write` vs `results:release`), so recording a finding and authorising its release to the patient are distinct permissions.
 - **Attribution split** (`[1.12.0]`): `recorded_by` and `released_by` are stored separately.
 - **Versioned reports** (`[1.15.0]`): an amendment supersedes rather than overwrites; `is_current` flags the live version and `GET /results/:visitTestId/versions` exposes the amendment history.
-- **Critical values:** flagging, an outstanding-criticals worklist, and a recorded callback acknowledgement (`results:acknowledge_critical`).
+- **Critical values:** withdrawn in `[1.98.0]` — the clinic does not telephone panic values back, so the flag, the worklist and the callback are gone.
 - **File handling is hardened:** uploads are accepted only as `application/pdf`, `image/jpeg`, `image/png` (15 MB cap); the stored filename is random hex plus an extension derived from the *validated* MIME type, never from the client's filename, with a containment re-check (`assertInside`). Files are streamed back through an authenticated, ownership-checked route — never served statically.
 - **Delivery is recorded** (`[1.59.0]`, `migrateResultDelivery.js`): the system stores that a released report actually reached the patient, and `POST /results/:visitTestId/email` sends it.
 
@@ -371,7 +371,7 @@ These are your strongest defence material. Each is real, working code rather tha
 **Clinical**
 
 6. **Result versioning with amendment history** — an amendment supersedes rather than overwrites, with the full version chain queryable.
-7. **Critical-value workflow** — flagging, an outstanding-criticals worklist, and a recorded callback acknowledgement.
+7. **Critical-value workflow** — withdrawn in `[1.98.0]`; the clinic does not perform it.
 8. **Recorded-by / released-by attribution split.**
 9. **Result delivery tracking** — the system can prove a released report reached the patient.
 10. **Composed test preparation** (`lib/preparation.js`) — rule-based rather than free text, and de-duplicated by meaning so a patient booking two ultrasounds is not shown the same instruction twice.

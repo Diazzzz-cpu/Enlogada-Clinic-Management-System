@@ -640,19 +640,21 @@ async function main() {
     note(v, 'AMENDED lipid profile (v2), released');
   }
 
-  // 3. A CRITICAL result, released and awaiting callback — the escalation path.
+  // 3. A markedly abnormal result, released. The clinic does not call panic values back — the
+  // reference range printed beside the figure is what flags it, and the report goes to the
+  // doctor who asked for the test.
   {
-    // Names a referrer: a critical value is called back to the requesting physician, so this is
-    // the visit where that field most obviously has to be populated.
+    // Names a referrer, which is the point of the scenario: a result this far out of range is
+    // read by the requesting physician, so that field has to be populated.
     const v = await makeVisit({ person: TODAY_POOL.velez, category: 'Laboratory', test: 'Fasting Blood Sugar (FBS)', referrerIndex: 0, notes: 'Known diabetic, missed medicines' });
     await payFor(v, 'Cash');
     await recordFindings(v, {
       values: { fbs: 452 },
-      findings: 'Critically high fasting blood sugar. A repeat run on the same specimen confirms the value. For urgent physician review.',
+      findings: 'Markedly elevated fasting blood sugar. A repeat run on the same specimen confirms the value. For physician review.',
     });
     await release(v);
     today.push({ ...v, stage: 'released' });
-    note(v, 'CRITICAL fasting blood sugar released, callback outstanding');
+    note(v, 'markedly high fasting blood sugar released to the referring physician');
   }
 
   // 4. Findings recorded, awaiting authorisation — the 'Waiting for Release' state.
@@ -980,7 +982,6 @@ async function main() {
       (SELECT COUNT(*)::int FROM patients) AS patients,
       (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'Paid' AND paid_at >= CURRENT_DATE AND paid_at < CURRENT_DATE + 1) AS paid_today,
       (SELECT COALESCE(SUM(amount),0)::numeric(10,2) FROM payments WHERE payment_status = 'Paid' AND paid_at >= CURRENT_DATE AND paid_at < CURRENT_DATE + 1) AS revenue_today,
-      (SELECT COUNT(*)::int FROM test_results WHERE is_current AND is_critical) AS critical,
       (SELECT COUNT(*)::int FROM test_results WHERE version > 1) AS amended,
       (SELECT COUNT(*)::int FROM appointments) AS appointments
   `);
@@ -993,7 +994,6 @@ async function main() {
   logger.info(`   patients            ${c.patients}`);
   logger.info(`   visits today        ${c.visits_today}   (${c.visits_total} including 14 days of history)`);
   logger.info(`   paid today          ${c.paid_today}   —  PHP ${c.revenue_today}`);
-  logger.info(`   critical results    ${c.critical}   awaiting callback`);
   logger.info(`   amended results     ${c.amended}`);
   logger.info(`   appointments        ${c.appointments}`);
   logger.info('');

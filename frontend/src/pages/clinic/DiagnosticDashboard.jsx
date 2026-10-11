@@ -57,7 +57,6 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
     paused: entry.open,
   });
 
-
   // Today's "Open History" for reports never sent arrives with History already showing only those.
   // [1.77.0] Once per navigation, like every intent (see App.jsx).
   const handledIntent = useRef(null);
@@ -133,7 +132,6 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
         patientName={previewDoc?.patientName}
         fileName={previewDoc?.fileName}
       />
-
     </SidebarLayout>
   );
 };

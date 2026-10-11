@@ -1,5 +1,312 @@
 # Database Migration & Schema History
 
+## [1.102.0] - 2026-10-07 (The flowcharts take the paper's own header)
+
+No migration. Documentation only.
+
+Steven, with Figure 4 (Cashier Side) from the paper: make the flowcharts that way.
+
+The content was already right; the opening was not. The actor, Login and the access check sat in a
+diagonal across the top left, with the landing screen off to their right, where the paper stacks
+all four CENTRED above the columns: the actor and its name, Login, Access Granted? with the no
+branch looping back up the left side into Login, then the landing screen, and only then the
+columns. That is what the figures now draw.
+
+The fan out of the landing screen is one shared BUS — down out of its bottom edge, across, and
+down into each column head. Left to itself draw.io took the nearest perimeter point, so one branch
+left the landing box by its left side, one by its bottom and one by its right, which reads as three
+different kinds of thing when they are the same thing three times.
+
+On a chained chart (the client's, which is one sequence wrapped into columns) the header is
+centred over the FIRST column instead of the whole block: a fan reaching left across the other
+columns would cross the link corridor that carries the chain.
+
+Checked: `checkDiagrams.cjs` clean on all 36 pages, and all 36 PNGs re-exported and distinct.
+
+## [1.101.0] - 2026-10-07 (Level 1 is one actor at the top left, with a track per flow)
+
+No migration. Documentation only.
+
+Steven, with a reference figure: follow that type for Level 1, and — on [1.100.0]'s attempt —
+"the way u make the same actor but multiple what the hell". Fair. Repeating the actor beside each
+process is a textbook convention, and it is also seven boxes with the same word in them, which is
+not what the paper's figures look like.
+
+The sheet is now the reference's shape: one small actor at the TOP LEFT, the processes numbered
+down the middle, the data stores down the right.
+
+What makes it readable is the left margin, where every flow to and from the actor runs. Each flow
+gets a TRACK of its own there — a vertical line at its own x — rather than the single shared trunk
+of the first version, which is what put ten labels on one line with nothing to say which process
+each belonged to. Two rules keep the tracks from crossing: the lower the process, the further LEFT
+its track, and a flow leaves the actor lower the further down it is going. Each label is pinned
+beside its own process rather than floated along the path, because the paths differ in length by a
+factor of ten and a label at the same fraction of each lands somewhere different every time — on
+the first row it landed on top of another flow's track.
+
+`Page.edge` takes `{at, dx, dy}` for a label pinned to one END of a path with a pixel offset; a
+plain number still slides it along, which is what the flowcharts use.
+
+Checked: `checkDiagrams.cjs` clean on all 36 pages, and all 36 PNGs re-exported and distinct.
+
+## [1.100.0] - 2026-10-07 (The DFD actor is never drawn big; the routing does the work)
+
+No migration. Documentation only.
+
+Steven, on [1.99.0]'s Level 0: follow the paper's own type of diagramming, and do not make the
+actor too big — then the same for Level 1. [1.99.0] had made both boxes as tall as the stack of
+flows so every arrow could run straight across, which is readable and is also a slab with one word
+in it where the paper has a small labelled rectangle.
+
+The boxes go back to the paper's sizes and the ROUTING carries the clarity instead.
+
+- **Level 0** is the original shape: a 420x170 process box, a 210x90 actor, flows routed around
+  them. Every flow gets a corridor of its own, and the corridors are NESTED — the one furthest
+  from the boxes starts furthest right on the actor and comes down furthest left on the system —
+  so no two flows in a group ever cross. Inputs run above the boxes, outputs below, so the
+  direction reads before the arrowhead does, and each label sits alone on its own corridor.
+- **Level 1** draws the actor beside each process at its ordinary size, which is the standard way
+  out of this problem and also what keeps every arrow short: the alternative, one box down the
+  side of the sheet, is the slab Steven objected to, and the version before that ran every flow
+  down a single trunk with ten labels on one vertical line. Both ends of a flow are read off the
+  same absolute height, so the line is dead straight rather than carrying the small jog that comes
+  of giving the shorter actor box its own even fractions. The foot of each sheet says the repeated
+  actor and any repeated store are one actor and one store.
+
+Checked: `checkDiagrams.cjs` clean on all 36 pages, and all 36 PNGs re-exported and distinct.
+
+## [1.99.0] - 2026-10-07 (Diagrams: one flow one line, and one way through each role)
+
+No migration. Documentation only.
+
+Steven, reading the figures in draw.io: the arrows on the data flow diagrams do not show what is
+related to what, and the role flowcharts have parts that are confusing and redundant.
+
+**Both DFD levels now draw every flow as a straight horizontal line with its own label.** The
+fault was the same on both, and it was the layout, not the content: a box 90 to 110 px tall had to
+carry five to eleven flows, so each one left a single point, bent twice and ran the width of the
+sheet to reach its own row. The labels floated over a comb of parallel lines, and nothing said
+which label belonged to which arrow. Now the two boxes on a Level 0 sheet are as TALL as the stack
+of flows, so each arrow leaves and lands at its own height; inputs sit above a gap and outputs
+below it, and the arrowhead is the only thing that has to be read. On Level 1 the actor is one tall
+box spanning the whole column of processes — before, every flow left it from one point and ran down
+a single trunk, which put ten labels on one vertical line. A data store is drawn beside the process
+that uses it, so those arrows are short too, and a sheet that draws one store twice says so at its
+foot rather than leaving a reader to count two Appointments and Visits.
+
+**The Receptionist chart drew the walk-in path three times.** "Booking today? no → Register as
+walk-in", then a column for a patient already on file, then another for a new patient — each
+ending in its own "Issue queue ticket". The Desk is ONE screen: a box that takes a name, a
+reference or a scan, and the answer decides whether the next click is Check in or Register. So
+there is one path now, the ticket is issued once on it, and registering is the no branch that
+rejoins. It also stops claiming the receptionist releases the visit to the department: paying does
+that, which is why the chart ends at "Send patient to the cashier" with the already-paid case
+going straight through.
+
+**The others, in the same spirit.** The Cashier's "Choose payment method" and "Enter cash and
+change" became one step, and reversing a receipt moved under Transaction History, where the
+receipt is found, instead of hanging off the landing screen as though a refund started from
+nowhere. A department chart now says that saving and releasing are two acts — saving parks the
+ticket in 'Waiting for Release' and nothing has left the department — and draws the patient's
+email as the consequence of releasing rather than as another thing the technologist does. Admin
+and Super Admin lost the steps that restated the step above them.
+
+**A branch that rejoins now merges into the TOP of the step it rejoins**, down its own column and
+across the gap above it. Entering from the right, which is the obvious way to draw it, put the line
+through the box in between, and where the target was a decision it arrived at the very vertex that
+decision's own branch leaves from — one arrowhead appearing to point into a diamond and out of it.
+
+Checked: `checkDiagrams.cjs` clean on all 36 pages (no decision with one exit, no dead end, no
+overlapping boxes, no label too long to read), and all 36 PNGs re-exported and distinct.
+
+**If draw.io has one of these files open, close it without saving before pulling.** It holds the
+copy it loaded, and saving would put the old drawing back.
+
+## [1.98.0] - 2026-10-06 (The critical-value workflow is withdrawn from the system)
+
+`node src/scripts/migrateRemoveCriticalValues.js` — `--rollback` restores the columns, empty.
+
+Steven: the clinic is not responsible for telephoning a panic value back, so [1.96.0] took it out
+of the paper's diagrams. That left the opposite problem — a Critical Callbacks tile on the
+worklist, a "critical results to phone" row on Today and a callback dialog behind both, for a
+workflow the clinic does not perform. A feature nobody will use is worse than a missing one: it
+counts zero forever, and the first person who reads it as a promise is let down by it.
+
+**Dropped:** `test_results.is_critical`, `.critical_acknowledged_at`, `.critical_acknowledged_by`
+and `.critical_acknowledgement_note`, with `fk_results_critical_ack_by` and
+`idx_test_results_critical_ack_by`; the `results:acknowledge_critical` permission (its role and
+account grants cascade); `POST /results/:visitTestId/acknowledge-critical` and
+`GET /results/critical/outstanding`; `CriticalCallbackDialog`, `useCriticalCallbacks`, the tile,
+the Today descriptor `criticalNeed`, the entry dialog's flag, the version badge, and the `critical`
+column of the diagnostic throughput report and its CSV.
+
+**The flag is copied into `audit_log` before the drop.** A flag set on a released report is a
+clinical statement somebody made about a real patient, and `--rollback` can restore the shape of
+those columns but never their values. Every flagged row is written out as `result.critical_flag_retired`
+naming the result, its version, when it was released and whether a callback had been recorded. One
+row on this database; the entry is now the only record of it.
+
+**What stayed, and why.** The `critical` notification severity remains in
+`chk_notification_events_type` and in `notificationService.VALID_TYPES`, with the bell's rendering
+for it. Severity belongs to the notification subsystem rather than to this feature, and the next
+genuinely urgent event should not have to re-argue a CHECK constraint to say so. Nothing sends it
+today. Abnormal-value highlighting (`lib/abnormalValues.js`, `FindingsText`) also stays: it marks a
+figure outside the range printed beside it on the clinic's own form, which is a reading aid, not a
+judgement — the comments that called it "not a substitute for the critical-value workflow" now say
+what it is on its own terms.
+
+`migrateIndexHygiene.js` [1.29.0] no longer creates `idx_test_results_critical_ack_by`. Removed
+rather than guarded: a database old enough to need that script still has the column when it runs,
+and one new enough not to have it was built from `schema.sql`, where the index no longer exists
+either.
+
+**Structured result entry is the other half of [1.97.0]'s open question, and it STAYS.** The field
+sets, the laboratory grid and the two-signatory printed form are built from the clinic's own report
+archive and do real work; the paper will carry one paragraph saying the system supports structured
+entry and the clinic currently uploads its reports instead. That is a sentence in the paper, not a
+migration.
+
+Checked: 425 E2E (0 skipped, down from 430 — `critical-callback.spec.js` and five cases gone, one
+added for an amended release), 81 backend unit, 107 frontend unit, lint, build, prose scan,
+`verifyRbacWiring` (76 gated routes, 31 permissions), and `schema.sql` rebuilt into a throwaway
+database and diffed against the live one: 36 tables, 328 columns, 144 indexes, 316 constraints,
+identical but for four FK NAMES that predate this change (migration-created `*_fkey` against
+schema.sql's explicit names).
+
+## [1.97.0] - 2026-10-06 (The department uploads the report; the diagrams no longer show encoding)
+
+No migration.
+
+Steven: the departments will only upload the test or report, so typing the values into a form is
+not part of the clinic's workflow. The diagrams now say upload:
+
+- the department flowcharts step from "Perform test" to "Upload report file";
+- the use cases read "Upload Laboratory / Ultrasound / X-Ray Report", and amending a released
+  result is "Replace Released Report";
+- the Level 0 inputs are report files, and Level 1 process 11.0 is "Upload Results", which no
+  longer reads the result form from D6.
+
+The upload path this describes is real: `POST /results/:visitTestId` takes multipart with a `file`
+field, the bytes are stored outside the database under `uploads/results`, and the file is served
+through an authenticated, ownership-checked route.
+
+**What this leaves undocumented, for a decision.** The system also has structured result entry,
+built from the clinic's own report archive: `result_field_sets`, `result_fields`,
+`result_field_set_tests` and `result_measurements` (4 of the 36 tables, still on the ERD because it
+is generated from the live database), ten seeded ultrasound field sets, the laboratory grid with
+reference ranges and its two-signatory printed form, and two specs. Together with the critical-value
+feature [1.96.0], the running app now does two sizeable things the paper will not describe. Either
+they come out of the system, or the paper carries one short paragraph saying the system supports
+them and the clinic does not use them. Left as built until Steven says which.
+
+## [1.96.0] - 2026-10-06 (Critical-value callbacks out of the diagrams; the system still has them)
+
+No migration.
+
+Steven: the clinic is not responsible for calling a physician about a critical result, so it does
+not belong in the paper. Removed from the diagrams:
+
+- the "Critical value?" decision and its "Call doctor and log it" branch, in all three department
+  flowcharts;
+- "Record Critical Value Callback" from the Laboratory, Ultrasound and X-Ray use cases;
+- the "Critical callback" flow into the three department Level 0 sheets, now "Report delivery".
+
+**The ERD still shows four columns, and that is not an oversight.** It is generated from the live
+database, where `test_results` still carries `is_critical`, `critical_acknowledged_at`,
+`critical_acknowledged_by` and `critical_acknowledgement_note`, with one row flagged. Deleting them
+from the drawing would make the ERD describe a database that does not exist.
+
+The feature is also still in the running system: 29 files, the `results:acknowledge_critical`
+permission, the callback dialog, the Critical Callbacks tile on Today, and `critical-callback.spec`.
+Left alone pending Steven's decision — either it comes out of the system too (a migration to drop
+the columns, the permission, the screens and the spec), or it stays and the paper says nothing about
+it, which leaves a tile on Today that no figure explains.
+
+## [1.95.0] - 2026-10-06 (A checker for the diagrams, and the three faults it found)
+
+No migration. Documentation only.
+
+Steven read the figures and found a decision with only a "yes" coming out of it. Reading 36 figures
+by eye does not scale, so `docs/diagrams/checkDiagrams.cjs` now reads the generated files back and
+reports what a reader would trip over: a diamond with fewer than two ways out or an unlabelled
+branch, a step that leads nowhere, two boxes whose rectangles intersect, and a label too long to
+take in at a glance. It exits non-zero, so it can gate a rebuild.
+
+- **A decision with one exit is not a decision.** The Receptionist's "HMO patient?" had only a yes.
+  It now carries a no ("Bill as self pay"), and "Booking today?" has a real no ("Register as
+  walk-in") in place of a third branch labelled "scan", which was not an answer to the question.
+- **The client flowchart said the patient did four things at once.** Its columns hung off the
+  landing screen as parallel branches when they are one sequence: book, confirm, pay, collect. A
+  chart can now declare `chain`, which links each column to the end of the one before it and sends
+  only the last to End. The link leaves sideways into the gap between columns and climbs to a
+  corridor above them; routed directly it climbed through every box of the column it was heading
+  for.
+- **A side branch rejoining the chain drew on top of the decision's own "no" line.** It leaves from
+  the bottom of the side box and enters the next step from the right.
+
+The checker's own first version was wrong in a way worth recording: one regex with optional groups
+and lazy gaps returned undefined for whatever it skipped, so it reported every decision as having
+no way out and 336 dead ends. Attributes are read one at a time now. A checker that cries wolf is
+worse than none, because the real fault hides in the noise.
+
+### Checked
+
+- `node docs/diagrams/checkDiagrams.cjs`: 0 decisions with one way out, 0 dead ends, 0 overlapping
+  boxes, 0 over-long labels, across all 36 pages.
+- All 36 pages re-exported, 36 unique images.
+
+## [1.94.0] - 2026-10-06 (The diagrams in black ink, with labels short enough to read)
+
+No migration. Documentation only.
+
+Steven: black ink, simplified text. Colour carried no meaning in these figures and only cost
+contrast on a photocopy or a projector, and the labels were written as sentences, which a reader
+has to decode at a glance.
+
+- Everything is black on white: the blue flow labels, the blue ERD tables and the orange actor are
+  gone. Type sizes up (14 in boxes, 12 on flows and in the ERD), boxes larger to match.
+- Every label cut to a phrase: "Stamp arrival and issue today's queue ticket" is now "Issue queue
+  ticket", "Compare amount claimed with amount due" is "Check amount due". Process and data store
+  names shortened the same way.
+- Three faults the exports showed, each fixed in the layout rather than by hand:
+  - A column's last step ran along its own row to reach End, cutting through the boxes of every
+    column to its right. Each column now drops to a clear corridor below the columns first.
+  - The actor's name printed on top of the figure; it sits below it now.
+  - Two flows between one process and one data store printed their labels in the same place
+    ("DiTests and prices"). The anchors are staggered per store and the labels pulled back towards
+    their own process.
+
+## [1.93.0] - 2026-10-06 (The capstone paper's diagrams, generated from the system)
+
+No migration. Documentation only, in `docs/diagrams/`.
+
+The paper's figures described an earlier, smaller system: the client flowchart still asked whether
+the patient was a human or a pet, the cashier issued the queue number, and the ERD showed 14 tables
+against the 36 the database holds. They are redrawn in the same draw.io style as the originals, as
+editable files plus exports.
+
+- `buildDiagrams.cjs` writes five `.drawio` files: 8 role flowcharts (including a Super Admin chart
+  the paper never had), 8 use case diagrams, 9 Level 0 sheets (the per-actor ones plus a context
+  diagram), 8 Level 1 sheets, and the ERD across 3 sheets. `exportPng.ps1` exports all 36 pages.
+- **The ERD is read from the live database** rather than transcribed: tables, columns, PostgreSQL
+  types, nullability, primary keys and foreign keys. The script reports if a table is missing from
+  the sheets, so a new table cannot quietly go undrawn.
+- The System Architecture figure is deliberately not regenerated; it stays as drawn in the paper.
+- What the new diagrams assert, each of which the old ones got wrong: there is no veterinary branch;
+  a booking issues a reference and QR code while the queue ticket comes at check-in [1.92.0]; the
+  cashier issues the receipt only; a rejected proof of payment ends the flow rather than reaching
+  "record the payment"; an Admin decides HMO claims but cannot write or email a result.
+- Processes are numbered from one master list (1.0–20.0) used across every Level 1 sheet, and the
+  nine data stores name the real tables behind them.
+
+### Checked
+
+- All five files parse as XML; 36 pages, 36 unique PNG exports at scale 3.
+- Every step in all eight flowcharts has an outgoing edge, checked by walking the generated XML, so
+  no branch dead-ends by accident.
+- 36 of 36 tables drawn across the three ERD sheets.
+- Found while exporting: draw.io's `-p` page index is one-based, and passing `0` exports the first
+  page with no error, which shifts a whole run by one. Both scripts and the README say so.
 ## [1.95.0] - 2026-10-03 (Critical-result callbacks are removed)
 
 **Run `node src/scripts/setupRbac.js` once per environment.** It is the only step; there is no

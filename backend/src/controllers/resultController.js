@@ -69,11 +69,11 @@ class ResultController {
       const { findings, remarks, amendmentReason } = req.body;
       const releasedBy = req.user.userId;
 
-      // Same multipart problem as `isCritical` below, one step worse: an object cannot survive
-      // form-data at all, so the client sends it as a JSON string. Parsed here rather than in the
-      // service, because a malformed body is a request problem and the service should never have
-      // to know how it arrived. A bad string is refused rather than treated as "no measurements",
-      // which would silently save a report with an empty Measurements block.
+      // An object cannot survive form-data at all, so the client sends it as a JSON string.
+      // Parsed here rather than in the service, because a malformed body is a request problem and
+      // the service should never have to know how it arrived. A bad string is refused rather than
+      // treated as "no measurements", which would silently save a report with an empty
+      // Measurements block.
       let measurements;
       if (req.body.measurements !== undefined) {
         if (typeof req.body.measurements === 'string') {
@@ -101,8 +101,6 @@ class ResultController {
         remarks,
         releasedBy,
         amendmentReason,
-        // Arrives as a string over multipart/form-data, where every field is text — a bare
-        // truthiness check would make the string "false" mean true.
         measurements
       }, req.user);
 

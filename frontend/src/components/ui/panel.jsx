@@ -22,8 +22,8 @@ import { cn } from '../../lib/utils';
 const TONE = {
   default: 'bg-surface border-line',
   sunken: 'bg-slate-50/80 border-slate-200/80',
-  // A panel whose content needs to read as urgent without shouting. Used for the critical-value
-  // callback list and the unpaid-balance warning.
+  // A panel whose content needs to read as urgent without shouting. Used for the unpaid-balance
+  // warning.
   alert: 'bg-rose-50/60 border-rose-200',
   notice: 'bg-amber-50/60 border-amber-200',
   brand: 'bg-brand-50/70 border-brand-200',

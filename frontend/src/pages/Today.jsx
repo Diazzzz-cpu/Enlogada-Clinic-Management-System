@@ -132,8 +132,6 @@ const Today = ({ onSelectNav }) => {
 
   const needs = [];
   const couldNot = [];
-  {
-  }
   if (desk) {
     if (queue.failed) couldNot.push('the queue');
     needs.push(...deskNeeds(queue.data?.visits || [], now));
@@ -179,9 +177,7 @@ const Today = ({ onSelectNav }) => {
   const work = home.find((id) => WORK_LABEL[id]);
   const emptyAction = work ? { label: WORK_LABEL[work], onClick: () => onSelectNav?.(work) } : undefined;
 
-  const refresh = () => {
-    reads.reload();
-  };
+  const refresh = () => reads.reload();
 
   const sections = [
     desk && { key: 'desk', label: 'Front desk' },
@@ -269,7 +265,6 @@ const Today = ({ onSelectNav }) => {
           );
         })}
       </div>
-
     </SidebarLayout>
   );
 };

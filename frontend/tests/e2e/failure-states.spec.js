@@ -88,8 +88,7 @@ test("the Reports snapshot refuses to state a revenue figure it could not load",
 //
 // Each role's first screen opens with counters that start at zero, and a failed load left them
 // there: the till read "Collected Today ₱0.00" and "Nothing awaiting payment", the front desk
-// "Active Queue Visits 0". The last
-// is the most confident possible way to be wrong about a panic value.
+// "Active Queue Visits 0", the worklist "Awaiting Exam 0" over a department with a full bench.
 //
 // Reloaded after breaking the API, because a landing screen has already loaded once, successfully,
 // by the time the route is intercepted. The nav click covers a role that lands somewhere else.
@@ -111,7 +110,7 @@ const LANDING_SCREENS = [
     // still has to prove is the property the whole file is about: a failed count reads as a
     // dash, never as 0.
     email: 'lab@enlogada.com', screen: 'Laboratory Worklist',
-    mustSay: [/awaiting exam\s+—/i],
+    mustSay: [/awaiting exam\s+—/i, /couldn.t load the worklist/i],
     mustNotSay: [/awaiting exam\s+0\b/i, /nothing waiting in/i],
   },
 ];
@@ -167,7 +166,7 @@ const TODAY_FAILURES = [
   },
   {
     who: 'The laboratory', email: 'lab@enlogada.com',
-    mustSay: [/released today\s+—/i],
+    mustSay: [/couldn.t check[^.]*laboratory worklist/i, /released today\s+—/i],
     mustNotSay: [/nothing needs you/i, /released today\s+0\b/i],
   },
   {

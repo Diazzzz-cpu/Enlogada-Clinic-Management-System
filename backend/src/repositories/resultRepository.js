@@ -476,11 +476,7 @@ class ResultRepository {
       -- one patient's record is a deliberate statement about THAT patient and wins over an
       -- inherited one.
       SELECT COALESCE(NULLIF(p.email, ''), u.email) AS email,
-             p.first_name, p.last_name, p.contact_number,
-             -- contact_number is here for the critical-result callback: the staff member who has
-             -- to telephone the patient should not have to go and look it up while a panic value
-             -- sits unactioned.
-             p.birthdate, p.sex,
+             p.first_name, p.last_name, p.contact_number, p.birthdate, p.sex,
              t.name as test_name, tc.name as category_name,
              pv.created_at as visit_date, pv.queue_number,
              pv.referring_physician, pv.referring_physician_prc,

@@ -26,9 +26,9 @@ import { analyseFindings } from '../../lib/abnormalValues';
  * missed highlight, which leaves the reader where they were before this component existed; the
  * opposite failure would be an assurance the software is not entitled to give.
  *
- * This does not replace the critical-value workflow. A panic value is still flagged by the
- * clinician and still needs a recorded callback — highlighting it here does not discharge that,
- * and nothing in this file writes anything.
+ * A highlight is a reading aid and nothing more. The clinic does not act on a figure on this
+ * screen's behalf — the report goes to the doctor who asked for the test — and nothing in this
+ * file writes anything.
  */
 const FindingsText = ({ findings, className }) => {
   const lines = analyseFindings(findings);

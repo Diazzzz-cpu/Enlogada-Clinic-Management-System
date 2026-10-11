@@ -4,17 +4,13 @@ import { reportPart } from './helpers/reportFile.js';
 
 // Result versioning.
 //
-// Two clinical-safety failures that shared one table:
-//
-//   Correcting a released result used to OVERWRITE it. test_results carried
-//   UNIQUE(visit_test_id) and the write was an ON CONFLICT DO UPDATE, so a radiology report
-//   already issued to a patient could be silently rewritten with nothing recording what it used
-//   to say. The audit entry noted only that a correction happened.
-//
-//   A panic value released with the same silent "your results are ready" email as a routine CBC.
+// Correcting a released result used to OVERWRITE it. test_results carried UNIQUE(visit_test_id)
+// and the write was an ON CONFLICT DO UPDATE, so a radiology report already issued to a patient
+// could be silently rewritten with nothing recording what it used to say. The audit entry noted
+// only that a correction happened.
 //
 // The assertions below are the ones that must never regress: the original text survives, exactly
-// one version is live, and lists do not repeat a row per version.
+// one version is live, lists do not repeat a row per version, and a release tells staff.
 
 const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
@@ -22,7 +18,7 @@ const PASSWORD = 'Password123!';
 
 test.describe('Result versioning', () => {
   let apiContext;
-  let lab, reception;
+  let lab, reception, admin;
   let visitTestId;
 
   const login = async (email) => {
@@ -50,6 +46,7 @@ test.describe('Result versioning', () => {
     apiContext = await request.newContext();
     lab = await login('lab@enlogada.com');
     reception = await login('receptionist@enlogada.com');
+    admin = await login('admin@enlogada.com');
     const cashier = await login('cashier@enlogada.com');
 
     // Builds its own ticket rather than borrowing one from the demo seed. These tests release and
@@ -141,6 +138,22 @@ test.describe('Result versioning', () => {
     const released = (await (await apiContext.get(`${API}/results/released/Laboratory`, { headers: auth(lab) })).json())
       .data.released;
     expect(released.filter((r) => r.visit_test_id === visitTestId).length).toBeLessThanOrEqual(1);
+  });
+
+  test('releasing an amended report tells staff it was amended, not newly released', async () => {
+    const release = await apiContext.post(`${API}/results/${visitTestId}/release`, { headers: auth(lab) });
+    expect(release.status()).toBe(200);
+    expect((await release.json()).data.result.isAmendment).toBe(true);
+
+    // The notification is how reception and oversight learn a report moved. An amendment says so:
+    // "Result Released" on a corrected report reads as a first issue, and somebody reconciling a
+    // patient's copy against the clinic's needs to know which one they are looking at.
+    const res = await apiContext.get(`${API}/notifications`, { headers: auth(admin) });
+    expect(res.status()).toBe(200);
+    const notifications = (await res.json()).data.notifications;
+    const alert = notifications.find((n) => /Result Amended and Re-released/i.test(n.title));
+    expect(alert, 'an amended release must raise a notification').toBeTruthy();
+    expect(alert.type).toBe('info');
   });
 
   test('the amendment history is department-scoped like every other result read', async () => {

@@ -237,7 +237,7 @@ export const TurnaroundPanel = ({
               <TableHead className="text-right">Typical</TableHead>
               <TableHead className="text-right">Mean</TableHead>
               <TableHead className="text-right">Outstanding</TableHead>
-              <TableHead className="text-right">Flags</TableHead>
+              <TableHead className="text-right">Amended</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -288,7 +288,7 @@ export const TurnaroundPanel = ({
                             title={`${row.amended} amended report${row.amended === 1 ? '' : 's'}`}
                             className="rounded-md bg-amber-50 px-1.5 py-0.5 text-micro font-semibold leading-5 text-amber-800 ring-1 ring-inset ring-amber-200"
                           >
-                            {row.amended} amended
+                            {row.amended}
                           </span>
                         )}
                         {row.amended === 0 && <span className="text-slate-400">—</span>}

@@ -109,6 +109,7 @@ export function todaysBookings(appointments = [], now = new Date()) {
     .sort((a, b) => String(a.scheduled_time).localeCompare(String(b.scheduled_time)));
 }
 
+/** How many visits with no tests get a row each before the rest are summed up. */
 export const NO_TESTS_SHOWN = 3;
 
 /**

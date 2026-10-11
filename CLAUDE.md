@@ -100,6 +100,7 @@ node src/scripts/migratePatientEmail.js        # [1.60.0] an address on the pati
 node src/scripts/migrateRemove2dEcho.js       # [1.50.0] remove the 2D Echo category and its tests; REFUSES if any visit_tests still reference them (--rollback restores)
 node src/scripts/migrateResultSignatureMode.js # [1.64.0] which disclaimer a lab form prints, and how it captions the technologist (--rollback reverses it)
 node src/scripts/migrateAuthCodes.js           # [1.73.0] emailed codes for sign-up and password reset; one account per address (--rollback reverses it)
+node src/scripts/migrateRemoveCriticalValues.js # [1.98.0] withdraw the critical-value workflow; copies each flag into audit_log first (--rollback restores the columns, empty)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -107,8 +108,8 @@ node src/scripts/resetDemoData.js             # report only
 node src/scripts/resetDemoData.js --confirm   # apply
 
 # Seed a realistic clinic dataset: ~18 visits today at every workflow stage (awaiting payment,
-# senior/PWD discounts, on each modality worklist, a CRITICAL result, an AMENDED report, HMO
-# pre-auth) plus 14 days of backdated history so the reporting screens have something to plot.
+# senior/PWD discounts, on each modality worklist, a markedly abnormal result, an AMENDED report,
+# HMO pre-auth) plus 14 days of backdated history so the reporting screens have something to plot.
 # Needs both servers running. Every "today" screen filters on the current date, so re-run before
 # a demo — data seeded yesterday leaves the queues legitimately empty.
 node src/scripts/seedDemoScenario.js
@@ -157,8 +158,8 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 
 ```bash
 cd backend  && npm test        # 81 unit tests, node:test, ZERO dependencies, ~0.4s
-cd frontend && npm run test:unit # 108 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 430 Playwright E2E, ~11m, needs both dev servers
+cd frontend && npm run test:unit # 107 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 425 Playwright E2E, ~12m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -177,9 +178,9 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 65 Playwright specs (430 tests, ~11m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 64 Playwright specs (425 tests, ~12m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
-The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history and critical values (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that a critical-result call can be recorded from the worklist that counts it (`critical-callback.spec.js` — the tile counted the calls owed and nothing on screen could record one), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that a reversed receipt is both still listed and not counted (`cashup-reversals.spec.js` — see the note under Architecture; the log and the money are two different questions, and this spec fails if either half is answered with the other), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
+The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that a reversed receipt is both still listed and not counted (`cashup-reversals.spec.js` — see the note under Architecture; the log and the money are two different questions, and this spec fails if either half is answered with the other), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
 **A booking spec must claim its own slot.** `POST /appointments` returns the *existing* booking with 200 when the same patient re-submits the same date and time, so two tests that both take "the first available slot" silently share one visit — and `avail.slots.find(s => s.available)` will not stop them, because a dev database whose cap has been lifted (`cleanE2eData.js --apply --unlimited-slots`, which exists because 18 slots a day cannot absorb repeated runs) reports every slot as available however many bookings it holds. `booking-atomicity.spec.js` and `ticket-release-gating.spec.js` each keep a `claimed` set for this. Symptom when you get it wrong: a create test receives 200 instead of 201, or a test finds a visit some earlier test already checked in.
 
@@ -758,11 +759,11 @@ with a link to the printable document.
   Do not invent those numbers to make it look official — a patient may file it for reimbursement.
 - **A counter that could not load reads "—", never 0.** `[1.74.0]` Every landing screen opens
   with a strip of counts whose state starts at zero, and a failed fetch left them there: the till
-  said "Collected Today ₱0.00", a worklist "Critical Callbacks 0, Nothing outstanding". A figure is
+  said "Collected Today ₱0.00", a worklist "Awaiting Exam 0" over a full bench. A figure is
   a claim about the clinic. When its fetch failed, the figure reads `—` and the list beneath says
   why, ONCE, with the one Try again — a banner above it as well, or a caption on every tile, is
-  the same fact said twice. Only a figure with no list of its own carries its own caption (the
-  Critical Callbacks tile: "Couldn't check"). The panels in `OperationsPanels.jsx` take `error` /
+  the same fact said twice. Only a figure with no list of its own carries its own caption. The
+  panels in `OperationsPanels.jsx` take `error` /
   `onRetry` for the same reason; where two share one request, show the failure on one. Keep one
   error per fetch: the billing queue's two fetches shared one, and whichever succeeded cleared the
   other's failure.
@@ -836,7 +837,7 @@ with a link to the printable document.
   - **Money comes from the summary**, never the receipt list, so "yesterday" is the whole of
     yesterday rather than "yesterday by now".
   - **Test contracts:** `data-testid="today-needs"`, each row `today-need` with `data-need`
-    (`critical`, `no-tests-<visitId>`, `till`, `online`, `worklist-<Category>`,
+    (`no-tests-<visitId>`, `till`, `online`, `worklist-<Category>`,
     `unsent-<Category>`, `hmo-decisions`, `failed`), plus `today-booking`, `today-takings`,
     `today-departments`. A spec about any other screen opens it first: `helpers/auth.js`
     `openScreen` / `signInTo`.
@@ -986,6 +987,15 @@ Services Catalogue.
   (`lib/passwordStrength.js`) may advise, but the only rule it states is the server's minimum, and
   its unit test reads `backend/src/validations/passwordPolicy.js` so the two cannot drift.
 
+- **The clinic does not call panic values back, and the system no longer pretends to.** `[1.98.0]`
+  Steven: deciding that a figure is an emergency and telephoning somebody about it is not work this
+  clinic performs or answers for — the reference range is printed beside the figure on its own
+  forms, and the report goes to the doctor who requested the test. The flag, the outstanding list,
+  the recorded callback, the `results:acknowledge_critical` permission and the four `test_results`
+  columns are gone; each flag was copied into `audit_log` first. Abnormal-value HIGHLIGHTING stays
+  (`lib/abnormalValues.js`) — marking a figure outside its printed range is a reading aid, not a
+  judgement. Do not reintroduce a callback workflow.
+
 - **A result is a form, not a paragraph — for Ultrasound.** `[1.50.0]` `test_results.findings`
   still holds the narrative and the impression; the MEASUREMENT block is structured
   (`result_field_sets` / `result_fields` / `result_measurements`). Three rules follow. Measurements
@@ -1059,3 +1069,29 @@ Services Catalogue.
 - Keep files focused; split when they exceed roughly 300–500 lines.
 - `.agents/AGENTS.md` and `.agents/PROJECT_STRUCTURE.md` define an internal "AI team" convention (Architect/Backend/Frontend/Database/Business-Analyst roles) used to keep contributions consistent — the layering and naming rules above are drawn from it.
 - A version-control skill (`.agents/skills/version_control_agent/`) exists for timestamped checkpoint commits/rollback via PowerShell scripts; this explains the "Checkpoint (yyyymmdd-HHMMSS)" style commit messages seen in git history. Don't assume this workflow applies unless the user invokes it.
+- **The capstone paper's diagrams are generated, not hand-drawn.** `[1.93.0]`
+  `docs/diagrams/buildDiagrams.cjs` writes the flowcharts, use cases and DFDs from specs inside it,
+  and reads the ERD out of the live database, so the ERD cannot drift from the schema; it reports
+  any table missing from its sheets. `exportPng.ps1` exports every page (draw.io's `-p` is
+  ONE-based; `0` silently exports the first page and shifts a whole run). Change what a diagram
+  SAYS in the script, not in the `.drawio`, or the next regeneration discards it — hand-tuned
+  placement in the `.drawio` is fine and expected. The System Architecture figure is not generated.
+  `checkDiagrams.cjs` reads the files back and fails on a decision with fewer than two exits, a
+  dead end, overlapping boxes or a label too long to read; run it after any change.
+  **One flow, one line, one label on it — and the actor is never drawn big** `[1.100.0]`. Steven's
+  rule: a DFD keeps the paper's own box sizes (a modest process box, a small actor), and the
+  ROUTING is what makes it readable. Level 0 gives every flow its own corridor and NESTS them —
+  the corridor furthest from the boxes starts furthest right on the actor and lands furthest left
+  on the system — so no two flows in a group cross, with inputs above the boxes and outputs below.
+  Level 1 is the shape Steven's reference uses: ONE small actor at the top left, the processes
+  numbered down the middle, the stores down the right. Each flow gets a TRACK of its own in the
+  left margin — never a shared trunk — ordered so the lower the process the further left its
+  track, which is what keeps them from crossing; each label is PINNED beside its process
+  (`labelX` as `{at, dx, dy}`), because a label floated along the path lands in a different place
+  on every flow. **Never draw the same actor more than once.**
+  **A flowchart has the paper's header** `[1.102.0]`: the actor, Login, Access Granted? and the
+  landing screen in one CENTRED stack, the no branch looping back up the left into Login, and the
+  columns fanning out below off one shared bus (on a chained chart the header sits over the first
+  column, or its fan crosses the chain's link corridor). **It says a thing once**: the Desk's
+  walk-in path was drawn three times, each ending in its own queue ticket. A branch that rejoins
+  merges into the TOP of its target, never the right edge.

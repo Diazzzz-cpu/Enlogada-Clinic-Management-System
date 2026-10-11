@@ -46,7 +46,7 @@ There is **no enum** — roles are rows in a `roles` table, joined through `user
 | **Visits** (3) | `visits:create` · `visits:read` · `visits:update` |
 | **Appointments** (5) | `appointments:create` · `appointments:read` · `appointments:update` · `appointments:cancel` · `appointments:reschedule` |
 | **Tests** (3) | `tests:manage` · `tests:assign` · `tests:read_assigned` |
-| **Results** (4) | `results:read` · `results:write` · `results:release` · `results:acknowledge_critical` |
+| **Results** (3) | `results:read` · `results:write` · `results:release` |
 | **Billing** (5) | `billing:read` · `billing:process` · `billing:submit_proof` · `billing:refund` · `billing:discount` |
 | **HMO** (3) | `hmo:read` · `hmo:request` · `hmo:approve` |
 | **Reports** (2) | `reports:view` · `audit:view` |
@@ -192,7 +192,7 @@ POST /api/payments/gateway/webhook   — caller is PayMongo, not a user;
 | `appointments:create` | Cannot originate a booking | Admin oversees bookings; reception and patients make them |
 | `rbac:manage` | Cannot edit the matrix | The one thing separating Admin from a very capable Admin — i.e. SuperAdmin |
 
-> Admin **does** hold `billing:read`, `billing:refund`, `billing:discount`, `billing:submit_proof`, `results:read` and `results:acknowledge_critical` — so it can oversee money and read clinical output, and reverse a receipt, without transacting or authoring.
+> Admin **does** hold `billing:read`, `billing:refund`, `billing:discount`, `billing:submit_proof` and `results:read` — so it can oversee money and read clinical output, and reverse a receipt, without transacting or authoring.
 
 > This is enforced by **not granting the permissions**, not by a hardcoded role list. A clinic that decides otherwise can tick the box; the default is unchanged, only the ability to override is new.
 
@@ -318,7 +318,7 @@ All three share **one console** and an **identical permission set** — they dif
 |---|---|
 | **Console component** | `pages/clinic/DiagnosticDashboard.jsx` (one file, three departments) |
 | **Landing destination** | `lab-ops` / `ultrasound-ops` / `xray-ops` respectively |
-| **Permissions (6, `MODALITY`)** | `results:read` · `results:write` · `results:release` · `results:acknowledge_critical` · `patients:read` · `tests:read_assigned` |
+| **Permissions (5, `MODALITY`)** | `results:read` · `results:write` · `results:release` · `patients:read` · `tests:read_assigned` |
 | **Departments** | `['Laboratory']` · `['Ultrasound']` · `['Xray']` |
 
 **Sidebar — Diagnostics group.** Each item carries **both** a permission and a `department`, so a technician sees only their own two rows:
@@ -332,12 +332,12 @@ All three share **one console** and an **identical permission set** — they dif
 | X-Ray Worklist | `Scan` | `xray-ops` | `results:write` | `Xray` |
 | X-Ray History | `History` | `xray-history` | `results:read` | `Xray` |
 
-**Primary actions & views:** `WorklistPanel` (released tickets only) · `ResultEntryDialog` with `lib/resultTemplates.js` analyte templates (CBC with reference ranges) · file upload (PDF/JPEG/PNG, 15 MB) · `ResultViewerDialog` · `ResultHistoryPanel` · `CriticalCallbackDialog` · release-to-patient confirmation · email the report.
+**Primary actions & views:** `WorklistPanel` (released tickets only) · `ResultEntryDialog` with `lib/resultTemplates.js` analyte templates (CBC with reference ranges) · file upload (PDF/JPEG/PNG, 15 MB) · `ResultViewerDialog` · `ResultHistoryPanel` · release-to-patient confirmation · email the report.
 
 **Key operational capabilities:**
 - **Versioned amendment chains** — an amendment **supersedes** rather than overwrites. `is_current` flags the live version; `GET /results/:visitTestId/versions` returns the full chain. Every read must filter on `is_current` or superseded findings appear beside live ones.
 - **Recorded-by / released-by split** — two different people, two columns.
-- **Critical values** — flag, outstanding-criticals worklist, recorded callback acknowledgement. *A critical value is deliberately **not** emailed to the patient — a panic value read alone is a clinical decision, not a delivery one.*
+- **Critical values** — withdrawn in `[1.98.0]`. The clinic does not telephone panic values back: the reference range is printed beside the figure on its own forms, and the report goes to the doctor who requested the test.
 - **Worklist context** — patient age and sex on the row, because they band the reference range; plus the referring physician.
 - **Cannot pull an un-released ticket.** `MODALITY_SETTABLE_TEST_STATUSES` excludes `'Processing'` — a ticket arrives already Processing, put there by the payment release.
 
@@ -350,8 +350,6 @@ PUT|PATCH /api/results/test-status/:visitTestId          → results:write
 POST  /api/results/:visitTestId/release                  → results:release
 POST  /api/results/:visitTestId/email                    → results:release
 GET   /api/results/:visitTestId/versions                 → results:read
-POST  /api/results/:visitTestId/acknowledge-critical     → results:acknowledge_critical
-GET   /api/results/critical/outstanding                  → results:acknowledge_critical
 GET   /api/tests/visit-tests/:visitId                    → tests:read_assigned
 GET   /api/reports/operations                            → per-slice; gets diagnostics only
 ```
@@ -477,7 +475,7 @@ throw 403 'You are not authorized to act on this test category.';
 | **Admin** | `dashboard` | Admin KPIs · Staff Accounts · Services Catalog + Packages · Service Requests · Cashier Monitoring · Appointments · Patient Records · Clinic Schedule · **Reports (6 tabs)** · Activity Log | 25 — **no** `billing:process`, `results:write`, `results:release`, `rbac:manage` | Approve/reject HMO claims **and lines** · manage catalogue & prices · set opening hours + date overrides · refund · **all report CSV exports** |
 | **Receptionist** | `reception-queue` | Active Queue · Walk-In Registration · Appointment Check-In · Visit History · Patient Records | 18 | **QR check-in** · issue queue tickets · attach tests · statutory SC/PWD discount · raise HMO claim · file proof on a patient's behalf · **OCR receipt scan** · sees **wait ETAs** |
 | **Cashier** | `cashier-queue` | Billing Queue (`CheckoutTerminal`) · Online Payments · Transaction History · Collections strip · Shift summary | 10 | **The only role that takes money** · verify online proofs → real receipt · refund/void · apply discount · print receipt |
-| **Laboratory Staff** | `lab-ops` | Laboratory Worklist · Laboratory History | 6 (`MODALITY`) | Record findings · upload report · **release** · amend (versioned chain) · flag & acknowledge critical values · email report |
+| **Laboratory Staff** | `lab-ops` | Laboratory Worklist · Laboratory History | 5 (`MODALITY`) | Record findings · upload report · **release** · amend (versioned chain) · email report |
 | **Ultrasound Staff** | `ultrasound-ops` | Ultrasound Worklist · Ultrasound History | 6 (`MODALITY`) | *identical — differs only by `departments: ['Ultrasound']`* |
 | **Xray Staff** | `xray-ops` | X-Ray Worklist · X-Ray History | 6 (`MODALITY`) | *identical — differs only by `departments: ['Xray']`* |
 | **Client** | portal tab `results` *(no sidebar)* | Diagnostic Results · Appointments · Payments · Profile | 14 — **all ownership-scoped** | Book/reschedule/cancel · **QR booking pass + wait ETA** · pay from home with **OCR-assisted proof upload** · view own results & receipts · manage dependants' profiles |

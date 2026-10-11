@@ -789,7 +789,7 @@ The `data` key is **named per endpoint** (`{ methods }`, `{ submissions }`, `{ v
 ### `GET /api/results/:visitTestId/versions`
 - **Purpose** — the amendment chain.
 - **Response** — `{ data: { versions[] } }`, **newest first**, each with `version`, `is_current`,
-  `findings`, `amendment_reason`, `is_critical`, recorder and releaser names.
+  `findings`, `amendment_reason`, recorder and releaser names.
 - **Behaviour** — exactly one row has `is_current: true`. This is the **only intentional reader of
   superseded rows**; every other query must filter on `is_current`.
 
@@ -914,7 +914,7 @@ ones.
 ### Logic currently in the FRONTEND [Confirmed]
 Presentational only — safe to move or rewrite:
 `lib/currency.js` (formatting), `lib/date.js`, `lib/abnormalValues.js` (highlighting only — it
-never writes and never replaces the critical-value workflow), `lib/appointmentTime.js`,
+never writes; a reading aid, not a clinical judgement), `lib/appointmentTime.js`,
 `lib/preparation.js`, `lib/collections.js`, `validations/patientValidation.js` (**client-side
 convenience; the server validates independently**).
 
@@ -1281,7 +1281,7 @@ discounts, and must not let a stale amount reach `POST /payments`.
 the recomputation exists to prevent.
 
 ### 🔴 HIGH — Result entry
-`useResultEntry` (322 lines) — the largest hook. Versioning, critical values, file upload,
+`useResultEntry` (322 lines) — the largest hook. Versioning, file upload,
 department scoping and release all meet here.
 **Specific hazard:** dropping `is_current` filtering shows withdrawn findings beside live ones.
 

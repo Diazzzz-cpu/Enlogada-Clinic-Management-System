@@ -61,7 +61,6 @@ const SALES_BY_SERVICE = [
 const DIAGNOSTIC_THROUGHPUT = [
   { key: 'category_name', header: 'Department', format: f.text },
   { key: 'released', header: 'Reports Released', format: f.integer },
-  { key: 'critical', header: 'Critical Results', format: f.integer },
   { key: 'amended', header: 'Amended Reports', format: f.integer },
   { key: 'avg_turnaround_minutes', header: 'Average Turnaround (mins)', format: f.integer },
   { key: 'median_turnaround_minutes', header: 'Median Turnaround (mins)', format: f.integer },

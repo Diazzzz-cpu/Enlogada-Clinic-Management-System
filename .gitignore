@@ -41,3 +41,6 @@ build/
 
 # Playwright artefacts from a run started outside frontend/
 test-results/
+
+# draw.io desktop scratch files
+docs/diagrams/.$*

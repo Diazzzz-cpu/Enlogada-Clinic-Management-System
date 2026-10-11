@@ -2,8 +2,11 @@ const notificationRepository = require('../repositories/notificationRepository')
 const userRepository = require('../repositories/userRepository');
 const logger = require('../config/logger');
 
-// Must stay in step with chk_notification_events_type in the schema. 'critical' exists for the
-// one message that is genuinely urgent — a panic result awaiting a patient callback.
+// Must stay in step with chk_notification_events_type in the schema. 'critical' is a severity the
+// bell draws differently and nothing currently sends: the one message that used it was the
+// panic-value callback, withdrawn in [1.98.0]. Kept because severity is a property of the
+// notification subsystem rather than of that feature, and the next genuinely urgent event should
+// not have to re-argue the CHECK constraint to say so.
 const VALID_TYPES = ['info', 'success', 'warning', 'critical'];
 
 class NotificationService {
@@ -17,8 +20,8 @@ class NotificationService {
       const userIds = recipients.map((u) => u.id);
       // An unknown type is downgraded rather than rejected, so a bad value can never stop a real
       // notification being delivered. It is logged because the downgrade is otherwise invisible:
-      // a 'critical' escalation silently arriving as 'info' looks like any other bell item, and
-      // that is exactly how an urgent message stops being urgent.
+      // an urgent message silently arriving as 'info' looks like any other bell item, and that is
+      // exactly how it stops being urgent.
       if (!VALID_TYPES.includes(type)) {
         logger.warn(`Unknown notification type "${type}" downgraded to 'info' (title: ${title})`);
       }

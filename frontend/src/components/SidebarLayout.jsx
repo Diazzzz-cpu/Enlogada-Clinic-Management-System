@@ -620,9 +620,10 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
                     ) : (
                       notifications.map((n) => {
                         // Severity was ignored here entirely — every notification rendered the
-                        // same, so a critical result awaiting a patient callback looked exactly
-                        // like "New Appointment Booked". A panic value has to be findable in a
-                        // list at a glance, and stay visibly urgent even after it is read.
+                        // same, so an urgent item looked exactly like "New Appointment Booked".
+                        // Nothing sends 'critical' since [1.98.0], but severity belongs to the
+                        // bell rather than to any one feature, and an urgent item has to be
+                        // findable at a glance and stay visibly urgent after it is read.
                         const isCritical = n.type === 'critical';
                         return (
                           <button

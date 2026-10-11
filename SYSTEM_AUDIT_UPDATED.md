@@ -96,7 +96,7 @@ All six proposed role groups exist, with the medical/diagnostic group split into
 - Upload → record → **release** as separate gated actions (`results:write` vs `results:release`).
 - **Attribution split** (`[1.12.0]`): `recorded_by` and `released_by` stored separately.
 - **Versioned reports** (`[1.15.0]`): an amendment supersedes rather than overwrites; `is_current` flags the live version, with the full chain queryable.
-- **Critical values:** flagging, an outstanding-criticals worklist, a recorded callback acknowledgement.
+- **Critical values:** withdrawn in `[1.98.0]` — the clinic does not telephone panic values back.
 - **Hardened file handling:** PDF/JPEG/PNG only, 15 MB cap; stored filename is random hex plus an extension derived from the *validated* MIME type, never the client's filename, with a containment re-check (`assertInside`). Files stream back through an authenticated, ownership-checked route.
 - **Delivery is recorded** (`[1.59.0]`) and the report is emailed with findings in the body **and** as an attachment (`[1.61.0]`).
 
@@ -402,7 +402,7 @@ Your strongest defence material. Each is real, working code rather than scaffold
 **Clinical**
 
 6. **Result versioning with amendment history** — supersede rather than overwrite, full chain queryable.
-7. **Critical-value workflow** — flagging, outstanding-criticals worklist, recorded callback acknowledgement.
+7. **Critical-value workflow** — withdrawn in `[1.98.0]`; the clinic does not perform it.
 8. **Recorded-by / released-by attribution split.**
 9. **Result delivery tracking**, with the report emailed in the body *and* as an attachment.
 10. **Composed test preparation** (`lib/preparation.js`) — rule-based rather than free text, de-duplicated by meaning so a patient booking two ultrasounds is not shown one instruction twice.

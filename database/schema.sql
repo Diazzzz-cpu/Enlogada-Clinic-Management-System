@@ -519,13 +519,10 @@ CREATE TABLE test_results (
     superseded_by INT,
     amendment_reason TEXT,
 
-    -- Critical (panic) values. The flag routes an urgent callback notification on release; the
-    -- acknowledgement is the record that a human actually made contact, which is the part with
-    -- medico-legal weight.
-    is_critical BOOLEAN NOT NULL DEFAULT FALSE,
-    critical_acknowledged_at TIMESTAMP,
-    critical_acknowledged_by INT,
-    critical_acknowledgement_note TEXT,
+    -- No critical (panic) value flag. [1.98.0] The clinic does not telephone results back: a
+    -- reference range is printed beside every figure on its own forms and the referring
+    -- physician reads the report. Four columns and a callback workflow were withdrawn rather
+    -- than left on screen counting zero -- see migrations.md [1.98.0].
 
     -- Whether this report actually reached the patient. [1.59.0] Release has emailed the patient
     -- since the first version and recorded nothing about it, so "was she ever told?" had no
@@ -542,7 +539,6 @@ CREATE TABLE test_results (
     email_count INT NOT NULL DEFAULT 0,
 
     CONSTRAINT fk_results_superseded_by FOREIGN KEY (superseded_by) REFERENCES test_results(id),
-    CONSTRAINT fk_results_critical_ack_by FOREIGN KEY (critical_acknowledged_by) REFERENCES users(id),
     CONSTRAINT fk_results_visit_test FOREIGN KEY (visit_test_id) REFERENCES visit_tests(id),
     CONSTRAINT fk_results_released_by FOREIGN KEY (released_by) REFERENCES users(id),
     CONSTRAINT fk_results_recorded_by FOREIGN KEY (recorded_by) REFERENCES users(id)
@@ -1050,7 +1046,6 @@ CREATE INDEX IF NOT EXISTS idx_patient_visits_created_by ON patient_visits(creat
 CREATE INDEX IF NOT EXISTS idx_patient_visits_discount_type ON patient_visits(discount_type_id);
 CREATE INDEX IF NOT EXISTS idx_patient_visits_discount_granted_by ON patient_visits(discount_granted_by);
 CREATE INDEX IF NOT EXISTS idx_patients_type ON patients(patient_type_id);
-CREATE INDEX IF NOT EXISTS idx_test_results_critical_ack_by ON test_results(critical_acknowledged_by);
 CREATE INDEX IF NOT EXISTS idx_test_results_superseded_by ON test_results(superseded_by);
 CREATE INDEX IF NOT EXISTS idx_hmo_requests_provider ON hmo_requests(hmo_provider_id);
 CREATE INDEX IF NOT EXISTS idx_hmo_requests_decided_by ON hmo_requests(decided_by);

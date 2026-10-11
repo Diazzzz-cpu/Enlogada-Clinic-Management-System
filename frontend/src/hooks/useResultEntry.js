@@ -85,7 +85,8 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setActiveTest(test);
     setIsEditing(false);
     resetForm();
-    // Never carry an amendment reason over from the previous ticket.
+    // Never carry an amendment reason over from the previous ticket: it describes a change to
+    // one report and means nothing on the next.
     setAmendmentReason('');
     setJustReleased(null);
     setOpen(true);

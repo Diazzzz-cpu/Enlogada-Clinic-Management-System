@@ -20,9 +20,9 @@
  * abnormal, or worse, marking an abnormal one as normal — would be actively misleading, so nothing
  * is ever marked normal and no line is ever rewritten.
  *
- * This is an aid to reading, and explicitly NOT a substitute for the critical-value workflow. A
- * panic value still has to be flagged by the clinician and acknowledged with a recorded callback;
- * highlighting it here does not and must not discharge that.
+ * It is an aid to reading and explicitly not a clinical judgement. Deciding what a figure means
+ * belongs to the doctor the report goes back to; this only draws the eye to the ones outside the
+ * range printed beside them.
  */
 
 /**

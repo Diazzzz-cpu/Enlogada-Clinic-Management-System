@@ -570,9 +570,8 @@ class ResultService {
    * Send the patient their report, and WRITE DOWN that it went. [1.59.0]
    *
    * One builder, called by release and by a manual re-send, because two copies of this would
-   * drift — and the copy that drifts is the one nobody is looking at, which here means a
-   * critical value going out under the cheerful wording while the release path uses the careful
-   * one.
+   * drift — and the copy that drifts is the one nobody is looking at, which here means an
+   * amended report going out under the wording for a first release.
    *
    * Recording happens only on success. `emailed_at IS NULL` has to keep meaning "this report has
    * never reached the patient", with no second reading — a failed attempt that stamped the column
@@ -587,20 +586,6 @@ class ResultService {
 
     const patientName = `${patientInfo.first_name} ${patientInfo.last_name}`;
 
-    /**
-     * A CRITICAL value does not travel by email. [1.61.0]
-     *
-     * Everything below sends the patient their actual report. This one case deliberately does
-     * not, and the reason is clinical rather than technical: a panic value read alone, at night,
-     * with no clinician attached to it, is how a patient ends up frightened and unadvised — or
-     * worse, reassured by a number they have misread. The clinic telephones for these, and
-     * `acknowledgeCritical` is the record that a human actually made contact.
-     *
-     * So the email says "please contact us", carries no findings and no attachment, and the
-     * report stays available in the portal and at the counter where somebody can explain it.
-     * This is a clinical policy decision, not a limitation — if the clinic decides otherwise,
-     * this is the one branch to change.
-     */
     // ── The report itself ──────────────────────────────────────────────────────────────────
     //
     // Attached when the department uploaded a document, and set out in the body either way. Both,
@@ -812,11 +797,10 @@ class ResultService {
     // controller always reported "patient notified via email" even when nothing was sent.
     const patientInfo = await resultRepository.findPatientEmailByVisitTestId(visitTestId);
 
+    // `result` was read before the release, so this is the version being authorised.
     const isAmendment = (result.version || 1) > 1;
 
-    const emailStatus = await this.deliverResultEmail({
-      patientInfo, isAmendment, visitTestId,
-    });
+    const emailStatus = await this.deliverResultEmail({ patientInfo, isAmendment, visitTestId });
 
     // Module 18 (Notification): Admin/SuperAdmin oversight of diagnostic throughput, matching
     // the existing Reports/oversight theme — not the releasing staff member themselves, who is

@@ -59,7 +59,6 @@ const ADD = [
   ['idx_patient_visits_discount_type', 'patient_visits(discount_type_id)', 'statutory discount reporting'],
   ['idx_patient_visits_discount_granted_by', 'patient_visits(discount_granted_by)', 'who granted a senior/PWD discount'],
   ['idx_patients_type', 'patients(patient_type_id)', 'joined on every patient list and queue row'],
-  ['idx_test_results_critical_ack_by', 'test_results(critical_acknowledged_by)', 'who made the callback'],
   ['idx_test_results_superseded_by', 'test_results(superseded_by)', 'walking an amendment chain'],
   ['idx_hmo_requests_provider', 'hmo_requests(hmo_provider_id)', 'joined on every claims worklist row'],
   ['idx_hmo_requests_decided_by', 'hmo_requests(decided_by)', 'who decided the claim [1.28.0]'],
@@ -72,6 +71,10 @@ const DROP = [
   ['idx_payments_status', 'covered by idx_payments_status_paid_at — leading column'],
 ];
 
+// idx_test_results_critical_ack_by was on this list until [1.98.0], which withdrew the
+// critical-value workflow and dropped the column it indexed. Removed rather than guarded: a
+// database old enough to need this script has the column, and one new enough not to have it was
+// built from schema.sql, where the index never existed either.
 async function migrate(client) {
   for (const [name, target, why] of ADD) {
     await client.query(`CREATE INDEX IF NOT EXISTS ${name} ON ${target}`);

@@ -66,7 +66,7 @@ export default function WorklistPanel({ worklist, entry }) {
   return (
       <>
       {/* Department Modality Worklist Header Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* "—" on a failure, and the table below says why with its Try again — not a caption here too. */}
         <MetricCard label="Awaiting Exam" value={worklistFailed ? '—' : processingCount} caption="Paid and released to you" captionTone="slate" icon={Clock} tone="indigo" />
         <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />

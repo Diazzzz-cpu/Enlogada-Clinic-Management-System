@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import api from '../config/api';
 import { toastSuccess, toastInfo, toastWarning } from '../lib/toast';
-import { TEMPLATE_TEXT } from '../lib/resultTemplates';
 
 // Mirrors backend/src/config/upload.js's own allowlist and size cap, so a mismatched file is
 // rejected instantly instead of round-tripping to the server first.
@@ -40,37 +39,8 @@ const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
  * row is carried in too, so the technician can see the weight the last save computed rather than
  * an empty box that looks like missing data.
  */
-/**
- * The form's shape -> what the printed report renders.
- *
- * Only used for the certificate shown immediately after releasing, where the values are still in
- * hand and re-fetching them would be a round trip for numbers the screen already has. Every other
- * surface reads the stored rows, which are authoritative.
- */
-function measurementsForPrint(fieldSet, values, patientSex) {
-  if (!fieldSet) return [];
-  return fieldSet.fields
-    .filter((f) => !f.applies_to_sex || !patientSex || f.applies_to_sex === patientSex)
-    .map((f) => ({ ...(values?.[f.code] || {}), field_code: f.code, label: f.label, unit: f.unit,
-                   reference_note: f.reference_note }))
-    .filter((m) => [m.value_1, m.value_text, m.value_date].some((v) => v !== undefined && v !== null && String(v).trim() !== ''));
-}
-
-function measurementsToForm(rows) {
-  const form = {};
-  for (const m of rows || []) {
-    form[m.field_code] = {
-      value_1: m.value_1 ?? '', value_2: m.value_2 ?? '', value_3: m.value_3 ?? '',
-      value_text: m.value_text ?? '', value_date: m.value_date ?? '',
-    };
-  }
-  return form;
-}
-
 export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) {
   const [activeTest, setActiveTest] = useState(null);
-  const [findings, setFindings] = useState('');
-  const [remarks, setRemarks] = useState('');
   const [resultFile, setResultFile] = useState(null);
 
   const [open, setOpen] = useState(false);
@@ -88,11 +58,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
 
   const [isEditing, setIsEditing] = useState(false);
 
-  // The shape this ticket records in, and what has been typed into it. Held here rather than in a
-  // hook of its own because the reset discipline below applies to them identically — see resetForm.
-  const [fieldSet, setFieldSet] = useState(null);
-  const [measurements, setMeasurements] = useState({});
-
   /** Why a released report is being changed. Kept with the superseded version, so the amendment
    *  history says what changed and not merely that something did. */
   const [amendmentReason, setAmendmentReason] = useState('');
@@ -107,16 +72,12 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   const isAmendingReleased = isEditing && activeTest?.test_status === 'Completed';
 
   const resetForm = () => {
-    setFindings('');
-    setRemarks('');
+    // `resultFile` is a File picked in a previous dialog session. Clearing it is the whole point:
+    // release() submits whatever is in state, so carrying one over would attach the PREVIOUS
+    // patient's report to this patient's result moments before it is emailed to them. What a
+    // ticket already HAS on the server is read from activeTest.file_path, never from here.
     setResultFile(null);
     setError('');
-    // Cleared for the same reason `findings` is, and it matters more. `release()` saves whatever
-    // is in state before releasing, so releasing straight from a table row without clearing these
-    // would write the PREVIOUS patient's measurements onto this patient's report, moments before
-    // it is emailed to them.
-    setFieldSet(null);
-    setMeasurements({});
   };
 
   /** Open the form for a worklist ticket. */
@@ -130,32 +91,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setJustReleased(null);
     setOpen(true);
 
-    // A ticket already in 'Waiting for Release' has findings recorded against it, so load them:
-    // "Edit Findings" must edit rather than silently blank the previous entry.
-    // What shape does this test record in? `null` for Laboratory and X-ray, which is what keeps
-    // their dialog exactly as it was.
-    try {
-      const fs = await api.get(`/results/field-set/${test.visit_test_id}`);
-      setFieldSet(fs.data.data.fieldSet || null);
-    } catch {
-      // Non-fatal: without a field set the form is the free-text one it has always been.
-      setFieldSet(null);
-    }
-
-    if (test.test_status === 'Waiting for Release') {
-      try {
-        const res = await api.get(`/results/${test.visit_test_id}`);
-        const existing = res.data.data.result;
-        if (existing) {
-          setFindings(existing.findings || '');
-          setRemarks(existing.remarks || '');
-          setMeasurements(measurementsToForm(existing.measurements));
-        }
-      } catch {
-        // Non-fatal: the form simply starts empty.
-      }
-    }
-
     onOpened?.(test);
   };
 
@@ -167,37 +102,20 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   const openForEdit = async (test) => {
     setActiveTest(test);
     setIsEditing(true);
-    setFindings(test.findings || '');
-    setRemarks(test.result_remarks || '');
     setResultFile(null);
     setError('');
-    setFieldSet(null);
-    setMeasurements({});
     // The reason starts empty on purpose — it describes THIS change, not the previous one.
     setAmendmentReason('');
     setJustReleased(null);
     setOpen(true);
     onOpened?.(test);
-
-    // The released list does not carry measurements, and must not: joining a child table into a
-    // list query repeats the row once per field. So they are fetched here, after the dialog is
-    // already open with the prose in it.
-    try {
-      const [fs, res] = await Promise.all([
-        api.get(`/results/field-set/${test.visit_test_id}`),
-        api.get(`/results/${test.visit_test_id}`),
-      ]);
-      setFieldSet(fs.data.data.fieldSet || null);
-      setMeasurements(measurementsToForm(res.data.data.result?.measurements));
-    } catch {
-      setFieldSet(null);
-    }
   };
 
   /** Release straight from a table row, bypassing the form. See the note above about resetting. */
   const openRelease = (test) => {
     setActiveTest(test);
     resetForm();
+    setAmendmentReason('');
     setConfirmingRelease(true);
   };
 
@@ -238,14 +156,22 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setResultFile(file);
   };
 
-  const applyTemplate = (templateKey) => {
-    const text = TEMPLATE_TEXT[templateKey];
-    if (text) setFindings(text);
-  };
+  /**
+   * The report document is what a result IS. [1.94.0]
+   *
+   * Required to RELEASE, not to save: a technician still parks a ticket in 'Waiting for Release'
+   * while the report is being produced, which is what that state has always been for. The check
+   * accepts a file already on the record as well as a newly chosen one, because an amendment and
+   * a release-from-row both legitimately carry no new upload.
+   *
+   * The server enforces this too. This exists so the refusal arrives before the confirm dialog
+   * rather than after it.
+   */
+  const hasReport = () => Boolean(resultFile || activeTest?.file_path);
 
-  const validate = () => {
-    if (!findings && !hasContent()) {
-      setError('Findings and diagnostic analysis text are required.');
+  const validateForRelease = () => {
+    if (!hasReport()) {
+      setError('Attach the report file before releasing this result.');
       return false;
     }
     return true;
@@ -257,69 +183,20 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
    * for multipart bodies. `amendmentReason` is meaningful only when correcting an already
    * recorded result and is ignored by the backend on a first version.
    */
-  /**
-   * Every field the grid RENDERED, with null for one the user left blank.
-   *
-   * Sending only the filled boxes would make "cleared" and "never shown" indistinguishable on the
-   * server, and the server's carry-forward rule depends on telling them apart: absent means carry
-   * the previous version's value forward. A derived field is never sent unless the user typed
-   * over it, so the server recomputes rather than echoing back its own arithmetic.
-   */
-  const submittableMeasurements = () => {
-    if (!fieldSet) return {};
-    const patientSex = activeTest?.sex;
-    const out = {};
-    for (const f of fieldSet.fields) {
-      if (f.applies_to_sex && patientSex && f.applies_to_sex !== patientSex) continue;
-      const v = measurements[f.code] || {};
-      const filled = ['value_1', 'value_2', 'value_3', 'value_text', 'value_date']
-        .some((k) => v[k] !== undefined && v[k] !== null && String(v[k]).trim() !== '');
-      if (!filled) { out[f.code] = null; continue; }
-      if (f.derivation) { out[f.code] = { value_1: v.value_1 }; continue; }
-      out[f.code] = {
-        ...(v.value_1 !== '' && v.value_1 !== undefined ? { value_1: v.value_1 } : {}),
-        ...(v.value_2 !== '' && v.value_2 !== undefined ? { value_2: v.value_2 } : {}),
-        ...(v.value_3 !== '' && v.value_3 !== undefined ? { value_3: v.value_3 } : {}),
-        ...(v.value_text ? { value_text: v.value_text } : {}),
-        ...(v.value_date ? { value_date: v.value_date } : {}),
-      };
-    }
-    return out;
-  };
-
-  /**
-   * Is there anything here worth saving?
-   *
-   * A laboratory form has no narrative — the clinic's own sheet carries only a COMMENT box — so a
-   * completed grid is proof enough on its own, and a test with NO field set still requires the
-   * text. This is ONE predicate on purpose: it was two, and they disagreed. `validate()` accepted a
-   * filled grid with an empty comment while `release()` still guarded on `if (findings)`, so
-   * authorising that result skipped the save entirely and then reported it released and the patient
-   * notified — with the typed values discarded when the dialog closed. [1.53.0]
-   */
-  const hasContent = () => Boolean(
-    fieldSet && Object.values(measurements || {}).some((v) => v && Object.values(v)
-      .some((x) => x !== undefined && x !== null && String(x).trim() !== ''))
-  );
-
-  const submitFindings = async () => {
+  const submitReport = async () => {
     if (resultFile) {
       const formData = new FormData();
       formData.append('file', resultFile);
-      formData.append('findings', findings);
-      formData.append('remarks', remarks);
       if (isEditing) formData.append('amendmentReason', amendmentReason);
-      if (fieldSet) formData.append('measurements', JSON.stringify(submittableMeasurements()));
       await api.post(`/results/${activeTest.visit_test_id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return;
     }
+    // No new document: the flag or the amendment reason is the only thing being recorded, and the
+    // server carries the existing file forward.
     await api.post(`/results/${activeTest.visit_test_id}`, {
-      findings,
-      remarks,
       ...(isEditing ? { amendmentReason } : {}),
-      ...(fieldSet ? { measurements: submittableMeasurements() } : {}),
     });
   };
 
@@ -327,11 +204,10 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
   const record = async (e) => {
     e?.preventDefault();
     setError('');
-    if (!validate()) return;
 
     setSaving(true);
     try {
-      await submitFindings();
+      await submitReport();
       setOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to record diagnostic result.');
@@ -348,7 +224,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
    */
   const requestRelease = () => {
     setError('');
-    if (!validate()) return;
+    if (!validateForRelease()) return;
     setConfirmingRelease(true);
   };
 
@@ -357,9 +233,13 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     setError('');
 
     try {
-      // Findings may have been recorded in an earlier session — the ticket is sitting in
-      // 'Waiting for Release' — in which case there is nothing new to save, only to release.
-      if (findings || hasContent()) await submitFindings();
+      // Submit ONLY when a new document was chosen. A ticket parked in 'Waiting for Release'
+      // already has its report on the server, so there is nothing to save and only to release.
+      //
+      // The narrowness matters. A predicate that also fired on "a file exists on the record"
+      // would post the form on every release-from-row, minting a second version with an
+      // "Amended" badge for an amendment nobody made.
+      if (resultFile) await submitReport();
 
       const releaseRes = await api.post(`/results/${activeTest.visit_test_id}/release`);
       const emailStatus = releaseRes.data.data.result?.emailStatus;
@@ -405,9 +285,6 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
 
       setJustReleased(stored ? { ...activeTest, ...stored } : {
         ...activeTest,
-        findings,
-        result_remarks: remarks,
-        measurements: measurementsForPrint(fieldSet, measurements, activeTest?.sex),
         released_at: new Date().toISOString(),
         released_by_first_name: user?.firstName,
         released_by_last_name: user?.lastName,
@@ -426,18 +303,15 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
 
   return {
     activeTest,
-    findings, setFindings,
-    remarks, setRemarks,
-    resultFile,
+    resultFile, hasReport,
     open, error, saving,
     confirmingRelease, releasing,
     justReleased,
     isEditing, isAmendingReleased,
-    fieldSet, measurements, setMeasurements,
     amendmentReason, setAmendmentReason,
     openFor, openForEdit, openRelease,
     close, dismissReleaseConfirm,
-    chooseFile, applyTemplate,
+    chooseFile,
     record, requestRelease, release,
   };
 }

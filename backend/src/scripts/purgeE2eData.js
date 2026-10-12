@@ -93,6 +93,104 @@ async function purgeOrphanedUploads(since, dryRun) {
   if (removed) logger.info(`E2E purge: ${removed} orphaned upload file(s)${dryRun ? ' (DRY RUN)' : ''}`);
 }
 
+/**
+ * Fixtures recognised by NAME rather than by the run window. [1.93.0]
+ *
+ * Pulled out of main() because the early return above skipped every one of them. A run that
+ * created no visits and no throwaway accounts — a catalogue-only spec, or a suite stopped part
+ * way — logged "Nothing to purge" and left its catalogue tests, packages, payment channels and
+ * result formats behind permanently. That is the same accumulation the comments below already
+ * describe three separate times (21 catalogue rows, 64 payment channels); the sweep was written
+ * but could not always reach.
+ *
+ * Everything here is scoped by an `E2E %` / `e2e_%` name and guarded on nothing referencing it,
+ * so it is safe to run unconditionally and never depends on `since`.
+ */
+async function purgeNameScopedFixtures() {
+    // Result-format fixtures, and the reason they go BEFORE the catalogue tests below. [1.93.0]
+    //
+    // `result_field_set_tests.test_id` references `tests(id)` with no ON DELETE, so a field set
+    // still bound to an `E2E %` service turns the catalogue DELETE below into a foreign-key
+    // violation. That is not a contained failure: main() is a flat sequence of awaits with no
+    // transaction, and its .catch logs one "purge failed (non-fatal)" line and exits 0 — so the
+    // throw abandons everything after it. Packages, payment channels, notification_events, the
+    // audit log and the orphaned-upload sweep would all stop running, silently, behind a green
+    // suite. notification_events is the table that once reached a quarter of a million rows.
+    //
+    // This is the same shape as the payment_submissions-before-payments ordering above, and it is
+    // written down here for the same reason: the order is the fix.
+    //
+    // `LIKE 'e2e\_%'` is written with TWO backslashes on purpose. `_` is a single-character
+    // wildcard in SQL LIKE, so it has to reach Postgres escaped — and `\_` is not a valid escape
+    // in a JS template literal, which drops the backslash and hands over a wildcard again. The
+    // doubled form is what actually arrives as `\_`. Without it the pattern also matches `e2eX...`.
+    await db.query(
+      `DELETE FROM result_field_set_tests
+        WHERE field_set_id IN (SELECT id FROM result_field_sets WHERE code LIKE 'e2e\\_%')
+           OR test_id IN (SELECT id FROM tests WHERE name LIKE 'E2E %')`
+    );
+    // Only fields nothing recorded against: `result_measurements.field_id` has no ON DELETE either,
+    // and a surviving measurement means a surviving result that still prints this label.
+    await db.query(
+      `DELETE FROM result_fields f
+        WHERE f.field_set_id IN (SELECT id FROM result_field_sets WHERE code LIKE 'e2e\\_%')
+          AND NOT EXISTS (SELECT 1 FROM result_measurements rm WHERE rm.field_id = f.id)`
+    );
+    await db.query(
+      `DELETE FROM result_field_sets fs
+        WHERE fs.code LIKE 'e2e\\_%'
+          AND NOT EXISTS (SELECT 1 FROM result_fields f WHERE f.field_set_id = fs.id)`
+    );
+
+    // Catalogue fixtures the run created. `catalogue-partial-update.spec.js` mints a throwaway test
+    // to prove a status toggle does not wipe its preparation text, and DEACTIVATES it rather than
+    // deleting — so one row was left behind on every single run, forever.
+    //
+    // They are not invisible either: they sit in the admin Services Catalogue as
+    // "E2E Preparation Guard 1787594770405", which is what somebody sees when they open the screen
+    // to change a price. Twenty-one had accumulated before this was noticed.
+    //
+    // Only ever removes rows nothing references — a fixture that a surviving visit still points at
+    // stays, because deleting it would orphan that visit's line and change what a past bill says
+    // it was for.
+    await db.query(
+      `DELETE FROM tests t
+        WHERE t.name LIKE 'E2E %'
+          AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.test_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM test_package_items pi WHERE pi.test_id = t.id)
+          -- Defence in depth beside the unbind above: this FK is the one with no cascade, so a
+          -- binding that escaped it must leave the service standing rather than abort the purge.
+          AND NOT EXISTS (SELECT 1 FROM result_field_set_tests m WHERE m.test_id = t.id)`
+    );
+
+    // Package fixtures, for the same reason and with the same rule: only ones nothing references.
+    // packages.spec.js creates a bundle to prove who may price one, and a package left behind is a
+    // fake deal sitting in the admin catalogue and, if it were still active, on the public price
+    // list. Items go first — they are the child rows.
+    await db.query(
+      `DELETE FROM test_package_items
+        WHERE package_id IN (
+          SELECT p.id FROM test_packages p
+           WHERE p.name LIKE 'E2E %'
+             AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.package_id = p.id))`
+    );
+    await db.query(
+      `DELETE FROM test_packages p
+        WHERE p.name LIKE 'E2E %'
+          AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.package_id = p.id)`
+    );
+
+    // Payment channel fixtures, by the same rule. [1.89.0] manual-payment and proof-review publish an
+    // "E2E GCash channel" and an "E2E Bank channel" on every run, then hide them, because a channel
+    // is retired rather than deleted. 64 had built up on SuperAdmin's Payment Methods, the screen
+    // where the clinic's real account number is typed. A channel any surviving proof names stays.
+    await db.query(
+      `DELETE FROM payment_methods pm
+        WHERE pm.label LIKE 'E2E %'
+          AND NOT EXISTS (SELECT 1 FROM payment_submissions ps WHERE ps.payment_method_id = pm.id)`
+    );
+}
+
 async function main() {
   const since = arg('since');
   const dryRun = process.argv.includes('--dry-run');
@@ -137,8 +235,11 @@ async function main() {
     // Still sweep the uploads. A file can be stranded with no row to match on: multer writes the
     // card before the booking transaction opens, so a booking the run deliberately made fail
     // leaves one behind with nothing in the database pointing at it.
+    // The name-scoped fixtures still have to go. They are not tied to a visit or an account, so
+    // "no visits" never meant "nothing was created" — it only meant nothing the window can see.
+    await purgeNameScopedFixtures();
     await purgeOrphanedUploads(since, false);
-    logger.info('Nothing to purge.');
+    logger.info('Nothing to purge beyond fixtures.');
     process.exit(0);
   }
 
@@ -189,50 +290,7 @@ async function main() {
     [since]
   );
 
-  // Catalogue fixtures the run created. `catalogue-partial-update.spec.js` mints a throwaway test
-  // to prove a status toggle does not wipe its preparation text, and DEACTIVATES it rather than
-  // deleting — so one row was left behind on every single run, forever.
-  //
-  // They are not invisible either: they sit in the admin Services Catalogue as
-  // "E2E Preparation Guard 1787594770405", which is what somebody sees when they open the screen
-  // to change a price. Twenty-one had accumulated before this was noticed.
-  //
-  // Only ever removes rows nothing references — a fixture that a surviving visit still points at
-  // stays, because deleting it would orphan that visit's line and change what a past bill says
-  // it was for.
-  await db.query(
-    `DELETE FROM tests t
-      WHERE t.name LIKE 'E2E %'
-        AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.test_id = t.id)
-        AND NOT EXISTS (SELECT 1 FROM test_package_items pi WHERE pi.test_id = t.id)`
-  );
-
-  // Package fixtures, for the same reason and with the same rule: only ones nothing references.
-  // packages.spec.js creates a bundle to prove who may price one, and a package left behind is a
-  // fake deal sitting in the admin catalogue and, if it were still active, on the public price
-  // list. Items go first — they are the child rows.
-  await db.query(
-    `DELETE FROM test_package_items
-      WHERE package_id IN (
-        SELECT p.id FROM test_packages p
-         WHERE p.name LIKE 'E2E %'
-           AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.package_id = p.id))`
-  );
-  await db.query(
-    `DELETE FROM test_packages p
-      WHERE p.name LIKE 'E2E %'
-        AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.package_id = p.id)`
-  );
-
-  // Payment channel fixtures, by the same rule. [1.89.0] manual-payment and proof-review publish an
-  // "E2E GCash channel" and an "E2E Bank channel" on every run, then hide them, because a channel
-  // is retired rather than deleted. 64 had built up on SuperAdmin's Payment Methods, the screen
-  // where the clinic's real account number is typed. A channel any surviving proof names stays.
-  await db.query(
-    `DELETE FROM payment_methods pm
-      WHERE pm.label LIKE 'E2E %'
-        AND NOT EXISTS (SELECT 1 FROM payment_submissions ps WHERE ps.payment_method_id = pm.id)`
-  );
+  await purgeNameScopedFixtures();
 
   // Notifications the run itself generated. These are addressed to the seeded STAFF accounts —
   // a test payment notifies the real cashier and superadmin — so deleting the throwaway client

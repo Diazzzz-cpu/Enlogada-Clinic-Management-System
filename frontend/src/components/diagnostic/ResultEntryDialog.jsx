@@ -1,13 +1,9 @@
 import React from 'react';
-import { printElement } from '../../lib/printArea';
-import { AlertCircle, CheckCircle2, FileText, Printer, Send } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, Paperclip, Send } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import { TEMPLATES_BY_CATEGORY } from '../../lib/resultTemplates';
-import MeasurementGrid from './MeasurementGrid';
-import ResultReport from '../ResultReport';
 
 /**
  * Recording findings, and authorising the release that sends them to the patient.
@@ -17,9 +13,19 @@ import ResultReport from '../ResultReport';
  * 
  * The release confirmation travels with it: authorising is irreversible from this screen
  * and emails the patient, so the question and the form asking it belong together.
- * Record Diagnostic Findings & Result Entry Modal
+ *
+ * ── The report is a document, not typing ────────────────────────────────────────────────────
+ *
+ * [1.94.0] This form used to ask for findings, remarks and a grid of structured measurements, and
+ * offered canned templates to start from. The clinic already produces a report file for every
+ * diagnosis, so all of that asked them to transcribe a document they were holding — which is why
+ * only 4 results in the whole database ever carried a structured measurement.
+ *
+ * What a result IS is now the attached document. The file is required to RELEASE but not to save,
+ * because parking a ticket in 'Waiting for Release' while the report is being produced is what
+ * that state has always been for.
  */
-export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
+export default function ResultEntryDialog({ entry, patientHistory }) {
   return (
     <>
       <Dialog
@@ -34,18 +40,22 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
                 <span className="text-sm font-bold">Result released successfully.</span>
               </div>
 
-              {/* The clinic's copy of what was just released, rendered by the same component that
-                  renders the patient's copy in the portal. They were two different documents
-                  before [1.50.0] — this one hardcoded the clinic's name and showed no referring
-                  physician, so the sheet filed here and the sheet the patient downloads disagreed
-                  about what the report said. */}
-              <ResultReport result={entry.justReleased} measurements={entry.justReleased.measurements || []} signatories={entry.justReleased.signatories || []} fieldSet={entry.fieldSet} />
+              {/* No generated certificate. [1.94.0] This used to render the clinic's own copy of
+                  the report from typed findings and measurements; the released document is now the
+                  file the clinic attached, so a second rendering of it here would be a letterhead
+                  wrapped around an empty box. The report is read and printed from the result, where
+                  the patient reads it too. */}
+              <div className="rounded-xl border border-line bg-slate-50/70 p-3 space-y-1">
+                <p className="m-0 text-fine font-semibold text-slate-700">
+                  {entry.justReleased.file_original_name || 'The attached report'} was sent to the patient.
+                </p>
+                <p className="m-0 text-fine text-gray-500">
+                  It is on this patient&apos;s record, and in their portal, where it can be read,
+                  downloaded and printed.
+                </p>
+              </div>
 
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => printElement(null, 'printing-report')} className="text-xs font-bold flex items-center space-x-1.5">
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Now</span>
-                </Button>
+              <div className="flex justify-end">
                 <Button
                   type="button"
                   onClick={entry.close}
@@ -59,7 +69,7 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
             <>
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              {entry.isEditing ? 'Correct Released Result' : 'Record Findings & Release Diagnostic Certificate'}
+              {entry.isEditing ? 'Correct Released Result' : 'Attach Report & Release Result'}
             </DialogTitle>
             <DialogDescription>
               Patient: <strong>{entry.activeTest?.first_name} {entry.activeTest?.last_name}</strong> &bull; Examination: <strong>{entry.activeTest?.test_name}</strong>
@@ -96,72 +106,36 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
               </div>
             )}
 
-            {/* Quick Template Generator Buttons — scoped to this department's category */}
-            {TEMPLATES_BY_CATEGORY[worklist.category]?.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="text-meta font-bold text-gray-500 uppercase tracking-wider block">Clinical Report Templates</span>
-                <div className="flex flex-wrap gap-2">
-                  {TEMPLATES_BY_CATEGORY[worklist.category].map(t => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => entry.applyTemplate(t.key)}
-                      className="text-fine font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1 rounded-lg border border-gray-200 cursor-pointer"
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Only for a test whose modality records measurements. Everything else is the
-                free-text form it has always been — a data-driven switch rather than a category
-                branch, so turning X-ray on later is seed data and not a code change. */}
-            <MeasurementGrid
-              fieldSet={entry.fieldSet}
-              values={entry.measurements}
-              patientSex={entry.activeTest?.sex}
-              onChange={entry.setMeasurements}
-              disabled={entry.saving}
-            />
-
+            {/* The report itself. Mandatory to RELEASE, not to save — see the note at the top.
+                The hint names which of the three states this ticket is in, because "no file" and
+                "a file is already on the server" look identical in an empty file input, and that
+                ambiguity is what would otherwise make a technician re-upload a report that was
+                already attached. activeTest.file_path comes from the worklist query. */}
             <div className="space-y-1.5">
-              <label htmlFor="diagnosticdashboard-findings-impression-required" className="field-label">Findings & Impression (Required)</label>
-              <textarea id="diagnosticdashboard-findings-impression-required"
-                rows={6}
-                placeholder="Enter detailed laboratory/imaging findings, measurements, and impression..."
-                value={entry.findings}
-                onChange={e => entry.setFindings(e.target.value)}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="diagnosticdashboard-remarks-recommendations-optional" className="field-label">Remarks / Recommendations (Optional)</label>
-              <Input id="diagnosticdashboard-remarks-recommendations-optional"
-                placeholder="e.g. Clinical correlation recommended..."
-                value={entry.remarks}
-                onChange={e => entry.setRemarks(e.target.value)}
-                className="text-xs rounded-xl"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="diagnosticdashboard-attach-report-file-optional" className="field-label">Attach Report File (Optional)</label>
-              <input id="diagnosticdashboard-attach-report-file-optional"
+              <label htmlFor="diagnosticdashboard-attach-report-file" className="field-label">
+                Attach Report File <span className="text-rose-600">*</span>
+              </label>
+              <input id="diagnosticdashboard-attach-report-file"
                 type="file"
                 accept="application/pdf,image/jpeg,image/png"
                 onChange={entry.chooseFile}
                 className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-600 hover:file:bg-brand-100 file:cursor-pointer cursor-pointer"
               />
-              <p className="text-fine text-gray-400 m-0">
-                PDF, JPEG, or PNG — up to 15MB.
-                {entry.isEditing && (entry.activeTest?.file_path || entry.activeTest?.file_url) && !entry.resultFile && ' A file is already attached — leave blank to keep it, or attach a new one to replace it.'}
-              </p>
-              {entry.resultFile && (
-                <p className="text-fine font-semibold text-slate-700 m-0">{entry.resultFile.name} ({(entry.resultFile.size / 1024).toFixed(0)} KB)</p>
+              {entry.resultFile ? (
+                <p className="text-fine font-semibold text-slate-700 m-0 flex items-center gap-1.5">
+                  <Paperclip className="w-3 h-3 flex-shrink-0" />
+                  {entry.resultFile.name} ({(entry.resultFile.size / 1024).toFixed(0)} KB)
+                </p>
+              ) : entry.activeTest?.file_path ? (
+                <p className="text-fine text-slate-600 m-0 flex items-center gap-1.5">
+                  <Paperclip className="w-3 h-3 flex-shrink-0" />
+                  {entry.activeTest.file_original_name || 'A report'} is already attached — choose a
+                  file only to replace it.
+                </p>
+              ) : (
+                <p className="text-fine text-gray-400 m-0">
+                  PDF, JPEG, or PNG — up to 15MB. Required before this result can be released.
+                </p>
               )}
             </div>
 
@@ -196,11 +170,13 @@ export default function ResultEntryDialog({ worklist, entry, patientHistory }) {
                 className="font-bold text-xs px-5 py-2 rounded-xl border-gray-200 flex items-center space-x-1.5"
               >
                 <FileText className="w-4 h-4" />
-                <span>{entry.saving ? 'Saving…' : 'Save Findings'}</span>
+                <span>{entry.saving ? 'Saving…' : 'Save for Later'}</span>
               </Button>
               <Button
                 type="button"
                 onClick={entry.requestRelease}
+                disabled={!entry.hasReport()}
+                title={entry.hasReport() ? undefined : 'Attach the report file first'}
                 className="font-bold text-xs px-5 py-2 rounded-xl flex items-center space-x-1.5"
               >
                 <Send className="w-4 h-4" />

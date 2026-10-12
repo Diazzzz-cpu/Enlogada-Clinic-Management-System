@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
+import { reportPart } from './helpers/reportFile.js';
 
 /**
  * A borrowed screen must not offer actions the borrower cannot perform. [1.53.0]
@@ -216,7 +217,7 @@ test.describe('An Admin reads the diagnostic screens without being offered what 
 
     const L = { Authorization: `Bearer ${lab}` };
     expect((await ctx.post(`${API}/results/${released}`, {
-      headers: L, multipart: { findings: 'Haemoglobin 13.4 g/dL. Within normal limits.' },
+      headers: L, multipart: { findings: 'Haemoglobin 13.4 g/dL. Within normal limits.', file: reportPart('borrowed') },
     })).status()).toBe(201);
     expect((await ctx.post(`${API}/results/${released}/release`, { headers: L })).status()).toBe(200);
   });
@@ -250,10 +251,10 @@ test.describe('An Admin reads the diagnostic screens without being offered what 
     await expect(row.getByRole('button', { name: /^(Email|Send again|Edit)$/ })).toHaveCount(0);
   });
 
-  test('the lab technician, whose screens they are, keeps Record Findings and Edit', async ({ page }) => {
+  test('the lab technician, whose screens they are, keeps Attach Report and Edit', async ({ page }) => {
     await signIn(page, 'lab@enlogada.com');
     const ticket = await openAndFind(page, 'Laboratory Worklist');
-    await expect(ticket.getByRole('button', { name: 'Record Findings' })).toBeVisible();
+    await expect(ticket.getByRole('button', { name: 'Attach Report' })).toBeVisible();
 
     const report = await openAndFind(page, 'Laboratory History');
     await expect(report.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();

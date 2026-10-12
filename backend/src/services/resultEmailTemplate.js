@@ -140,12 +140,23 @@ function reportTable(info) {
  * analytes collapsed into one paragraph is a different document. Escaped first, so a "<" in a
  * value stays a "<".
  */
-function findingsBlock(info) {
+function findingsBlock(info, { attached = false } = {}) {
   const findings = (info.findings || '').trim();
   const remarks = (info.remarks || '').trim();
   if (!findings && !remarks) {
+    // Say where the report actually IS, which depends on whether the attachment resolved. [1.94.0]
+    //
+    // This used to claim "in the attached report" unconditionally. resolveReportAttachment returns
+    // null on four ordinary conditions — the file missing on disk, over the 20MB cap, a path that
+    // escapes the upload root, or any throw — and the patient then received an email pointing at
+    // an attachment that was not there, under a sentence promising findings that were not there
+    // either. Harmless while findings carried the report; not harmless once the file IS the report.
+    //
+    // The portal is always true: getResultFile serves it to the patient who owns the visit.
     return `<p style="margin:18px 0;padding:12px 14px;background:#f8fafc;border-radius:6px;color:#475569;">
-              The written findings for this examination are in the attached report.
+              ${attached
+                ? 'The full report for this examination is attached to this email, and is also available in your patient portal.'
+                : 'The full report for this examination is available in your patient portal, where you can view, download and print it.'}
             </p>`;
   }
 

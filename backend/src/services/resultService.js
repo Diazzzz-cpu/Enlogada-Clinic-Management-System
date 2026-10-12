@@ -426,7 +426,7 @@ class ResultService {
         findings,
         remarks,
         releasedBy,
-        amendmentReason
+        amendmentReason,
       });
 
       // The structured half, written against the version that was just created.
@@ -509,7 +509,9 @@ class ResultService {
       throw error;
     }
 
-    if (requestingUser.roles.includes('Client')) {
+    const isClient = requestingUser.roles.includes('Client');
+
+    if (isClient) {
       if (ownership.patient_user_id !== requestingUser.userId) {
         const error = new Error('Access forbidden. This result does not belong to your account.');
         error.statusCode = 403;
@@ -519,7 +521,28 @@ class ResultService {
       assertStaffAllowedCategory(requestingUser, ownership.category_name);
     }
 
-    const result = await resultRepository.findResultByVisitTestId(visitTestId);
+    // A patient gets the last version that was AUTHORISED; staff get the current one. [1.94.0]
+    //
+    // This route checked ownership and department and then streamed whatever was current. That
+    // was survivable while the file supplemented typed findings and the portal simply did not
+    // offer a button for an unreleased result — but hiding a control is not enforcing a rule, and
+    // the file is now the entire report.
+    //
+    // Two things were wrong at once. A result recorded and not yet released is current, so a
+    // patient could fetch a draft clinical report nobody had authorised. And an amendment makes
+    // the unreleased v2 current while reopening the visit, which both served that draft AND —
+    // because the portal gates its buttons on the visit being Completed — took away the copy the
+    // patient had already legitimately been sent, for as long as the correction took to write.
+    //
+    // Reading the latest authorised version answers both: the draft is unreachable, and the
+    // superseded-but-released copy stays readable until its replacement is authorised.
+    //
+    // Gated on authorised_at and never released_at: released_at defaults to CURRENT_TIMESTAMP at
+    // insert, so it is never null and would gate nothing.
+    const result = isClient
+      ? await resultRepository.findLatestAuthorisedByVisitTestId(visitTestId)
+      : await resultRepository.findResultByVisitTestId(visitTestId);
+
     if (!result || !result.file_path) {
       const error = new Error('No uploaded file exists for this result.');
       error.statusCode = 404;
@@ -582,16 +605,26 @@ class ResultService {
          </p>`
       : '';
 
+    // "Set out below" is only true when something is actually set out below. [1.94.0] Once the
+    // report is an attached document rather than typed findings, that sentence and findingsBlock's
+    // wording both have to follow what the email really contains.
+    const hasWrittenFindings = Boolean(
+      (patientInfo.findings || '').trim() || (patientInfo.remarks || '').trim()
+    );
+
     const emailResult = await sendEmail({
       to: patientInfo.email,
       subject,
       html: wrapEmail(`
         <h2 style="margin:0 0 16px;font-size:18px;color:#0f172a;">Hello ${escapeHtml(patientName)},</h2>
         ${amendmentBanner}
-        <p>Your <strong>${escapeHtml(patientInfo.test_name)}</strong> report is ready, and is set out
-           below.${attachment ? ' A copy is attached to this email as well.' : ''}</p>
+        <p>Your <strong>${escapeHtml(patientInfo.test_name)}</strong> report is ready.${
+          hasWrittenFindings
+            ? ` It is set out below.${attachment ? ' A copy is attached to this email as well.' : ''}`
+            : attachment ? ' It is attached to this email.' : ''
+        }</p>
         ${reportTable(patientInfo)}
-        ${findingsBlock(patientInfo)}
+        ${findingsBlock(patientInfo, { attached: Boolean(attachment) })}
         <p style="margin:20px 0 0;font-size:13px;color:#475569;">
           These findings are for your doctor to interpret. If anything here is unclear, or if you
           feel unwell, please contact the clinic on ${escapeHtml(env.CLINIC_PHONE)}.
@@ -698,7 +731,29 @@ class ResultService {
     // Fetch result to confirm it exists
     const result = await resultRepository.findResultByVisitTestId(visitTestId);
     if (!result) {
-      const error = new Error('No result found for this visit test. Please upload findings first.');
+      const error = new Error('No result found for this visit test. Attach the report first.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // The report document is what is being authorised. [1.94.0]
+    //
+    // Findings are no longer typed — the clinic attaches the report it already produces — so a
+    // release with no file would send a patient an email about a result that contains nothing,
+    // and leave a 'Completed' ticket whose record is empty. The browser disables the release
+    // button for the same reason; this is the rule rather than the courtesy.
+    //
+    // On RELEASE and not on recording, deliberately: parking a ticket in 'Waiting for Release'
+    // while the report is being produced is what that state has always been for, and demanding
+    // the document to save it would remove a step the department actually uses.
+    //
+    // Reads the stored result rather than the request, so an amendment that carries no new upload
+    // passes on the file it inherited. Checking the upload instead would make every correction
+    // impossible.
+    if (env.RESULTS_REQUIRE_FILE && !result.file_path) {
+      const error = new Error(
+        'Attach the report file before releasing this result. The report is what the patient receives.'
+      );
       error.statusCode = 400;
       throw error;
     }
@@ -834,6 +889,14 @@ class ResultService {
     return this.withReportParts(rows);
   }
 
+  /**
+   * Adds what a printed report needs beyond its own row: the measurements and the signatories.
+   *
+   * Shared by the patient's history and a department's History [1.90.0]. History rendered the
+   * same report from rows carrying neither, so a CBC opened there printed its heading, its comment
+   * and not one value, and no signature block under it. Nothing in the suite had a released
+   * result with measurements to show it until the demo data filled the forms in.
+   */
   /**
    * Adds what a printed report needs beyond its own row: the measurements and the signatories.
    *

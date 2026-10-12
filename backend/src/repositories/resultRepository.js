@@ -23,6 +23,13 @@ class ResultRepository {
              -- worklist and the report both need to be able to name them. [1.23.0]
              pv.referring_physician, pv.referring_physician_prc,
              p.id as patient_id, p.first_name, p.last_name, p.birthdate, p.sex,
+             -- The current version's attachment, so the entry dialog can tell a technician that a
+             -- report is already on this ticket. [1.94.0] Without it the dialog can only see what
+             -- is in its own form state, so re-opening a parked ticket showed an empty file input
+             -- over a ticket that already had one, and a release from the row could not tell
+             -- whether there was anything to release. is_critical rides along for the same reason:
+             -- releasing from the row must not write a stale flag over a real one.
+             tr.file_path, tr.file_original_name,
              (
                SELECT hrt.approval_status
                FROM hmo_request_tests hrt
@@ -35,6 +42,9 @@ class ResultRepository {
       JOIN test_categories tc ON t.category_id = tc.id
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id
+      -- At most one row: uq_test_results_current_per_test is a partial unique index on
+      -- visit_test_id WHERE is_current, so this cannot multiply the worklist.
+      LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
       WHERE tc.name = $1
         AND pv.status = 'Processing'
         AND vt.status IN ('Processing', 'Waiting for Release')
@@ -242,6 +252,10 @@ class ResultRepository {
   async findVersionHistoryByVisitTestId(visitTestId) {
     const queryText = `
       SELECT tr.id, tr.version, tr.is_current, tr.findings, tr.remarks,
+             -- Which document each version carried. [1.94.0] The timeline rendered findings and
+             -- nothing else, so once the report is a file every row in an amendment chain would
+             -- have shown an empty expander — a history that cannot say what changed.
+             tr.file_original_name, tr.file_path IS NOT NULL AS has_file,
              tr.amendment_reason,
              tr.released_at, tr.authorised_at, tr.superseded_by,
              rec.first_name AS recorded_by_first_name, rec.last_name AS recorded_by_last_name,
@@ -256,9 +270,6 @@ class ResultRepository {
     return result.rows;
   }
 
-  // Phase B: single query backing the download route's ownership check — needs both the
-  // patient's user_id (Client-ownership check) and the test's category (staff-department check),
-  // matching the two branches assertStaffOwnsVisitTest/getPatientHistory already use elsewhere.
   async findOwnershipInfoByVisitTestId(visitTestId) {
     const queryText = `
       -- patient id as well as user_id: the PHI read audit keys on the patient, since
@@ -295,6 +306,34 @@ class ResultRepository {
     `;
     const result = await db.query(queryText, [visitTestId, releasedBy]);
     return result.rows[0];
+  }
+
+  /**
+   * The newest version of this result that was actually AUTHORISED, file columns only.
+   *
+   * What a patient is entitled to, as distinct from what is current. [1.94.0] Two cases make the
+   * difference matter, and both only became serious once the attached document became the whole
+   * report rather than a supplement to typed findings:
+   *
+   *   - A result recorded but not yet released is `is_current`. Serving that to the patient hands
+   *     them a draft clinical report nobody has authorised.
+   *   - An amendment sets the visit back to 'Waiting for Release' and makes the UNRELEASED v2
+   *     current. Reading `is_current` would both serve that draft and, if simply gated on
+   *     release, take away the copy they were legitimately sent while the correction is written.
+   *
+   * Ordering by version rather than by authorised_at: version is the chain's own sequence, while
+   * authorised_at is a wall-clock time that a backdating script or a clock change can reorder.
+   */
+  async findLatestAuthorisedByVisitTestId(visitTestId) {
+    const { rows } = await db.query(
+      `SELECT id, file_path, file_original_name, file_mime_type, version, authorised_at
+         FROM test_results
+        WHERE visit_test_id = $1 AND authorised_at IS NOT NULL
+        ORDER BY version DESC
+        LIMIT 1`,
+      [visitTestId]
+    );
+    return rows[0] || null;
   }
 
   async findResultByVisitTestId(visitTestId) {

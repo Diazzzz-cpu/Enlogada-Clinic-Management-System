@@ -69,7 +69,7 @@ export default function WorklistPanel({ worklist, entry }) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* "—" on a failure, and the table below says why with its Try again — not a caption here too. */}
         <MetricCard label="Awaiting Exam" value={worklistFailed ? '—' : processingCount} caption="Paid and released to you" captionTone="slate" icon={Clock} tone="indigo" />
-        <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Findings recorded, not authorised" captionTone="slate" icon={FileText} tone="amber" />
+        <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />
       </div>
 
       <div>
@@ -185,7 +185,7 @@ export default function WorklistPanel({ worklist, entry }) {
                             size="xs"
                           >
                             <FileText className="h-3 w-3" />
-                            <span>{test.test_status === 'Waiting for Release' ? 'Edit Findings' : 'Record Findings'}</span>
+                            <span>{test.test_status === 'Waiting for Release' ? 'Edit Report' : 'Attach Report'}</span>
                           </Button>
                         )}
                         {canRelease && test.test_status === 'Waiting for Release' && (

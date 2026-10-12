@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { reportPart } from './helpers/reportFile.js';
 
 // Result versioning.
 //
@@ -31,7 +32,12 @@ test.describe('Result versioning', () => {
   const record = async (token, fields) => {
     const res = await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: auth(token),
-      multipart: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)])),
+      // A release needs its report document [1.94.0]; findings are no longer typed.
+      // Overridable, so a spec that is specifically about a result WITHOUT one still can.
+      multipart: {
+        file: reportPart('versioning'),
+        ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)])),
+      },
     });
     return { status: res.status(), body: await res.json() };
   };
@@ -191,7 +197,12 @@ test.describe('Amending an already-released result', () => {
   const record = async (fields) => {
     const res = await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: auth(lab),
-      multipart: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)])),
+      // A release needs its report document [1.94.0]; findings are no longer typed.
+      // Overridable, so a spec that is specifically about a result WITHOUT one still can.
+      multipart: {
+        file: reportPart('amendment'),
+        ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)])),
+      },
     });
     return res.status();
   };

@@ -105,6 +105,10 @@ const LANDING_SCREENS = [
     mustNotSay: [/(^|\s)0\s+in the queue/i, /showing 0 of 0/i, /nobody is waiting/i, /no bookings left to arrive/i],
   },
   {
+    // "Couldn't check" and "Nothing outstanding" were the Critical Callbacks tile's two
+    // captions, and that tile went with the callback feature in [1.95.0]. What this screen
+    // still has to prove is the property the whole file is about: a failed count reads as a
+    // dash, never as 0.
     email: 'lab@enlogada.com', screen: 'Laboratory Worklist',
     mustSay: [/awaiting exam\s+—/i, /couldn.t load the worklist/i],
     mustNotSay: [/awaiting exam\s+0\b/i, /nothing waiting in/i],

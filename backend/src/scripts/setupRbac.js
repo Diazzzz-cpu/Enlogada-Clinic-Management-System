@@ -153,6 +153,30 @@ const ADMIN = [
  * See the note at the DELETE below for why absence from the template is not enough. Every entry
  * is a correction somebody reasoned about, not a tidy-up.
  */
+/**
+ * Permissions the product no longer has, removed with every grant of them.
+ *
+ * REVOKED above undoes ONE grant of a permission that still exists. This is the other case: the
+ * capability itself is gone, so the row and every grant of it have to go too. Deleting the entry
+ * from PERMISSIONS is not enough for the same reason it is not enough there — this script adds and
+ * reconciles, it does not prune, so a database that ran the old version keeps the row forever and
+ * the matrix in source stops matching the matrix in the database.
+ *
+ * A retired permission is worse than a stale grant: it shows up on SuperAdmin's "Who sees what"
+ * grid as a capability somebody can tick, and nothing anywhere checks it.
+ *
+ * Same discipline as REVOKED — every entry states why, because an entry with no reason is
+ * indistinguishable from a mistake.
+ */
+const RETIRED = [
+  {
+    permission: 'results:acknowledge_critical',
+    reason:
+      'critical-result callbacks were removed in [1.95.0]. The clinic reports clinical results ' +
+      'and does not diagnose, so there is no call for it to make and nothing to acknowledge.',
+  },
+];
+
 const REVOKED = [
   {
     role: 'Cashier',
@@ -252,6 +276,23 @@ const setupRbac = async () => {
         );
         if (result.rowCount > 0) {
           logger.info(`  revoked ${permission} from ${role} — ${reason}`);
+        }
+      }
+
+      // Grants first: role_permissions references permissions, so the row cannot go while any
+      // grant of it survives.
+      for (const { permission, reason } of RETIRED) {
+        const grants = await db.query(
+          `DELETE FROM role_permissions
+                 USING permissions p
+                 WHERE role_permissions.permission_id = p.id AND p.name = $1`,
+          [permission]
+        );
+        const perms = await db.query('DELETE FROM permissions WHERE name = $1', [permission]);
+        if (grants.rowCount > 0 || perms.rowCount > 0) {
+          logger.info(
+            `  retired ${permission} — ${grants.rowCount} grant(s) and ${perms.rowCount} permission row(s) removed. ${reason}`
+          );
         }
       }
     });

@@ -1016,33 +1016,48 @@ Services Catalogue.
   belong to it.
 - **A laboratory RESULT is text.** `YELLOW`, `NEGATIVE`, `FEW`, `0-2` and `1.010` share one column,
   often on one sheet. Only analytes numeric on every observed sheet get `value_kind: 'number'`.
-- **`findings` is required only when a test has NO field set.** `[1.52.0]` A laboratory form has no
-  narrative — the clinic's sheet carries only a COMMENT box — so a completed grid is proof enough.
-  Tests with no field set are unchanged, which is what keeps `laboratory.spec.js` green.
-
-- **A quick-fill template must never carry a number.** `[1.51.0]` `lib/resultTemplates.js` is
-  paste-able boilerplate one click from a real patient's report, and it shipped three invented
-  clinical figures: a fabricated CBC value beside a reference range that is not this clinic's, and
-  a uterus size that would land in the narrative while the Measurements block carried the real one.
-  Templates are a starting point for prose. Numbers come from the form or from the scanner.
+- **There is no critical-result callback.** `[1.95.0]` The clinic reports clinical results and
+  does not diagnose, so the flag, the callback queue, the acknowledge flow, the "contact the
+  clinic" email and `results:acknowledge_critical` are all gone. The `is_critical` columns and
+  their three historical rows stay: removing a feature is not a reason to erase the record that
+  a clinician judged a value dangerous and somebody telephoned a patient about it. Nothing
+  writes or displays them.
+- **A result is its attached report document.** `[1.94.0]` Findings, remarks, the structured
+  measurement grid and the quick-fill templates were all removed: the clinic already produces a
+  report file for every diagnosis, and asking a technologist to re-enter it was work done twice.
+  Across 35 seeded forms and 133 fields, exactly 4 results in the database ever carried a
+  structured measurement while 84 of 90 already had a file. The file is required to RELEASE and
+  not to save, so a ticket still parks in 'Waiting for Release' while the report is produced.
+  `RESULTS_REQUIRE_FILE=false` restores the old behaviour without a deploy.
+- **The measurement write path is unreachable but alive.** `[1.94.0]` `mergeMeasurements`, the
+  derivation pass and `GET /results/field-set/:visitTestId` no longer have a caller in the
+  product. They stay because deleting the field-set lookup also deletes the "this test does not
+  record structured measurements" 400 — without which a `measurements` key would be silently
+  ignored — and because four historical results still render through the read half.
 - **`reference_note` mirrors the clinic's own printed form; it never imports literature.**
   `[1.51.0]` `N.V. = 5.0 - 25.0 gms` is on the prostate because it is printed on their sheet.
   Endometrial thickness gets NONE, despite a well-known 4mm cut-off, because that threshold is
   conditional on a population `result_fields` does not hold — postmenopausal *and* bleeding. A note
   that is wrong for most patients is worse than no note.
 
-- **The clinical report has one rendering: `components/ResultReport.jsx`.** The clinic's copy and
-  the patient's copy are the same document by requirement, so a second rendering can only agree
-  with the first by coincidence. Print through `lib/printReport.js`, never a bare `window.print()`:
+- **`components/ResultReport.jsx` is now the LEGACY rendering.** `[1.94.0]` The generated
+  certificate was dropped: the clinic's attached document is the report, and wrapping a letterhead
+  and signature block around an empty findings box said less than the file itself. It still renders
+  results that carry measurements or no file — the 90 recorded before the change — and the rule
+  below still holds for those. The clinic's copy and the patient's copy are the same document by
+  requirement, so a second rendering can only agree with the first by coincidence. Print through `lib/printReport.js`, never a bare `window.print()`:
   two mounted `.print-area` elements print stacked on top of each other, and the diagnostic
   dashboard can hold three at once. Every list a report opens from must carry what it prints
   beyond its row: `resultService.withReportParts` attaches the measurements and signatories to the
   patient's history and a department's History `[1.90.0]`, and the query selects
   `patient_type_name`. History used to open a CBC with no values at all; a new list that opens a
   report goes through the same method.
-- **Never add a second `<textarea>` to the result entry dialog.** `laboratory.spec.js` drives the
-  findings box with a bare `page.locator('textarea')`, so a second one breaks two of its tests with
-  a strict-mode violation from a file that never mentions the component that added it.
+- **Never add a second `<input type="file">` to the result entry dialog.** `[1.94.0]` This rule
+  used to be about `<textarea>`, because `laboratory.spec.js` drove the findings box with a bare
+  `page.locator('textarea')`. The textarea is gone and that spec now attaches the report with a
+  bare `page.locator('input[type="file"]')`, so the hazard moved rather than disappeared: a second
+  file input breaks two of its tests with a strict-mode violation from a file that never mentions
+  the component that added it. `ultrasound-measurements.spec.js` guards the count.
 
 **Don't couple a test to a class name.** `payment.spec.js` used to scope itself with
   `ancestor::div[contains(@class,"rounded-2xl")]`, so changing a corner radius failed a payment

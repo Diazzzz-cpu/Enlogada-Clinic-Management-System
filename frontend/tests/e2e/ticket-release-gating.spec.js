@@ -5,6 +5,7 @@ import { selfPayTypeId } from './helpers/patients.js';
 import { COUNTER_PAYMENT_METHODS } from '../../src/lib/paymentMethods.js';
 import { nthWorkingDay } from './helpers/dates.js';
 import { fixturePerson } from './helpers/people.js';
+import { reportPart } from './helpers/reportFile.js';
 
 // Ticket Release Gating.
 //
@@ -174,13 +175,61 @@ test.describe('Ticket release gating (API)', () => {
     expect(ticket.test_status).toBe('Waiting for Release');
   });
 
+  test('a result cannot be released without its report document', async () => {
+    // The rule the whole [1.94.0] change rests on. Findings are no longer typed — the clinic
+    // attaches the report it already produces — so releasing without one would email a patient
+    // about a result that contains nothing, and leave a 'Completed' ticket whose record is empty.
+    //
+    // Gates RELEASE and not recording, deliberately. Parking a ticket in 'Waiting for Release'
+    // while the report is being produced is what that state has always been for, and demanding
+    // the document to save would remove a step the department actually uses. Both halves are
+    // asserted here, because the useful behaviour is the pair.
+    const { visit, visitTestId } = await createUnreleasedWalkIn(apiContext, recToken);
+    await payAndReleaseWalkIn(apiContext, API, visit.id);
+
+    const parked = await apiContext.post(`${API}/results/${visitTestId}`, {
+      headers: { Authorization: `Bearer ${labToken}` },
+      data: { findings: 'Awaiting the printed report.', remarks: '' }
+    });
+    expect(parked.status(), 'a ticket may still be parked without the document').toBe(201);
+
+    const refused = await apiContext.post(`${API}/results/${visitTestId}/release`, {
+      headers: { Authorization: `Bearer ${labToken}` }
+    });
+    expect(refused.status(), 'but it may not be released without one').toBe(400);
+    expect(
+      (await refused.json()).message,
+      'the refusal has to say what to do, not merely that it refused'
+    ).toMatch(/attach the report/i);
+
+    // The ticket is untouched by the refusal — still parked, not completed.
+    const after = await apiContext.get(`${API}/results/pending/Laboratory`, {
+      headers: { Authorization: `Bearer ${labToken}` }
+    });
+    const stillPending = ((await after.json()).data.pending || [])
+      .some((t) => t.visit_test_id === visitTestId);
+    expect(stillPending, 'a refused release must leave the ticket where it was').toBeTruthy();
+
+    // Attach the report and it goes through, on the same ticket.
+    await apiContext.post(`${API}/results/${visitTestId}`, {
+      headers: { Authorization: `Bearer ${labToken}` },
+      multipart: { findings: 'Report attached.', remarks: '', file: reportPart('gating') }
+    });
+    const released = await apiContext.post(`${API}/results/${visitTestId}/release`, {
+      headers: { Authorization: `Bearer ${labToken}` }
+    });
+    expect(released.status(), 'with the document, the same release succeeds').toBe(200);
+  });
+
   test('releasing the last test completes the visit', async () => {
     const { visit, visitTestId } = await createUnreleasedWalkIn(apiContext, recToken);
     await payAndReleaseWalkIn(apiContext, API, visit.id);
 
     await apiContext.post(`${API}/results/${visitTestId}`, {
       headers: { Authorization: `Bearer ${labToken}` },
-      data: { findings: 'Findings.', remarks: '' }
+      // multipart, not JSON: a release needs its report document [1.94.0], and the
+      // document can only travel as a file part.
+      multipart: { findings: 'Findings.', remarks: '', file: reportPart('release') }
     });
     const releaseRes = await apiContext.post(`${API}/results/${visitTestId}/release`, {
       headers: { Authorization: `Bearer ${labToken}` }

@@ -62,21 +62,45 @@ test.describe('Result version history', () => {
     expect(versions.some((v) => !v.is_current && v.findings)).toBeTruthy();
   });
 
-  test('an amendment records WHY it was made', async () => {
-    const amended = await findAmended();
-    test.skip(!amended, 'Need an amended result.');
+  test('the versions endpoint surfaces the reason, and never puts one on the original', async () => {
+    // Looks for a chain that HAS a reason rather than asserting that whichever chain it finds
+    // first must have one. [1.94.0]
+    //
+    // The old form took the first released Laboratory result with more than one version and
+    // demanded a reason from it. That is not a property of the system: the database carries
+    // chains amended through the API before the rule existed, and chains built by other specs
+    // that supersede without one. It passed on luck — which is the same luck [1.70.0] removed
+    // from this file's sibling — and started failing the moment the data grew past it.
+    //
+    // Enforcement is already proven at the API in result-versioning.spec.js: a released result is
+    // refused without a reason and accepted with one. What is left for THIS endpoint to prove is
+    // that the reason it stored comes back out, and comes back on the right version.
+    const released = (await (await ctx.get(`${API}/results/released/Laboratory`, { headers: auth() })).json())
+      .data.released || [];
+    const chains = released.filter((r) => Number(r.version || 1) > 1);
 
-    const res = await ctx.get(`${API}/results/${amended.visit_test_id}/versions`, { headers: auth() });
-    const { versions } = (await res.json()).data;
+    let versions = null;
+    for (const chain of chains) {
+      const res = await ctx.get(`${API}/results/${chain.visit_test_id}/versions`, { headers: auth() });
+      const rows = (await res.json()).data.versions || [];
+      if (rows.some((v) => (v.amendment_reason || '').trim())) { versions = rows; break; }
+    }
+    test.skip(!versions, 'Need an amended result carrying a reason — seedDemoScenario creates one.');
 
-    // The reason sits on the version that INTRODUCED the change, not on the one replaced — a
-    // reason is given when an amendment is made. So the original has none and at least one of the
-    // later versions must.
-    const withReason = versions.filter((v) => (v.amendment_reason || '').trim());
-    expect(withReason.length, 'an amended report must say why').toBeGreaterThan(0);
-
+    // The reason sits on the version that INTRODUCED the change, not on the one replaced.
     const original = versions.find((v) => Number(v.version) === 1);
-    if (original) expect((original.amendment_reason || '').trim()).toBe('');
+    if (original) {
+      expect(
+        (original.amendment_reason || '').trim(),
+        'the original was not an amendment, so it explains nothing'
+      ).toBe('');
+    }
+
+    const later = versions.filter((v) => Number(v.version) > 1);
+    expect(
+      later.some((v) => (v.amendment_reason || '').trim()),
+      'the version that replaced it must say why'
+    ).toBeTruthy();
   });
 
   test('the history requires results:read — a patient cannot walk the chain', async () => {

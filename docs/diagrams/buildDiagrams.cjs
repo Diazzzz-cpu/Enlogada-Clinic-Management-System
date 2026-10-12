@@ -139,6 +139,7 @@ function flowchart(spec) {
   const lastOfColumn = [];
   const firstOfColumn = [];
   const merges = [];
+  let endLane = -1;
   columns.forEach((col, ci) => {
     const cx = xs[ci];
     let y = topY;
@@ -175,7 +176,12 @@ function flowchart(spec) {
         if (step.side.back) {
           p.edge(side, at.cell, '', S.edge, [[cx + NODE_W + 36 + SIDE_W / 2, at.y - 26], [cx + NODE_W / 2, at.y - 26]]);
         } else if (step.side.toEnd || !rejoin) {
-          merges.push(side);               // a branch that finishes here, e.g. a refusal
+          // A branch that finishes here, e.g. a refusal. It leaves to the RIGHT and drops in a
+          // lane of its own: straight down out of the box, which is the obvious route, runs the
+          // line through every side box below it in the same column — the Desk's no-show branch
+          // crossed three of them.
+          endLane += 1;
+          merges.push({ cell: side, lane: cx + NODE_W + 36 + SIDE_W + 22 + endLane * 20 });
         } else {
           // Down the side column, across the gap above the step it rejoins, and into its TOP —
           // the same point the main path arrives at, which is what a merge looks like.
@@ -215,8 +221,12 @@ function flowchart(spec) {
   const end = p.node('End', 60 + totalW / 2 - 60, corridor + 46, 120, 44, S.term);
   // In a chained chart only the final column reaches End; the others continue into the next column.
   const finishers = spec.chain ? [lastOfColumn[lastOfColumn.length - 1]] : lastOfColumn;
-  finishers.concat(merges).forEach((cell) => {
+  finishers.forEach((cell) => {
     p.edge(cell, end, '', S.edge + 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;', [[cell.x + cell.w / 2, corridor]]);
+  });
+  merges.forEach(({ cell, lane }) => {
+    p.edge(cell, end, '', S.edge + 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;',
+      [[lane, cell.y + cell.h / 2], [lane, corridor]]);
   });
   return p;
 }
@@ -259,9 +269,12 @@ const ADMIN_FLOW = {
 // answer decides whether the next click is Check in or Register. So the ticket is issued once, on
 // the one path, and registering is the no branch that rejoins it.
 const RECEPTIONIST_FLOW = {
-  name: 'Receptionist', actor: 'Receptionist', landing: 'Desk',
+  name: 'Receptionist', actor: 'Receptionist', landing: 'Today',
   columns: [
-    [{ k: 'proc', l: 'Search name, reference or QR' },
+    [{ k: 'proc', l: 'Desk' },
+      { k: 'dec', l: 'Someone at the desk?', mainLabel: 'yes',
+        side: { l: 'Mark a no-show', label: 'no', toEnd: true } },
+      { k: 'proc', l: 'Search name, reference or QR' },
       { k: 'dec', l: 'Booking for today?', mainLabel: 'yes',
         side: { l: 'Register walk-in', label: 'no', mergeTo: 2 } },
       { k: 'proc', l: 'Check in the booking' },
@@ -272,7 +285,6 @@ const RECEPTIONIST_FLOW = {
       { k: 'dec', l: 'Already paid online?', mainLabel: 'no',
         side: { l: 'Visit goes to department', label: 'yes', toEnd: true } },
       { k: 'proc', l: 'Send patient to the cashier' }],
-    [{ k: 'proc', l: 'Booking did not arrive' }, { k: 'proc', l: 'Mark no-show' }],
     [{ k: 'proc', l: 'Visit History' }, { k: 'proc', l: 'Review past visits' }],
   ],
 };
@@ -281,9 +293,10 @@ const RECEPTIONIST_FLOW = {
 // Reversing one belongs under Transaction History, where the receipt is found, rather than
 // hanging off the landing screen as though a refund started from nowhere.
 const CASHIER_FLOW = {
-  name: 'Cashier', actor: 'Cashier', landing: 'Billing Queue',
+  name: 'Cashier', actor: 'Cashier', landing: 'Today',
   columns: [
-    [{ k: 'proc', l: 'Select patient to bill' },
+    [{ k: 'proc', l: 'Billing Queue' },
+      { k: 'proc', l: 'Select patient to bill' },
       { k: 'proc', l: 'System computes the bill' },
       { k: 'dec', l: 'Senior or PWD ID?', mainLabel: 'no',
         side: { l: 'Apply 20% discount', label: 'yes' } },
@@ -310,9 +323,10 @@ const CASHIER_FLOW = {
 // as another thing the technologist does.
 function departmentFlow(dept, formStep) {
   return {
-    name: dept, actor: `${dept} Staff`, landing: `${dept} Worklist`,
+    name: dept, actor: `${dept} Staff`, landing: 'Today',
     columns: [
-      [{ k: 'proc', l: 'Open a released ticket' },
+      [{ k: 'proc', l: `${dept} Worklist` },
+        { k: 'proc', l: 'Open a released ticket' },
         { k: 'proc', l: 'Perform the test' },
         { k: 'io', l: formStep },
         { k: 'proc', l: 'Save findings' },
@@ -320,12 +334,10 @@ function departmentFlow(dept, formStep) {
           side: { l: 'Leave for release later', label: 'no', toEnd: true } },
         { k: 'proc', l: 'Release the result' },
         { k: 'proc', l: 'Patient emailed the report' }],
-      [{ k: 'proc', l: 'Open a released result' },
-        { k: 'proc', l: 'Amend the findings' },
-        { k: 'proc', l: 'Save as a new version' },
-        { k: 'proc', l: 'Earlier version kept' }],
       [{ k: 'proc', l: `${dept} History` },
         { k: 'proc', l: 'Search past reports' },
+        { k: 'dec', l: 'Correction needed?', mainLabel: 'no',
+          side: { l: 'Amend; earlier version kept', label: 'yes', toEnd: true } },
         { k: 'io', l: 'Print or resend report' }],
     ],
   };
@@ -378,7 +390,7 @@ function useCase(spec) {
 
 const USE_CASES = [
   { name: 'Super Admin', actor: 'Super Admin',
-    cases: ['Login', 'Manage Roles and Permissions', 'Manage Per-Account Access', 'Manage Staff and Admin Accounts', 'Manage Services, Packages and Pricing', 'Publish Payment Channels', 'Manage Clinic Schedule', 'View System Analytics', 'View Activity Log', 'Archive and Restore Patient Records', 'Logout'],
+    cases: ['Login', 'View Today', 'Manage Roles and Permissions', 'Manage Per-Account Access', 'Manage Staff and Admin Accounts', 'Manage Services, Packages and Pricing', 'Publish Payment Channels', 'Manage Clinic Schedule', 'View System Analytics', 'View Activity Log', 'Archive and Restore Patient Records', 'Logout'],
     relations: [{ from: 'Manage Roles and Permissions', to: 'Record Change in Activity Log', kind: 'include' }] },
   { name: 'Admin', actor: 'Admin',
     cases: ['Login', 'View Today', 'Decide HMO Claims', 'Manage Staff Accounts', 'Manage Appointments', 'Manage Patient Records', 'Monitor Cashier Transactions', 'Generate Reports', 'View Activity Log', 'Logout'],
@@ -390,13 +402,13 @@ const USE_CASES = [
     cases: ['Login', 'View Today', 'Process Billing and Payment', 'Apply Statutory Discount', 'Review Online Payment Proof', 'Reverse a Payment', 'View Transaction History', 'Logout'],
     relations: [{ from: 'Process Billing and Payment', to: 'Issue Receipt', kind: 'include' }, { from: 'View Transaction History', to: 'Print Receipt Copy', kind: 'extend' }] },
   { name: 'Laboratory Staff', actor: 'Laboratory Staff',
-    cases: ['Login', 'View Laboratory Worklist', 'Upload Laboratory Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
+    cases: ['Login', 'View Today', 'View Laboratory Worklist', 'Upload Laboratory Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
     relations: [{ from: 'Search Result History', to: 'Print Laboratory Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
   { name: 'Ultrasound Staff', actor: 'Ultrasound Staff',
-    cases: ['Login', 'View Ultrasound Worklist', 'Upload Ultrasound Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
+    cases: ['Login', 'View Today', 'View Ultrasound Worklist', 'Upload Ultrasound Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
     relations: [{ from: 'Search Result History', to: 'Print Ultrasound Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
   { name: 'Xray Staff', actor: 'X-Ray Staff',
-    cases: ['Login', 'View X-Ray Worklist', 'Upload X-Ray Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
+    cases: ['Login', 'View Today', 'View X-Ray Worklist', 'Upload X-Ray Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
     relations: [{ from: 'Search Result History', to: 'Print X-Ray Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
   { name: 'Client Patient', actor: 'Client / Patient',
     cases: ['Register Account', 'Login', 'View Available Services', 'Manage Patient Profiles', 'Book Appointment', 'Reschedule or Cancel Booking', 'Pay Online and Upload Proof', 'View Diagnostic Results', 'View Receipt', 'Manage Account Profile', 'Logout'],

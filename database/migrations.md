@@ -1,5 +1,37 @@
 # Database Migration & Schema History
 
+## [1.103.0] - 2026-10-12 (The diagrams checked against the system, and the two places they disagreed)
+
+No migration. Documentation only.
+
+Steven asked whether the diagrams match the current system. Checked rather than asserted: the
+committed `.drawio` files regenerate byte-identical, the ERD is read from the live database and
+draws 36 of 36 tables, and every screen name, route and permission in the flowcharts, use cases
+and DFDs was compared with `config/navigation.js` and the API. Two disagreements, both real:
+
+- **Five charts skipped Today.** Since [1.77.0] every member of staff signs in to Today and opens
+  their console from the sidebar; Super Admin and Admin said so and the Receptionist, Cashier and
+  three department charts went straight from the access check to their console. They land on Today
+  now, and each column opens with the screen it uses (Desk, Billing Queue, a worklist, a History),
+  which also keeps a screen's name out of the other columns. The Desk's no-show moved inside the
+  Desk column behind "Someone at the desk?", and amending a report moved to History, where the app
+  offers Edit.
+- **Four use cases did not name Today.** Admin, Receptionist and Cashier listed "View Today";
+  Super Admin and the three departments did not, though they land there too. All eight staff
+  actors name it now.
+
+**The checker gained the fault that slipped past it.** Rerouting the no-show put a line straight
+down through three boxes, and nothing complained: OVERLAP compares boxes with boxes and never
+looks at a line. `checkDiagrams.cjs` now reports a line that passes through a box it is not
+attached to, judging only the axis-aligned segments the build script fixes — a diagonal in the
+file means draw.io is routing that stub itself and its real path is not in the file, so testing
+its bounding box reports every box in a wide sweep (19 of them, on the first attempt).
+
+Verified in both directions, which is the point of a checker: with the old routing put back it
+reports the three crossings, and with the fix in place it reports none.
+
+Checked: `checkDiagrams.cjs` clean on all 36 pages, and all 36 PNGs re-exported and distinct.
+
 ## [1.102.0] - 2026-10-07 (The flowcharts take the paper's own header)
 
 No migration. Documentation only.

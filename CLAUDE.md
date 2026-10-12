@@ -1094,7 +1094,12 @@ Services Catalogue.
   SAYS in the script, not in the `.drawio`, or the next regeneration discards it — hand-tuned
   placement in the `.drawio` is fine and expected. The System Architecture figure is not generated.
   `checkDiagrams.cjs` reads the files back and fails on a decision with fewer than two exits, a
-  dead end, overlapping boxes or a label too long to read; run it after any change.
+  dead end, a LINE THROUGH A BOX it is not attached to, overlapping boxes, or a label too long to
+  read; run it after any change. It judges only the axis-aligned segments this script fixes —
+  a diagonal in the file means draw.io is routing that stub itself and its real path is not there.
+  **A role's chart lands on Today** `[1.103.0]`, like the app: sign-in goes to Today for every
+  member of staff, and each column opens with the screen it uses (Desk, Billing Queue, a
+  worklist), which is also what keeps that screen's name out of the other columns.
   **One flow, one line, one label on it — and the actor is never drawn big** `[1.100.0]`. Steven's
   rule: a DFD keeps the paper's own box sizes (a modest process box, a small actor), and the
   ROUTING is what makes it readable. Level 0 gives every flow its own corridor and NESTS them —

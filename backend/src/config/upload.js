@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
+const { resolveReportType, contentMatches, MESSAGE: REPORT_TYPE_MESSAGE } = require('../constants/reportFileTypes');
 
 // Feature Gap Plan Phase B: diagnostic result files.
 //
@@ -28,12 +29,9 @@ const multer = require('multer');
 const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads', 'results');
 fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
 
-// Extension is derived from the mime type we accepted, never from the client's filename.
-const RESULT_MIME_EXTENSIONS = new Map([
-  ['application/pdf', '.pdf'],
-  ['image/jpeg', '.jpg'],
-  ['image/png', '.png'],
-]);
+// Which report types are accepted, and how each is recognised, lives in
+// constants/reportFileTypes.js [1.96.0]. The stored extension still never comes from the client's
+// filename: it is the first extension of the allowlisted type the upload resolved to.
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
 
 /**
@@ -52,17 +50,19 @@ const assertInside = (root, name, cb) => {
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_ROOT),
   filename: (req, file, cb) => {
-    const ext = RESULT_MIME_EXTENSIONS.get(file.mimetype) || '.bin';
+    const ext = file.reportType ? file.reportType.exts[0] : '.bin';
     assertInside(UPLOAD_ROOT, `${crypto.randomBytes(16).toString('hex')}${ext}`, cb);
   }
 });
 
 const fileFilter = (req, file, cb) => {
-  if (!RESULT_MIME_EXTENSIONS.has(file.mimetype)) {
-    const error = new Error('Unsupported file type. Only PDF, JPEG, and PNG files are allowed.');
+  const type = resolveReportType(file.originalname, file.mimetype);
+  if (!type) {
+    const error = new Error(REPORT_TYPE_MESSAGE);
     error.statusCode = 400;
     return cb(error);
   }
+  file.reportType = type; // read by storage.filename and by the contents check below
   cb(null, true);
 };
 
@@ -89,10 +89,42 @@ const classifyUploadError = (err) => {
   return err;
 };
 
+/**
+ * The saved bytes must be the format the upload claimed. [1.96.0]
+ *
+ * Runs after multer has written the file, because a fileFilter only ever sees the name and the
+ * browser's label. A mismatch is deleted before anything records it, so a renamed executable
+ * never becomes a patient's "report". The whole file is read rather than a header, because a
+ * DOCX or XLSX is only recognisable from the file list at the end of the ZIP; the 15MB cap keeps
+ * that cheap.
+ *
+ * On success the stored label becomes the type's canonical one: a .csv that Windows labelled
+ * `application/vnd.ms-excel` is saved, served and emailed as `text/csv`.
+ */
+const verifyReportContents = (file) => {
+  const buffer = fs.readFileSync(file.path);
+  if (!contentMatches(file.reportType, buffer)) {
+    fs.unlink(file.path, () => {});
+    const error = new Error(
+      `This file is not a valid ${file.reportType.label} file. Check that it opens on your computer, then attach it again.`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+  file.mimetype = file.reportType.mime;
+};
+
 const uploadResultFileMiddleware = (req, res, next) => {
   uploadResultFile.single('file')(req, res, (err) => {
     if (err) {
       return next(classifyUploadError(err));
+    }
+    if (req.file) {
+      try {
+        verifyReportContents(req.file);
+      } catch (e) {
+        return next(e);
+      }
     }
     next();
   });

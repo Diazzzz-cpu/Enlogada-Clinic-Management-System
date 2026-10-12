@@ -1041,6 +1041,11 @@ Services Catalogue.
   that is wrong for most patients is worse than no note.
 
 - **`components/ResultReport.jsx` is now the LEGACY rendering.** `[1.94.0]` The generated
+- **A report may be PDF, JPEG, PNG, Word or a spreadsheet.** `[1.96.0]` The list is
+  `backend/src/constants/reportFileTypes.js`, mirrored in `frontend/src/lib/reportFileTypes.js`;
+  change both together. Office types are judged by extension, label AND contents, because their
+  browser labels are unreliable — never go back to trusting the label alone. Macro-enabled files
+  (DOCM, XLSM) stay refused. PDFs and images are served inline, everything else as a download.
   certificate was dropped: the clinic's attached document is the report, and wrapping a letterhead
   and signature block around an empty findings box said less than the file itself. It still renders
   results that carry measurements or no file — the 90 recorded before the change — and the rule

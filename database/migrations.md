@@ -1,5 +1,52 @@
 # Database Migration & Schema History
 
+## [1.96.0] - 2026-10-04 (A report may be a Word document or a spreadsheet)
+
+No migration and no setup step. `test_results.file_mime_type` is free text and already holds
+whatever type was accepted.
+
+### Why
+
+The clinic's reports come out of more than one program: the laboratory analysers export
+spreadsheets and the radiologist types into a word processor. Since [1.94.0] the attached file IS
+the result, so accepting only PDF, JPEG and PNG meant a technician converting a report the clinic
+had already produced — the double work [1.94.0] set out to remove.
+
+### What is accepted
+
+PDF, JPEG and PNG as before; Word documents (DOCX, DOC, ODT, RTF); spreadsheets (XLSX, XLS, ODS,
+CSV). Macro-enabled Office files (DOCM, XLSM) are refused: a report has no reason to run code on the
+patient's machine. The list lives in `backend/src/constants/reportFileTypes.js`, mirrored for the
+instant check in the dialog by `frontend/src/lib/reportFileTypes.js`.
+
+### Why the declared type is no longer enough on its own
+
+It was enough for PDF and images because browsers report them consistently. Office files are not
+like that: Windows reports a .csv as `application/vnd.ms-excel` whenever Excel is installed, and a PC
+without Office can send a .docx or .xlsx with no type at all. So for those types three things
+decide together: the extension (from the allowlist, never used raw to build a path), a label that
+type is known to arrive with, and the saved file's contents. `upload.js` checks the contents after
+multer writes the file and deletes a mismatch before anything records it, so an executable renamed
+to report.docx is refused with "This file is not a valid Word (DOCX) file". The contents check now
+covers PDF, JPEG and PNG as well; every existing fixture already carried a real header.
+
+The stored type is the canonical one for the format, not the browser's label, so a CSV labelled as
+an Excel file is saved, served and emailed as `text/csv`.
+
+### Viewing and downloading
+
+PDFs and images still open in the browser. Word, Excel and CSV reports are served as downloads
+(`Content-Disposition: attachment`), because no browser renders them and a CSV shown inline is a
+page of raw text. `ResultDocument` already offered "Download it to open in the right application"
+for anything it cannot preview, and the result email already attached any stored type, so neither
+needed a change.
+
+### Tests
+
+`result-file-types.spec.js` uploads genuine minimal .docx and .xlsx files (built in
+`helpers/officeFiles.js`, which Word and Excel open) and a CSV, releases one to the patient, and
+checks the headers and bytes they receive, plus the refusals. Unit tests pin both allowlists.
+
 ## [1.102.0] - 2026-10-07 (The flowcharts take the paper's own header)
 
 No migration. Documentation only.

@@ -2,10 +2,7 @@ import { useState } from 'react';
 import api from '../config/api';
 import { toastSuccess, toastInfo, toastWarning } from '../lib/toast';
 
-// Mirrors backend/src/config/upload.js's own allowlist and size cap, so a mismatched file is
-// rejected instantly instead of round-tripping to the server first.
-const ALLOWED_FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
-const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+import { isAllowedReportFile, REPORT_FILE_MAX_BYTES, REPORT_FILE_TYPE_ERROR } from '../lib/reportFileTypes';
 
 /**
  * Writing a diagnostic report, and releasing it.
@@ -140,13 +137,13 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       setResultFile(null);
       return;
     }
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      setError('Unsupported file type. Only PDF, JPEG, and PNG files are allowed.');
+    if (!isAllowedReportFile(file)) {
+      setError(REPORT_FILE_TYPE_ERROR);
       e.target.value = '';
       setResultFile(null);
       return;
     }
-    if (file.size > MAX_FILE_SIZE_BYTES) {
+    if (file.size > REPORT_FILE_MAX_BYTES) {
       setError('File is too large. Maximum size is 15MB.');
       e.target.value = '';
       setResultFile(null);

@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
+import { REPORT_FILE_ACCEPT, REPORT_FILE_HINT } from '../../lib/reportFileTypes';
 
 /**
  * Recording findings, and authorising the release that sends them to the patient.
@@ -117,7 +118,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
               </label>
               <input id="diagnosticdashboard-attach-report-file"
                 type="file"
-                accept="application/pdf,image/jpeg,image/png"
+                accept={REPORT_FILE_ACCEPT}
                 onChange={entry.chooseFile}
                 className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-600 hover:file:bg-brand-100 file:cursor-pointer cursor-pointer"
               />
@@ -134,7 +135,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
                 </p>
               ) : (
                 <p className="text-fine text-gray-400 m-0">
-                  PDF, JPEG, or PNG — up to 15MB. Required before this result can be released.
+                  {REPORT_FILE_HINT} — up to 15MB. Required before this result can be released.
                 </p>
               )}
             </div>

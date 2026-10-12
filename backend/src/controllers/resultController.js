@@ -3,6 +3,7 @@ const resultService = require('../services/resultService');
 const patientService = require('../services/patientService');
 const auditService = require('../services/auditService');
 const logger = require('../config/logger');
+const { servesInline } = require('../constants/reportFileTypes');
 
 class ResultController {
   async getPending(req, res, next) {
@@ -156,8 +157,11 @@ class ResultController {
         });
       }
 
+      // PDFs and images open in the browser; Word, Excel and CSV reports are sent as downloads,
+      // because no browser renders them and a CSV shown inline is a page of raw text. [1.96.0]
+      const disposition = servesInline(mimeType) ? 'inline' : 'attachment';
       res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Disposition', `inline; filename="${originalName.replace(/"/g, '')}"`);
+      res.setHeader('Content-Disposition', `${disposition}; filename="${originalName.replace(/"/g, '')}"`);
       return res.sendFile(absolutePath);
     } catch (err) {
       next(err);

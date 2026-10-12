@@ -3,6 +3,7 @@ import { Clock, AlertCircle, AlertTriangle, Upload, Copy, Check, QrCode, FileTex
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { formatCurrency } from '../../lib/currency';
+import { AMOUNT_TOLERANCE } from '../../lib/paymentReview';
 import { usePaymentSubmission } from '../../hooks/usePaymentSubmission';
 import api from '../../config/api';
 
@@ -47,7 +48,8 @@ function MethodQr({ methodId, label }) {
   return <img src={src} alt={`${label} QR code`} className="h-36 w-36 rounded-lg border border-line bg-[#ffffff] p-2 object-contain" />;
 }
 
-function CopyField({ label, value }) {
+/** `display` is what is shown when it differs from what is copied: "₱4,000.00" on screen, "4000" into a banking app. */
+function CopyField({ label, value, display }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -63,7 +65,7 @@ function CopyField({ label, value }) {
     <div className="flex items-center justify-between gap-2 rounded-lg bg-surface px-2.5 py-1.5 ring-1 ring-inset ring-line">
       <span className="min-w-0">
         <span className="block text-micro font-semibold uppercase tracking-[0.1em] text-slate-400">{label}</span>
-        <span className="block truncate font-mono text-note font-bold tabular-nums text-slate-900">{value}</span>
+        <span className="block truncate font-mono text-note font-bold tabular-nums text-slate-900">{display ?? value}</span>
       </span>
       <button
         type="button"
@@ -136,7 +138,11 @@ function ProofPreview({ file, onClear }) {
  * Read something a quiet confirmation naming what was filled in, so a patient who sees a number
  *               appear in a field they did not type in knows where it came from. A field that
  *               populates itself with no explanation reads as a bug.
- * Duplicate     the one case worth interrupting for.
+ * Duplicate     worth interrupting for.
+ * Wrong amount  worth interrupting for. [1.105.0] The amount is no longer typed, so the patient
+ *               never states a different figure for the cashier to notice; the screenshot is the
+ *               only place a short payment shows, and this is the last moment it costs nothing to
+ *               fix. Like the duplicate, it warns and does not block: a scan can misread.
  *
  * ── Why the duplicate warning does not block ────────────────────────────────────────────────
  *
@@ -153,7 +159,18 @@ function ProofPreview({ file, onClear }) {
  * behaviour for an assistant nobody asked for, and "we could not read your image" invites a
  * patient to re-take a photograph they never needed to take.
  */
-function ScanAssist({ scanning, scan }) {
+function ScanWarning({ title, children }) {
+  return (
+    <div role="alert" className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" aria-hidden="true" />
+      <span className="min-w-0 text-fine leading-relaxed text-amber-900">
+        <strong className="font-semibold">{title}</strong> {children}
+      </span>
+    </div>
+  );
+}
+
+function ScanAssist({ scanning, scan, amountDue }) {
   if (scanning) {
     return (
       <p className="m-0 mt-2 flex items-center gap-1.5 text-fine text-slate-500">
@@ -164,23 +181,35 @@ function ScanAssist({ scanning, scan }) {
   }
 
   if (!scan || !scan.scanned) return null;
-  const found = scan.reference_number || scan.amount !== null;
-  if (!found) return null;
+  const read = scan.amount === null || scan.amount === undefined ? NaN : Number(scan.amount);
+  const due = Number(amountDue);
+  const readAmount = Number.isFinite(read);
+  if (!scan.reference_number && !readAmount) return null;
 
-  if (scan.is_duplicate) {
+  // Only when both figures are real. An unknown amount due is not a mismatch with anything.
+  const amountDiffers = readAmount && Number.isFinite(due) && due > 0 && Math.abs(read - due) > AMOUNT_TOLERANCE;
+
+  if (scan.is_duplicate || amountDiffers) {
     const prior = scan.duplicate_of || {};
     return (
-      <div role="alert" className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
-        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" aria-hidden="true" />
-        <span className="min-w-0 text-fine leading-relaxed text-amber-900">
-          <strong className="font-semibold">This reference has been used before.</strong>{' '}
-          Reference <span className="font-mono font-semibold">{scan.reference_number}</span> was
-          already {prior.source === 'payment' ? 'recorded as a payment' : 'submitted'} at the
-          clinic{prior.status ? ` (${prior.status.toLowerCase()})` : ''}. If you are re-sending a
-          payment the clinic asked you to correct, carry on — otherwise please check you have
-          attached the right screenshot.
-        </span>
-      </div>
+      <>
+        {amountDiffers && (
+          <ScanWarning title="The amount does not match.">
+            Your screenshot seems to show <strong className="font-semibold">{formatCurrency(read)}</strong>,
+            but this booking is <strong className="font-semibold">{formatCurrency(due)}</strong>. The
+            clinic can only confirm the full amount — please check you attached the right screenshot.
+          </ScanWarning>
+        )}
+        {scan.is_duplicate && (
+          <ScanWarning title="This reference has been used before.">
+            Reference <span className="font-mono font-semibold">{scan.reference_number}</span> was
+            already {prior.source === 'payment' ? 'recorded as a payment' : 'submitted'} at the
+            clinic{prior.status ? ` (${prior.status.toLowerCase()})` : ''}. If you are re-sending a
+            payment the clinic asked you to correct, carry on — otherwise please check you have
+            attached the right screenshot.
+          </ScanWarning>
+        )}
+      </>
     );
   }
 
@@ -190,8 +219,8 @@ function ScanAssist({ scanning, scan }) {
       <span>
         Read from your screenshot
         {scan.reference_number && <> — reference <span className="font-mono font-semibold text-slate-700">{scan.reference_number}</span></>}
-        {scan.amount !== null && scan.amount !== undefined && <> — amount <span className="font-semibold text-slate-700">{formatCurrency(scan.amount)}</span></>}
-        . Please check both against your confirmation before sending.
+        {readAmount && <> — amount <span className="font-semibold text-slate-700">{formatCurrency(read)}</span></>}
+        .{scan.reference_number && ' Please check the reference against your confirmation before sending.'}
       </span>
     </p>
   );
@@ -200,6 +229,9 @@ function ScanAssist({ scanning, scan }) {
 export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
   const pay = usePaymentSubmission(visitId, { onSettled });
   const selected = pay.methods.find((m) => String(m.id) === String(pay.methodId)) || pay.methods[0];
+  // What goes into the banking app's amount box: digits, no peso sign or thousands separator.
+  const due = Number(amountDue);
+  const dueToCopy = Number.isFinite(due) && due > 0 ? (Number.isInteger(due) ? String(due) : due.toFixed(2)) : '';
 
   if (pay.loading) {
     return <div className="h-24 animate-pulse rounded-xl bg-skeleton" aria-hidden="true" />;
@@ -323,6 +355,12 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
                 {selected.bank_name ? ` · ${selected.bank_name}` : ''}
               </p>
             )}
+            {/* The amount is stated, not asked for. [1.105.0] It was an editable "Amount sent"
+                box, which invited the patient to send a different figure from the one the
+                booking owes; it now sits beside the number it is sent to, ready to copy. */}
+            {dueToCopy && (
+              <CopyField label="Amount to send" value={dueToCopy} display={formatCurrency(due)} />
+            )}
             {selected.instructions && (
               <p className="m-0 text-fine leading-relaxed text-slate-600">{selected.instructions}</p>
             )}
@@ -338,30 +376,15 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div>
-            <label htmlFor={`ref-${visitId}`} className="field-label">Reference number</label>
-            <Input
-              id={`ref-${visitId}`}
-              value={pay.reference}
-              onChange={(e) => pay.setReference(e.target.value)}
-              placeholder="From your payment confirmation"
-              disabled={pay.submitting}
-            />
-          </div>
-          <div>
-            <label htmlFor={`amt-${visitId}`} className="field-label">Amount sent</label>
-            <Input
-              id={`amt-${visitId}`}
-              type="number"
-              min="0"
-              step="0.01"
-              value={pay.amount}
-              onChange={(e) => pay.setAmount(e.target.value)}
-              placeholder={amountDue ? String(amountDue) : '0.00'}
-              disabled={pay.submitting}
-            />
-          </div>
+        <div>
+          <label htmlFor={`ref-${visitId}`} className="field-label">Reference number</label>
+          <Input
+            id={`ref-${visitId}`}
+            value={pay.reference}
+            onChange={(e) => pay.setReference(e.target.value)}
+            placeholder="From your payment confirmation"
+            disabled={pay.submitting}
+          />
         </div>
 
         <div>
@@ -385,7 +408,7 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
               scan, or a removed screenshot leaves its duplicate warning on screen attached to
               nothing. */}
           <ProofPreview file={pay.proof} onClear={() => pay.chooseProof(null)} />
-          <ScanAssist scanning={pay.scanning} scan={pay.scan} />
+          <ScanAssist scanning={pay.scanning} scan={pay.scan} amountDue={amountDue} />
         </div>
 
         <Button type="submit" loading={pay.submitting} className="w-full">

@@ -2,7 +2,7 @@ const appointmentService = require('../services/appointmentService');
 const { formatTime12 } = require('../constants/clockFormat');
 const { discardHmoCard } = require('../config/upload');
 const { isStaffUser } = require('../constants/roles');
-const { isNamed } = require('../services/referralService');
+const { isNamed, assertDoctorRequestIfRequired } = require('../services/referralService');
 
 class AppointmentController {
   async create(req, res, next) {
@@ -10,10 +10,13 @@ class AppointmentController {
       const { patientId, scheduledDate, scheduledTime, notes, hmo } = req.body;
       const createdBy = req.user.userId;
 
-      // Multer has already written any uploaded card by the time this runs, so every rejection
-      // below has to drop it — otherwise a refused booking leaves an unreferenced image on disk.
+      // Multer has already written any uploaded card and doctor's request by the time this runs,
+      // so every rejection below has to drop them — otherwise a refused booking leaves an
+      // unreferenced image on disk. Absent on a JSON (staff) booking, where multer finds no
+      // multipart body.
+      const { card = null, doctorRequest = null } = req.bookingFiles || {};
       const reject = (message) => {
-        discardHmoCard(req.file);
+        discardHmoCard(card, doctorRequest);
         return res.status(400).json({ status: 'error', message });
       };
 
@@ -85,18 +88,27 @@ class AppointmentController {
       // reaches it too and a check only in this controller would leave that route open — which is
       // also why both must agree on what "staff" means, hence the shared predicate rather than a
       // second role list written out here.
-      if (normalisedHmo && !isStaffUser(req.user) && !req.file) {
+      if (normalisedHmo && !isStaffUser(req.user) && !card) {
         return reject('Please attach a photo of your HMO card to claim HMO coverage.');
+      }
+
+      // [1.106.0] Every booking a patient makes carries the doctor's signed request, self-pay
+      // included. The same early exit; appointmentService holds the rule (referralService).
+      try {
+        assertDoctorRequestIfRequired({ isStaff: isStaffUser(req.user), hasDoctorRequest: Boolean(doctorRequest) });
+      } catch (err) {
+        return reject(err.message);
       }
 
       // Same shape as the card check above, and for the same reason: refuse before the transaction
       // so a doomed booking never holds the slot's advisory lock. The authoritative rule is in
       // referralService, which hmoService also consults — this is the early exit, not the gate.
+      // An uploaded doctor's request names the doctor, so it answers this too.
       const referral = {
         referringPhysician: req.body.referringPhysician,
         referringPhysicianPrc: req.body.referringPhysicianPrc,
       };
-      if (normalisedHmo && !isNamed(referral.referringPhysician)) {
+      if (normalisedHmo && !isNamed(referral.referringPhysician) && !doctorRequest) {
         return reject("Please give the referring physician's name — an HMO claim needs it for the LOA.");
       }
 
@@ -110,7 +122,8 @@ class AppointmentController {
         testIds: normalisedTestIds,
         packageIds: normalisedPackageIds,
         hmo: normalisedHmo,
-        hmoCardFile: req.file || null,
+        hmoCardFile: card,
+        doctorRequestFile: doctorRequest,
         referral
       });
 
@@ -202,7 +215,7 @@ class AppointmentController {
   async reschedule(req, res, next) {
     try {
       const { id } = req.params;
-      const { scheduledDate, scheduledTime } = req.body;
+      const { scheduledDate, scheduledTime, reason } = req.body;
 
       if (!scheduledDate || !scheduledTime) {
         return res.status(400).json({
@@ -222,7 +235,7 @@ class AppointmentController {
 
       const appointment = await appointmentService.rescheduleAppointment(
         id,
-        { scheduledDate, scheduledTime: scheduledTime.slice(0, 5) },
+        { scheduledDate, scheduledTime: scheduledTime.slice(0, 5), reason },
         req.user
       );
 

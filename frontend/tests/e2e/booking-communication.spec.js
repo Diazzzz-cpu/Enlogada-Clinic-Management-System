@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { openBooking } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // What the patient is told about their own booking. [1.24.0]
 //
@@ -110,7 +111,7 @@ test.describe('Booking communication and preparation', () => {
 
     const booked = await ctx.post(`${API}/appointments`, {
       headers: auth(clientToken),
-      data: { patientId, scheduledDate: date, scheduledTime: slots[0].time },
+      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: slots[0].time }),
     });
     expect(booked.status()).toBe(201);
 
@@ -118,7 +119,7 @@ test.describe('Booking communication and preparation', () => {
     const appt = (await booked.json()).data.appointment;
     const later = slots[1] || slots[0];
     const moved = await ctx.put(`${API}/appointments/${appt.id}/reschedule`, {
-      headers: auth(clientToken), data: { scheduledDate: date, scheduledTime: later.time },
+      headers: auth(clientToken), data: { scheduledDate: date, scheduledTime: later.time, reason: 'Schedule conflict' },
     });
     expect(moved.status()).toBe(200);
 

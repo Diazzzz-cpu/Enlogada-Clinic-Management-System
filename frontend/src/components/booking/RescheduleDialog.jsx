@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import SlotPicker from './SlotPicker';
 import api from '../../config/api';
 import { AlertCircle, ArrowRight, CalendarClock } from 'lucide-react';
@@ -26,6 +27,21 @@ const formatDate = (value) => {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+/**
+ * Why the booking is moving. [1.105.0] Required, by the server as well as here. The common answers
+ * are one tap; anything else is written under "Other". What is saved is the words chosen, so the
+ * list can change without touching a stored row. 500 is the column's width.
+ */
+const REASONS = [
+  'Schedule conflict',
+  'Feeling unwell',
+  "Can't prepare in time",
+  'Transport problem',
+  'Clinic asked to move it',
+];
+const OTHER = 'Other';
+const REASON_MAX = 500;
+
 /** A DATE that arrived as a UTC instant, as the calendar date it actually is. */
 const toDateInput = (value) => {
   if (!value) return '';
@@ -40,30 +56,36 @@ const RescheduleDialog = ({ open, onOpenChange, appointment, onRescheduled }) =>
 
   const [date, setDate] = useState(currentDate);
   const [time, setTime] = useState(currentTime);
+  const [choice, setChoice] = useState('');
+  const [otherReason, setOtherReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   // Reset whenever a different booking is opened, so the dialog never shows the previous
-  // appointment's slot as the one being moved.
+  // appointment's slot as the one being moved — or the previous move's reason.
   useEffect(() => {
     if (!open) return;
     setDate(currentDate);
     setTime(currentTime);
+    setChoice('');
+    setOtherReason('');
     setError('');
     setSubmitting(false);
   }, [open, currentDate, currentTime]);
 
   const unchanged = date === currentDate && time === currentTime;
+  const reason = choice === OTHER ? otherReason.trim() : choice;
 
   const submit = async (e) => {
     e.preventDefault();
-    if (submitting || !time) return;
+    if (submitting || !time || !reason) return;
     setSubmitting(true);
     setError('');
     try {
       const res = await api.put(`/appointments/${appointment.id}/reschedule`, {
         scheduledDate: date,
         scheduledTime: time,
+        reason,
       });
       onRescheduled?.(res.data.data.appointment);
       onOpenChange(false);
@@ -129,6 +151,40 @@ const RescheduleDialog = ({ open, onOpenChange, appointment, onRescheduled }) =>
             label="New date"
           />
 
+          <fieldset className="m-0 min-w-0 space-y-2 border-0 p-0" disabled={submitting}>
+            {/* Worded for both callers: the patient moving their own, and reception moving one on
+                a patient's behalf over the phone. */}
+            <legend className="field-label mb-1.5">Reason for moving it</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {[...REASONS, OTHER].map((r) => (
+                <label
+                  key={r}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-fine font-semibold text-slate-600 transition-colors hover:bg-slate-50 has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50 has-[:checked]:text-brand-800"
+                >
+                  <input
+                    type="radio"
+                    name="reschedule-reason"
+                    value={r}
+                    checked={choice === r}
+                    onChange={() => setChoice(r)}
+                    className="h-3.5 w-3.5 cursor-pointer accent-brand-500"
+                  />
+                  {r}
+                </label>
+              ))}
+            </div>
+            {choice === OTHER && (
+              <Input
+                aria-label="Other reason"
+                value={otherReason}
+                onChange={(e) => setOtherReason(e.target.value)}
+                maxLength={REASON_MAX}
+                placeholder="Write the reason"
+                autoFocus
+              />
+            )}
+          </fieldset>
+
           {error && (
             <div role="alert" className="alert alert-error">
               <AlertCircle />
@@ -144,7 +200,7 @@ const RescheduleDialog = ({ open, onOpenChange, appointment, onRescheduled }) =>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
               Keep current time
             </Button>
-            <Button type="submit" loading={submitting} disabled={!time || unchanged}>
+            <Button type="submit" loading={submitting} disabled={!time || unchanged || !reason}>
               Confirm new time
             </Button>
           </div>

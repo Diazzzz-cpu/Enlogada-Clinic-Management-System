@@ -1,5 +1,9 @@
+const fs = require('fs');
+const path = require('path');
 const visitRepository = require('../repositories/visitRepository');
 const { VISIT_TYPES, VISIT_STATUSES } = require('../constants/visits');
+const { DOCTOR_REQUEST_UPLOAD_ROOT } = require('../config/upload');
+const { CLIENT_ROLE } = require('../constants/roles');
 const notificationService = require('./notificationService');
 const patientRepository = require('../repositories/patientRepository');
 const { assertReferralIfRequired, normaliseReferral } = require('./referralService');
@@ -145,6 +149,44 @@ class VisitService {
       throw error;
     }
     return visit;
+  }
+
+  /**
+   * The doctor's signed request on a visit, for the authorised read-back route. [1.106.0]
+   *
+   * It names the patient, their complaint and the tests ordered, so it is streamed rather than
+   * served statically, like a result file or an HMO card. Staff reach it on `visits:read` (the
+   * route); a Client only for a visit belonging to one of their own patient profiles, compared per
+   * profile because one account owns several. Not theirs reads as 404, not 403, so the answer does
+   * not confirm the visit exists — the same choice payment proofs make.
+   */
+  async getDoctorRequestFile(visitId, requestingUser) {
+    const notFound = (message) => {
+      const error = new Error(message);
+      error.statusCode = 404;
+      return error;
+    };
+
+    const visit = await visitRepository.findDoctorRequestByVisitId(visitId);
+    if (!visit) throw notFound('Visit not found.');
+
+    if (requestingUser?.roles?.includes(CLIENT_ROLE)) {
+      const profiles = await patientRepository.findPatientsByUserId(requestingUser.userId);
+      if (!profiles.some((p) => p.id === visit.patient_id)) throw notFound('Visit not found.');
+    }
+
+    if (!visit.doctor_request_file_path) {
+      throw notFound("No doctor's request was uploaded for this visit.");
+    }
+    const absolutePath = path.join(DOCTOR_REQUEST_UPLOAD_ROOT, path.basename(visit.doctor_request_file_path));
+    if (!fs.existsSync(absolutePath)) {
+      throw notFound("The doctor's request could not be found on the server.");
+    }
+    return {
+      absolutePath,
+      originalName: visit.doctor_request_original_name || 'doctor-request',
+      mimeType: visit.doctor_request_mime_type || 'application/octet-stream',
+    };
   }
 
   /**

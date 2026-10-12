@@ -75,6 +75,9 @@ class AppointmentRepository {
       SELECT a.*, pv.patient_id, pv.visit_type, pv.status as visit_status, pv.queue_number,
              p.first_name, p.last_name, p.contact_number, p.birthdate, p.sex,
              pt.name as patient_type_name,
+             -- [1.106.0] The patient uploaded the doctor's signed request instead of typing the
+             -- doctor's name, so the desk needs to know there is one to open at check-in.
+             (pv.doctor_request_file_path IS NOT NULL) AS has_doctor_request,
              EXISTS (
                SELECT 1 FROM payments pay
                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
@@ -371,17 +374,19 @@ class AppointmentRepository {
   // sweep only considers rows where it is NULL, so a booking reminded for tomorrow and then moved
   // was never reminded again — the exact no-show the reminder exists to prevent. Cleared
   // unconditionally: a move that keeps the date and changes only the time still needs a new one.
-  async updateSchedule(id, { scheduledDate, scheduledTime }) {
+  async updateSchedule(id, { scheduledDate, scheduledTime, reason }) {
     const queryText = `
       UPDATE appointments
       SET scheduled_date = $1,
           scheduled_time = $2,
           reminder_sent_at = NULL,
+          reschedule_reason = $4,
+          rescheduled_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $3 AND status = 'Pending'
       RETURNING *
     `;
-    const result = await db.query(queryText, [scheduledDate, scheduledTime, id]);
+    const result = await db.query(queryText, [scheduledDate, scheduledTime, id, reason]);
     return result.rows[0];
   }
 

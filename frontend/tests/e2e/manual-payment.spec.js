@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import {
-  API, CREDS, loginAs, billedVisit, submitProof, ensureMethod,
+  API, CREDS, PNG, loginAs, billedVisit, submitProof, ensureMethod,
 } from './helpers/payments.js';
 
 /**
@@ -149,6 +149,40 @@ test.describe('Manual proof of payment', () => {
     const payment = (await verified.json()).data.payment;
     expect(Number(payment.amount)).toBeCloseTo(total, 2);
     expect(Number(payment.amount)).not.toBeCloseTo(understated, 2);
+
+    await api.dispose();
+  });
+
+  // [1.105.0] The portal no longer has an amount box: the booking states the figure, and a box
+  // the patient could edit invited them to send a different one. A claim naming no amount is a
+  // claim to have sent what was asked.
+  test('a claim that names no amount records the amount the booking asked for', async () => {
+    const api = await request.newContext();
+    const superToken = await loginAs(api, SUPERADMIN);
+    const recToken = await loginAs(api, RECEPTIONIST);
+
+    const method = await ensureMethod(api, superToken);
+    const { visit } = await billedVisit(api, recToken);
+
+    const res = await api.post(`${API}/payment-submissions`, {
+      headers: { Authorization: `Bearer ${recToken}` },
+      multipart: {
+        patientVisitId: String(visit.id),
+        paymentMethodId: String(method.id),
+        referenceNumber: `E2E-NOAMT-${Date.now()}`,
+        proof: { name: 'receipt.png', mimeType: 'image/png', buffer: PNG },
+      },
+    });
+    expect(res.status()).toBe(201);
+    const submission = (await res.json()).data.submission;
+
+    // The same figure the cashier's queue puts beside it, so a claim made this way never flags.
+    const queue = (await (await api.get(`${API}/payment-submissions/pending`, {
+      headers: { Authorization: `Bearer ${await loginAs(api, CASHIER)}` },
+    })).json()).data.submissions;
+    const mine = queue.find((q) => q.id === submission.id);
+    expect(Number(mine.amount_due)).toBeGreaterThan(0);
+    expect(Number(submission.amount_claimed)).toBeCloseTo(Number(mine.amount_due), 2);
 
     await api.dispose();
   });

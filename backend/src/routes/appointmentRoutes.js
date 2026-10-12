@@ -1,17 +1,18 @@
 const express = require('express');
 const appointmentController = require('../controllers/appointmentController');
 const { verifyToken, authorizeStaff, authorizeRoles, authorizePermissions } = require('../middlewares/auth');
-const { uploadHmoCardMiddleware } = require('../config/upload');
+const { uploadBookingFilesMiddleware } = require('../config/upload');
 
 const router = express.Router();
 
 // Client or Receptionist creates an appointment.
 //
-// uploadHmoCardMiddleware sits after verifyToken so an unauthenticated or deactivated caller can
-// never cause a disk write, and so the filename can be seeded on the uploading user. It engages
-// only for multipart bodies -- multer returns next() immediately for anything else -- so every
-// existing JSON caller reaches the controller with a plain req.body exactly as before.
-router.post('/', verifyToken, uploadHmoCardMiddleware, appointmentController.create);
+// uploadBookingFilesMiddleware (the HMO card and, since [1.106.0], the doctor's signed request)
+// sits after verifyToken so an unauthenticated or deactivated caller can never cause a disk
+// write, and so the filename can be seeded on the uploading user. It engages only for multipart
+// bodies -- multer returns next() immediately for anything else -- so a staff booking can still
+// arrive as JSON. A patient's cannot: it must carry the doctor's request.
+router.post('/', verifyToken, uploadBookingFilesMiddleware, appointmentController.create);
 
 // Client views their own bookings
 router.get('/my-bookings', verifyToken, appointmentController.getMyBookings);

@@ -1,6 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { nthWorkingDay } from './helpers/dates.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // Two features that both offer a number to a person, and must never be mistaken for deciding one.
 // [1.62.0]
@@ -209,7 +210,7 @@ test.describe('Queue wait estimates', () => {
     expect(slot, `a free slot on ${date}`).toBeTruthy();
     const booked = (await (await ctx.post(`${API}/appointments`, {
       headers: auth(client),
-      data: { patientId: profile.id, scheduledDate: date, scheduledTime: slot.time },
+      multipart: appointmentForm({ patientId: profile.id, scheduledDate: date, scheduledTime: slot.time }),
     })).json()).data.appointment;
     expect((await ctx.patch(`${API}/appointments/${booked.id}/status`, {
       headers: auth(staff), data: { status: 'Confirmed' },

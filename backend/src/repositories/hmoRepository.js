@@ -139,7 +139,10 @@ class HmoRepository {
              MIN(p.first_name) AS patient_first_name,
              MIN(p.last_name) AS patient_last_name,
              MIN(d.first_name) AS decided_by_first_name,
-             MIN(d.last_name) AS decided_by_last_name
+             MIN(d.last_name) AS decided_by_last_name,
+             -- Whether the visit carries the doctor's signed request [1.106.0], which the review
+             -- then fetches from GET /visits/:id/doctor-request. A flag, not the path.
+             BOOL_OR(pv.doctor_request_file_path IS NOT NULL) AS has_doctor_request
       FROM hmo_requests hr
       JOIN hmo_providers hp ON hr.hmo_provider_id = hp.id
       LEFT JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id

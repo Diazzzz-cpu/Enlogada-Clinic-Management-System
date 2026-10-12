@@ -6,6 +6,7 @@ import { COUNTER_PAYMENT_METHODS } from '../../src/lib/paymentMethods.js';
 import { nthWorkingDay } from './helpers/dates.js';
 import { fixturePerson } from './helpers/people.js';
 import { reportPart } from './helpers/reportFile.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // Ticket Release Gating.
 //
@@ -319,12 +320,13 @@ test.describe('Online appointment gating (API)', () => {
 
     const apptRes = await apiContext.post(`${API}/appointments`, {
       headers: { Authorization: `Bearer ${clientToken}` },
-      data: {
+      // A patient's booking carries the doctor's signed request. [1.106.0]
+      multipart: appointmentForm({
         patientId: profiles[0].id,
         scheduledDate: avail.date,
         scheduledTime: slot.time,
         notes: 'gating spec'
-      }
+      })
     });
     const appointment = (await apptRes.json()).data.appointment;
 

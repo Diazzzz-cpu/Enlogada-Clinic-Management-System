@@ -16,7 +16,17 @@ const CARD_MAX_EDGE = 1600;   // a member number stays legible even when the car
 const CARD_JPEG_QUALITY = 0.82; // below ~0.7 the digit shapes start to mush, which is the failure that matters
 const CARD_MAX_INPUT_BYTES = 25 * 1024 * 1024; // guards the decode step on low-end phones
 
-async function prepareCardImage(file) {
+// A doctor's request is a PAGE, often handwritten, where a card is a few printed digits. [1.106.0]
+// 1600px across a whole A5 sheet blurs a signature and a scrawled test name, so it gets more.
+const DOCUMENT_MAX_EDGE = 2400;
+
+/**
+ * @param {File} file
+ * @param {object} [options]
+ * @param {string} [options.name]     the uploaded file's name
+ * @param {number} [options.maxEdge]  the longest side, in pixels
+ */
+async function prepareCardImage(file, { name = 'hmo-card.jpg', maxEdge = CARD_MAX_EDGE } = {}) {
   if (file.size > CARD_MAX_INPUT_BYTES) {
     throw new Error('That photo is too large for this device to process. Take a new photo with your camera instead.');
   }
@@ -26,7 +36,7 @@ async function prepareCardImage(file) {
   // the whole upload complete before it is refused.
   if (file.type === 'application/pdf') {
     if (file.size > 8 * 1024 * 1024) {
-      throw new Error('That PDF is larger than 8MB. Attach a photo of the card instead, or a smaller scan.');
+      throw new Error('That PDF is larger than 8MB. Attach a photo instead, or a smaller scan.');
     }
     return file;
   }
@@ -42,7 +52,7 @@ async function prepareCardImage(file) {
     );
   }
 
-  const scale = Math.min(1, CARD_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
@@ -59,7 +69,7 @@ async function prepareCardImage(file) {
   // that would upload nothing and fail the booking with no explanation.
   if (!blob) throw new Error('We could not prepare that photo. Please take a new one.');
 
-  return new File([blob], 'hmo-card.jpg', { type: 'image/jpeg' });
+  return new File([blob], name, { type: 'image/jpeg' });
 }
 
-export { prepareCardImage, CARD_MAX_EDGE, CARD_JPEG_QUALITY, CARD_MAX_INPUT_BYTES };
+export { prepareCardImage, CARD_MAX_EDGE, DOCUMENT_MAX_EDGE, CARD_JPEG_QUALITY, CARD_MAX_INPUT_BYTES };

@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
-import { openBooking as openBookingDialog } from './helpers/portal.js';
+import { openBooking as openBookingDialog, attachDoctorRequest } from './helpers/portal.js';
 
 /**
  * Choosing what to book, from the patient's side. [1.54.0]
@@ -147,7 +147,7 @@ test.describe('Booking: choosing what to book', () => {
     // The package's own checkbox, addressed through its row rather than by position.
     await dialog.getByRole('checkbox').first().check();
 
-    await dialog.getByRole('button', { name: /2\. HMO/i }).click();
+    await attachDoctorRequest(dialog);
     const submit = dialog.getByRole('button', { name: /submit schedule request/i });
     await expect(submit).toBeVisible({ timeout: 10000 });
     await submit.click();

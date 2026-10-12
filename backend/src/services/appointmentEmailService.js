@@ -137,9 +137,11 @@ class AppointmentEmailService {
    * recipient. Naming both `to` is not a style question: destructuring took the second and the
    * address silently became a `{date, time}` object.
    */
-  async sendRescheduleNotice({ to, patientName, reference, from, moved, queueNumber }) {
+  async sendRescheduleNotice({ to, patientName, reference, from, moved, reason, queueNumber }) {
     if (!to) return { skipped: true };
 
+    // The reason is said back to the patient. [1.105.0] When reception moved it for them over the
+    // phone, this is the only written record of why.
     return sendEmail({
       to,
       subject: `Your appointment has moved to ${readableDate(moved.date)} — ${CLINIC_NAME}`,
@@ -147,6 +149,7 @@ class AppointmentEmailService {
         <p>Your appointment has been rescheduled.</p>
         <p style="font-size:14px;color:#64748b;margin:8px 0;">
           Was: ${esc(readableDate(from.date))} at ${esc(readableTime(from.time))}
+          ${reason ? `<br>Reason: ${esc(reason)}` : ''}
         </p>
         ${detailTable({ reference, date: moved.date, time: moved.time, queueNumber })}
         <p style="font-size:14px;">Your reference code has <strong>not</strong> changed, so any

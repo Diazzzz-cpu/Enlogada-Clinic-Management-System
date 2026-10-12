@@ -29,6 +29,10 @@ router.get('/history', verifyToken, authorizeStaff, authorizePermissions('visits
 // Get specific visit details
 router.get('/:id', verifyToken, authorizeStaff, authorizePermissions('visits:read'), visitController.getVisitById);
 
+// The doctor's signed request a patient uploaded with their booking. [1.106.0] Client is named so
+// a patient can see their own; the service checks that the visit is theirs.
+router.get('/:id/doctor-request', verifyToken, authorizeRoles('SuperAdmin', 'Admin', 'Receptionist', 'Cashier', 'Client'), authorizePermissions('visits:read'), visitController.downloadDoctorRequest);
+
 // Update visit status (Receptionist, Admin, Cashier)
 router.put('/:id/status', verifyToken, authorizeStaff, authorizePermissions('visits:update'), visitController.updateStatus);
 router.patch('/:id/status', verifyToken, authorizeStaff, authorizePermissions('visits:update'), visitController.updateStatus);

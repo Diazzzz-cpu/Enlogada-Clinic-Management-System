@@ -2,22 +2,47 @@ const db = require('../config/database');
 const { inTodaysQueue } = require('../constants/queueMembership');
 
 class VisitRepository {
+  // `doctorRequest` is the multer file of the doctor's signed request [1.106.0], or null. Only
+  // the stored name and the upload's metadata are kept; the file sits in uploads/doctor-requests.
   async createVisit(
-    { patientId, visitType, notes, queueNumber, createdBy, referringPhysician = null, referringPhysicianPrc = null },
+    {
+      patientId, visitType, notes, queueNumber, createdBy,
+      referringPhysician = null, referringPhysicianPrc = null, doctorRequest = null,
+    },
     client = db
   ) {
     const queryText = `
       INSERT INTO patient_visits (
         patient_id, visit_type, notes, queue_number, created_by,
-        referring_physician, referring_physician_prc
+        referring_physician, referring_physician_prc,
+        doctor_request_file_path, doctor_request_original_name, doctor_request_mime_type,
+        doctor_request_size_bytes, doctor_request_uploaded_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
     const result = await client.query(queryText, [
       patientId, visitType, notes, queueNumber, createdBy,
       referringPhysician || null, referringPhysicianPrc || null,
+      doctorRequest?.filename ?? null,
+      doctorRequest?.originalname ?? null,
+      doctorRequest?.mimetype ?? null,
+      doctorRequest?.size ?? null,
+      // Stamped like the HMO card's card_uploaded_at, which hmoRepository also sets from here.
+      doctorRequest ? new Date() : null,
     ]);
+    return result.rows[0];
+  }
+
+  /** The doctor's request on a visit, for the authorised read-back route. [1.106.0] */
+  async findDoctorRequestByVisitId(id) {
+    const result = await db.query(
+      `SELECT id, patient_id, doctor_request_file_path, doctor_request_original_name,
+              doctor_request_mime_type
+         FROM patient_visits
+        WHERE id = $1`,
+      [id]
+    );
     return result.rows[0];
   }
 

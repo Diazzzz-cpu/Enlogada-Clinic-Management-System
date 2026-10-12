@@ -4,6 +4,7 @@ import { signIn, signInTo } from './helpers/auth.js';
 import { openPortalTab } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // Information each role needs *on the screen where they act*, rather than one screen away.
 //
@@ -163,7 +164,7 @@ test('an upcoming booking tells the patient what to do beforehand', async ({ pag
 
   const created = await ctx.post(`${API}/appointments`, {
     headers: auth,
-    data: { patientId, scheduledDate: date, scheduledTime: free[0].time, testIds: [prepped.id] },
+    multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: free[0].time, testIds: [prepped.id] }),
   });
   expect(created.status()).toBe(201);
   const reference = (await created.json()).data.appointment.appointment_reference;

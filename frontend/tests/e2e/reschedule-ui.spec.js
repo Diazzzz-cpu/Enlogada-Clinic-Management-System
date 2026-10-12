@@ -4,6 +4,7 @@ import { signIn } from './helpers/auth.js';
 import { openPortalTab } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { formatTime12 } from '../../src/lib/date.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // The reschedule dialog, driven through the browser.
 //
@@ -45,7 +46,7 @@ test('a patient reschedules from their own booking list', async ({ page }) => {
 
   const created = await ctx.post(`${API}/appointments`, {
     headers: auth,
-    data: { patientId, scheduledDate: date, scheduledTime: free[0].time },
+    multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: free[0].time }),
   });
   expect(created.status()).toBe(201);
   const reference = (await created.json()).data.appointment.appointment_reference;
@@ -91,6 +92,15 @@ test('a patient reschedules from their own booking list', async ({ page }) => {
   await dialog.getByTestId(`slot-${free[1].time}`).click();
   // exact, or it also substring-matches the "Confirm new time" button.
   await expect(dialog.getByText('New time', { exact: true })).toBeVisible();
+
+  // [1.105.0] A new time is not enough: the move has to say why. "Other" asks for words, and is
+  // no reason until it has some.
+  await expect(confirm, 'no reason chosen yet').toBeDisabled();
+  await dialog.getByRole('radio', { name: 'Other' }).check();
+  await expect(confirm, '"Other" with nothing written').toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'Other reason' }).fill('Out of town that week');
+  await expect(confirm).toBeEnabled();
+  await dialog.getByRole('radio', { name: 'Feeling unwell' }).check();
   await expect(confirm).toBeEnabled();
 
   await confirm.click();
@@ -100,6 +110,8 @@ test('a patient reschedules from their own booking list', async ({ page }) => {
   await expect(page.getByText(reference).first()).toBeVisible();
   // The list renders a 12-hour clock, so assert on that rather than on the wire value.
   await expect(page.getByText(formatTime12(free[1].time)).first()).toBeVisible({ timeout: 10000 });
+  // The chosen reason, not the words typed under "Other" before switching.
+  await expect(card.getByText(/Moved · Feeling unwell/)).toBeVisible();
 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });

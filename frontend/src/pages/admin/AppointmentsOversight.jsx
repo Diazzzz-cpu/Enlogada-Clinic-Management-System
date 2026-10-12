@@ -129,6 +129,13 @@ const AppointmentsOversight = () => {
                     <TableCell className="font-semibold text-slate-900">{a.first_name} {a.last_name}</TableCell>
                     <TableCell>
                       {new Date(a.scheduled_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} &bull; {formatTime12(a.scheduled_time)}
+                      {/* Why it moved. [1.105.0] A move made before the reason was asked has a
+                          date and no reason, and says so rather than leaving a blank. */}
+                      {a.rescheduled_at && (
+                        <span className="block max-w-[18rem] truncate text-fine text-slate-500" title={a.reschedule_reason || undefined}>
+                          Moved &middot; {a.reschedule_reason || 'no reason recorded'}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-slate-500">{a.visit_type}</TableCell>
                     <TableCell><StatusBadge status={a.status} /></TableCell>

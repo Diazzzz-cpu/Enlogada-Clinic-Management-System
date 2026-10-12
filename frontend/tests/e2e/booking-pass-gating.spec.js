@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
-import { openBooking } from './helpers/portal.js';
+import { openBooking, attachDoctorRequest } from './helpers/portal.js';
 
 /**
  * The pass is a receipt, not a booking confirmation.
@@ -71,10 +71,9 @@ test('a self-pay booking is confirmed without issuing the pass', async ({ page }
   await expect(box).toBeVisible({ timeout: 10000 });
   await box.check();
 
-  // Step 2 — the HMO question, left on its Self-Pay default, which is the case under test. The
-  // step pill rather than the Next button: the pill is always in view, while Next sits below a
-  // catalogue of 60-odd tests.
-  await dialog.getByRole('button', { name: /2\. HMO/i }).click();
+  // Step 2 — the doctor's request every booking carries [1.106.0], with the HMO question left on
+  // its Self-Pay default, which is the case under test.
+  await attachDoctorRequest(dialog);
   const submit = dialog.getByRole('button', { name: /submit schedule request/i });
   await expect(submit).toBeVisible({ timeout: 10000 });
   await submit.click();
@@ -151,7 +150,7 @@ test('the patient can pay on the confirmation itself, without going to Appointme
   await expect(box).toBeVisible({ timeout: 10000 });
   await box.check();
 
-  await dialog.getByRole('button', { name: /2\. HMO/i }).click();
+  await attachDoctorRequest(dialog);
   const submit = dialog.getByRole('button', { name: /submit schedule request/i });
   await expect(submit).toBeVisible({ timeout: 10000 });
   await submit.click();
@@ -168,6 +167,11 @@ test('the patient can pay on the confirmation itself, without going to Appointme
 
   // The clinic's actual published account, so this is the real panel and not a placeholder.
   await expect(dialog.getByText(methods[0].account_number)).toBeVisible();
+
+  // [1.105.0] The amount is stated beside the account, ready to copy — and is not a box the
+  // patient can type a different figure into.
+  await expect(dialog.getByRole('button', { name: 'Copy Amount to send' })).toBeVisible();
+  await expect(dialog.getByRole('spinbutton')).toHaveCount(0);
 
   // The fallback survives, which is the whole reason the Appointments route stays wired: anyone
   // who closes this dialog must still be able to pay.

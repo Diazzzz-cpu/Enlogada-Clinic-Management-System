@@ -302,6 +302,78 @@ const call = async (path, { method = 'GET', token, body } = {}) => {
   return json;
 };
 
+// The same, as multipart: `fields` are strings (an array value repeats as `name[]`), `files` are
+// { field: { name, type, buffer } }. A patient's booking carries the doctor's request. [1.106.0]
+const callMultipart = async (path, { token, fields = {}, files = {} }) => {
+  const form = new FormData();
+  for (const [name, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) value.forEach((v) => form.append(`${name}[]`, String(v)));
+    else if (value !== undefined && value !== null) form.append(name, String(value));
+  }
+  for (const [name, file] of Object.entries(files)) {
+    form.append(name, new Blob([file.buffer], { type: file.type }), file.name);
+  }
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const text = await res.text();
+  let json;
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+  if (!res.ok) throw new Error(`POST ${path} -> ${res.status} ${json.message || text.slice(0, 140)}`);
+  return json;
+};
+
+/**
+ * A doctor's request for a demo booking, as a one-page PDF. [1.106.0]
+ *
+ * Every online booking carries one now, and the seed books online as the demo patient. Written
+ * out by hand because the backend has no PDF library and this needs nothing but lines of text in
+ * Helvetica: a valid file with a correct xref, which every browser's viewer opens. The doctor and
+ * the licence number are invented, like every person the seed creates.
+ */
+function doctorRequestPdf({ patientName, testName, date }) {
+  const lines = [
+    'Dr. Ramon C. Villanueva, MD',
+    'Internal Medicine - Clinic Hours Mon-Sat 9:00-3:00',
+    'Bugo, Cagayan de Oro City',
+    '',
+    `Name: ${patientName}`,
+    `Date: ${date}`,
+    '',
+    'Rx: Please do the following:',
+    `    ${testName}`,
+    '',
+    'Clinical impression: routine check-up, for evaluation',
+    '',
+    '',
+    '______________________________',
+    'Ramon C. Villanueva, MD',
+    'PRC Lic. No. 0098213',
+  ];
+  const esc = (s) => String(s).replace(/[\\()]/g, (c) => `\\${c}`);
+  const content = ['BT', '/F1 11 Tf', '40 540 Td', '15 TL', ...lines.map((l, i) => `${i ? 'T* ' : ''}(${esc(l)}) Tj`), 'ET'].join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out, 'latin1'));
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(out, 'latin1');
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  out += offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+
 const login = async (email) =>
   (await call('/auth/login', { method: 'POST', body: { email, password: PASSWORD } })).data.token;
 
@@ -860,18 +932,30 @@ async function main() {
         { label: 'awaiting payment at the counter', pay: false },
         { label: 'prepaid', pay: true },
       ];
+      // Deliberately a test that NEEDS preparation — a Fasting Blood Sugar if the catalogue has
+      // one. It was Laboratory[0], which is a CBC and needs nothing, so the seeded booking
+      // showed no preparation note anywhere and the feature was invisible in a demo. FBS is
+      // also the honest example: it is exactly the test somebody books online and then forgets
+      // to fast for.
+      const labTest = catalogue.Laboratory.find((t) => t.preparation) || catalogue.Laboratory[0];
       for (const [i, plan] of bookings.entries()) {
         if (!slots[i]) break;
-        const booking = (await call('/appointments', {
-          method: 'POST', token: client,
-          body: { patientId: profiles[0].id, scheduledDate: dateStr(slotDate), scheduledTime: slots[i], notes: 'Online booking' },
+        // [1.106.0] A patient's booking carries the doctor's signed request, which names the test.
+        const booking = (await callMultipart('/appointments', {
+          token: client,
+          fields: { patientId: profiles[0].id, scheduledDate: dateStr(slotDate), scheduledTime: slots[i] },
+          files: {
+            doctorRequest: {
+              name: 'doctor-request.pdf',
+              type: 'application/pdf',
+              buffer: doctorRequestPdf({
+                patientName: `${profiles[0].first_name} ${profiles[0].last_name}`,
+                testName: labTest.name,
+                date: dateStr(new Date()),
+              }),
+            },
+          },
         })).data.appointment;
-        // Deliberately a test that NEEDS preparation — a Fasting Blood Sugar if the catalogue has
-        // one. It was Laboratory[0], which is a CBC and needs nothing, so the seeded booking
-        // showed no preparation note anywhere and the feature was invisible in a demo. FBS is
-        // also the honest example: it is exactly the test somebody books online and then forgets
-        // to fast for.
-        const labTest = catalogue.Laboratory.find((t) => t.preparation) || catalogue.Laboratory[0];
         await call('/tests/visit-tests', {
           method: 'POST', token: client,
           body: { patientVisitId: booking.patient_visit_id, testIds: [labTest.id] },

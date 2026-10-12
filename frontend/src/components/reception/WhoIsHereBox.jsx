@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { AlertCircle, CalendarClock, Camera, CheckCircle2, Keyboard, Search, UserCheck, UserX } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle, CalendarClock, Camera, CheckCircle2, FileText, Keyboard, Search, UserCheck, UserX } from 'lucide-react';
+import AttachedFile from '../AttachedFile';
 import { Panel } from '../ui/panel';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -305,6 +306,10 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
  * same three actions: check in, move it, or mark it a no-show.
  */
 function BookingCard({ booking, checkIn, disposition, can }) {
+  // [1.106.0] The patient uploaded the doctor's signed request instead of typing the doctor's
+  // name, so check-in is where the desk reads it. Shown in place, not in a dialog, so the card's
+  // own actions stay in view.
+  const [showRequest, setShowRequest] = useState(false);
   return (
     <div data-testid="booking-card" className="mt-3 space-y-3 rounded-xl border border-line bg-slate-50/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -351,6 +356,17 @@ function BookingCard({ booking, checkIn, disposition, can }) {
             Reschedule this booking
           </Button>
         )}
+        {booking.has_doctor_request && (
+          <Button
+            type="button"
+            variant="outline"
+            aria-expanded={showRequest}
+            onClick={() => setShowRequest((v) => !v)}
+          >
+            <FileText className="h-4 w-4" />
+            {showRequest ? "Hide doctor's request" : "View doctor's request"}
+          </Button>
+        )}
         {can.checkIn && (
           <Button
             type="button"
@@ -366,6 +382,17 @@ function BookingCard({ booking, checkIn, disposition, can }) {
           Close
         </Button>
       </div>
+
+      {showRequest && (
+        <AttachedFile
+          url={`/visits/${booking.patient_visit_id}/doctor-request`}
+          hasFile
+          noun="doctor's request"
+          imageAlt="The doctor's signed request for this booking"
+          frameTitle="Scan of the doctor's signed request"
+          missing=""
+        />
+      )}
     </div>
   );
 }

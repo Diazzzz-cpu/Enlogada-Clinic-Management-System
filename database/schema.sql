@@ -249,6 +249,15 @@ CREATE TABLE patient_visits (
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- The doctor's signed request for the visit's tests. [1.106.0] Required of a patient booking
+    -- online, self-pay or HMO, by appointmentService (referralService) rather than a CHECK: every
+    -- visit before it has none, and a visit started at the desk is exempt. It also answers the
+    -- referring-physician rule above. Lives in uploads/doctor-requests; see migrations.md [1.106.0].
+    doctor_request_file_path VARCHAR(255),
+    doctor_request_original_name TEXT,
+    doctor_request_mime_type VARCHAR(100),
+    doctor_request_size_bytes INT,
+    doctor_request_uploaded_at TIMESTAMP,
     CONSTRAINT fk_visits_patient FOREIGN KEY (patient_id) REFERENCES patients(id),
     CONSTRAINT fk_visits_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_visits_discount_type FOREIGN KEY (discount_type_id) REFERENCES discount_types(id),
@@ -278,6 +287,11 @@ CREATE TABLE appointments (
     -- moment the hold ends rather than holding it forever -- there is no sweeper, deliberately.
     -- See migrations.md [1.35.0] and src/constants/slotHold.js.
     held_until TIMESTAMP,
+    -- The latest move, and why. [1.105.0] Required by the API on every reschedule; NULL on a
+    -- booking never moved, and on one moved before the reason was asked. Every move, with its
+    -- reason, is also in audit_log. See migrations.md [1.105.0].
+    reschedule_reason VARCHAR(500),
+    rescheduled_at TIMESTAMP,
     CONSTRAINT fk_appointments_visit FOREIGN KEY (patient_visit_id) REFERENCES patient_visits(id),
     CONSTRAINT chk_appointments_status CHECK (status IN ('Pending', 'Confirmed', 'Completed', 'Cancelled', 'No Show'))
 );

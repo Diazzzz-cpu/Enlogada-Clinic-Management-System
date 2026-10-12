@@ -28,7 +28,8 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
 
   const [methodId, setMethodId] = useState('');
   const [reference, setReference] = useState('');
-  const [amount, setAmount] = useState('');
+  // No amount. [1.105.0] The booking states what is owed, and a box the patient could edit invited
+  // them to send something else. The server records the amount due when none is sent.
   const [proof, setProof] = useState(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -95,15 +96,15 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
       if (!result) return;
       setScan(result);
 
-      // Functional updates: the scan resolves a second or two after the file was picked, and the
+      // A functional update: the scan resolves a second or two after the file was picked, and the
       // patient may well have been typing in the meantime. Reading the value from the setter
       // rather than from the closure is what makes "only fill what is empty" true at the moment
       // of writing rather than at the moment the request was sent.
+      //
+      // The amount it read fills nothing. [1.105.0] There is no amount field; the panel compares
+      // it with what is due and warns when they differ.
       if (result.reference_number) {
         setReference((current) => (current.trim() ? current : result.reference_number));
-      }
-      if (result.amount !== null && result.amount !== undefined) {
-        setAmount((current) => (String(current).trim() ? current : String(result.amount)));
       }
     } catch {
       // Silent by design — see above.
@@ -138,7 +139,6 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
       fd.append('patientVisitId', String(visitId));
       if (methodId) fd.append('paymentMethodId', String(methodId));
       fd.append('referenceNumber', reference.trim());
-      fd.append('amountClaimed', String(amount || 0));
       fd.append('proof', proof);
 
       await api.post('/payment-submissions', fd, {
@@ -146,7 +146,6 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
       });
 
       setReference('');
-      setAmount('');
       setProof(null);
       setScan(null);
       await reload();
@@ -172,7 +171,7 @@ export function usePaymentSubmission(visitId, { onSettled } = {}) {
 
   return {
     methods, submissions, loading, reload,
-    methodId, setMethodId, reference, setReference, amount, setAmount, proof, setProof,
+    methodId, setMethodId, reference, setReference, proof, setProof,
     error, submitting, submit,
     latest, pending, rejected, verified,
     // [1.62.0] `chooseProof` is what the file input should call — `setProof` is still exported

@@ -60,8 +60,8 @@ class PaymentSubmissionService {
    * @param {number} [params.paymentMethodId]
    * @param {string} params.referenceNumber  The clinic's only handle on a transfer that happened
    *   inside GCash or a bank.
-   * @param {number} params.amountClaimed    EVIDENCE, never the amount charged — approval bills
-   *   the recomputed total.
+   * @param {number} [params.amountClaimed]  EVIDENCE, never the amount charged — approval bills
+   *   the recomputed total. Omitted, it is the amount the booking asked for. [1.105.0]
    * @param {object} file  The uploaded proof.
    * @param {object} user  A Client may submit only against their own visit.
    * @returns {Promise<object>} The 'Pending' submission. No money moves here.
@@ -100,11 +100,20 @@ class PaymentSubmissionService {
         throw error;
       }
 
+      // The portal no longer asks the patient to type an amount. [1.105.0] The booking already
+      // states the figure, and an editable box beside it invited them to send something else. A
+      // claim that names no amount is a claim to have sent what was asked, so it records that
+      // figure. An explicit amount is still accepted, and still only evidence.
+      const stated = amountClaimed !== undefined && amountClaimed !== null && String(amountClaimed).trim() !== '';
+      const claimed = stated
+        ? Number(amountClaimed) || 0
+        : await paymentSubmissionRepository.findAmountDue(patientVisitId);
+
       const submission = await paymentSubmissionRepository.create({
         patientVisitId,
         paymentMethodId,
         referenceNumber: referenceNumber.trim(),
-        amountClaimed: Number(amountClaimed) || 0,
+        amountClaimed: claimed,
         submittedBy: user?.userId,
         proof: {
           filePath: path.basename(file.path),

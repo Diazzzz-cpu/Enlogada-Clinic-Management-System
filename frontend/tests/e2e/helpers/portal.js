@@ -1,5 +1,6 @@
 // @ts-check
 import { expect } from 'playwright/test';
+import { DOCTOR_REQUEST_PNG } from './booking.js';
 
 /**
  * The patient portal's tabs and its booking button, named in one place. [1.80.0]
@@ -41,4 +42,24 @@ export async function openBooking(page) {
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   return dialog;
+}
+
+/** The booking wizard's second step, by its pill. [1.106.0] It used to be "2. HMO / Payment Note". */
+export const BOOKING_STEP_TWO = /^2\. Doctor's Request/i;
+
+/**
+ * Go to step 2 and attach the doctor's signed request, which every booking needs. [1.106.0]
+ *
+ * The pill rather than the Next button: the pill is always in view, while Next sits below a
+ * catalogue of 60-odd tests. Waits for the preview, because the dialog prepares the image before
+ * it will send it, and a submit made before that is refused for a missing file.
+ */
+export async function attachDoctorRequest(dialog) {
+  await dialog.getByRole('button', { name: BOOKING_STEP_TWO }).click();
+  await dialog.getByLabel(/doctor's request/i).setInputFiles({
+    name: 'doctor-request.png',
+    mimeType: 'image/png',
+    buffer: DOCTOR_REQUEST_PNG,
+  });
+  await expect(dialog.getByAltText("The doctor's request you attached")).toBeVisible({ timeout: 10000 });
 }

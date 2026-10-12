@@ -5,6 +5,7 @@ import { selfPayProfile } from './helpers/patients.js';
 import { daysAgoStr } from '../../src/lib/date.js';
 import { holdSlot, expireHold, releaseLeftoverBookings } from './helpers/slotHold.js';
 import { dateStr } from './helpers/dates.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // Booking atomicity and duplicate handling.
 //
@@ -24,6 +25,8 @@ const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 
 const CLIENT = { email: 'client@enlogada.com', password: 'Password123!' };
+const RECEPTION = { email: 'receptionist@enlogada.com', password: 'Password123!' };
+const LAB = { email: 'lab@enlogada.com', password: 'Password123!' };
 
 // Far enough out that the seeded schedule is open and nothing else in the suite competes for it.
 const BOOKING_DATE = '2026-11-18';
@@ -108,7 +111,7 @@ test.describe('Booking atomicity (API)', () => {
   function book(body) {
     return apiContext.post(`${API}/appointments`, {
       headers: { Authorization: `Bearer ${clientToken}` },
-      data: { patientId, scheduledDate: BOOKING_DATE, ...body }
+      multipart: appointmentForm({ patientId, scheduledDate: BOOKING_DATE, ...body })
     });
   }
 
@@ -120,6 +123,46 @@ test.describe('Booking atomicity (API)', () => {
     expect(body.data.appointment.appointment_reference).toBeTruthy();
     expect(body.data.visitTests).toHaveLength(testIds.length);
     expect(body.data.alreadyBooked).toBe(false);
+  });
+
+  // [1.106.0] A patient's booking carries the doctor's signed request — self-pay as well as HMO —
+  // in place of the doctor's name and clinical notes they used to type. Refused before the
+  // transaction, so the slot stays free; and the file reaches the visit, readable by its owner.
+  test("a patient's booking without the doctor's request is refused and consumes no slot", async () => {
+    const target = await claimSlot();
+    const before = await countMyBookings();
+
+    const res = await apiContext.post(`${API}/appointments`, {
+      headers: { Authorization: `Bearer ${clientToken}` },
+      multipart: appointmentForm(
+        { patientId, scheduledDate: BOOKING_DATE, scheduledTime: target, testIds },
+        { doctorRequest: false }
+      )
+    });
+    expect(res.status()).toBe(400);
+    expect((await res.json()).message).toMatch(/doctor's signed request/i);
+
+    expect(await countMyBookings()).toBe(before);
+    expect((await freeSlot(BOOKING_DATE)).some((s) => s.time === target)).toBe(true);
+  });
+
+  test("the doctor's request lands on the visit, and only its owner and staff may read it", async () => {
+    const res = await book({ scheduledTime: await claimSlot(), testIds });
+    expect(res.status()).toBe(201);
+    const visitId = (await res.json()).data.appointment.patient_visit_id;
+    const url = `${API}/visits/${visitId}/doctor-request`;
+
+    const mine = await apiContext.get(url, { headers: { Authorization: `Bearer ${clientToken}` } });
+    expect(mine.status()).toBe(200);
+    expect(mine.headers()['content-type']).toMatch(/image\/png/);
+
+    const reception = await loginAs(apiContext, API, RECEPTION);
+    expect((await apiContext.get(url, { headers: { Authorization: `Bearer ${reception}` } })).status()).toBe(200);
+
+    // Diagnostic staff hold no visits:read; and nobody unauthenticated.
+    const lab = await loginAs(apiContext, API, LAB);
+    expect((await apiContext.get(url, { headers: { Authorization: `Bearer ${lab}` } })).status()).toBe(403);
+    expect((await apiContext.get(url)).status()).toBe(401);
   });
 
   // Shared by both "nothing was written" assertions. A count is timezone-proof where a date
@@ -186,8 +229,9 @@ test.describe('Booking atomicity (API)', () => {
     ids.forEach((id) => form.append('testIds[]', String(id)));
     form.append('hmo[providerId]', String(providerId));
     form.append('hmo[approvalCode]', 'LOA-E2E');
-    // Mandatory on an HMO claim since [1.23.0] — the LOA is issued against the requesting doctor.
-    form.append('referringPhysician', 'Dr. E2E Referrer');
+    // No typed referring physician. [1.106.0] The LOA is issued against the requesting doctor
+    // ([1.23.0]), and the signed request names them — which is why the patient stopped typing it.
+    form.append('doctorRequest', new Blob([CARD_PNG], { type: 'image/png' }), 'doctor-request.png');
     if (withCard) {
       form.append('hmoCard', new Blob([CARD_PNG], { type: 'image/png' }), 'card.png');
     }
@@ -255,6 +299,34 @@ test.describe('Booking atomicity (API)', () => {
     expect((await res.json()).message).toMatch(/hmo card/i);
   });
 
+  // [1.106.0] Nor is the standalone route a way round the doctor's request. A visit the front desk
+  // booked for this patient carries none (staff are exempt), so the patient claiming HMO on it
+  // from home is refused, card or no card.
+  test("a patient cannot claim HMO on a visit with no doctor's request", async () => {
+    const providerId = (await (await apiContext.get(`${API}/hmo/providers`, {
+      headers: { Authorization: `Bearer ${clientToken}` }
+    })).json()).data.providers[0].id;
+
+    const reception = await loginAs(apiContext, API, RECEPTION);
+    const booked = await apiContext.post(`${API}/appointments`, {
+      headers: { Authorization: `Bearer ${reception}` },
+      data: { patientId, scheduledDate: BOOKING_DATE, scheduledTime: await claimSlot(), testIds },
+    });
+    expect(booked.status(), 'the desk books without the paper').toBe(201);
+    const visitTestIds = (await booked.json()).data.visitTests.map((vt) => vt.id);
+
+    const form = new FormData();
+    form.append('hmoProviderId', String(providerId));
+    visitTestIds.forEach((id) => form.append('visitTestIds[]', String(id)));
+    form.append('hmoCard', new Blob([CARD_PNG], { type: 'image/png' }), 'card.png');
+    const res = await apiContext.post(`${API}/hmo/request`, {
+      headers: { Authorization: `Bearer ${clientToken}` },
+      multipart: form
+    });
+    expect(res.status()).toBe(400);
+    expect((await res.json()).message).toMatch(/doctor's signed request/i);
+  });
+
   // A booking may be for today or later, never before. [1.33.0]
   //
   // The date picker has carried min={todayStr()} all along, but nothing on the server compared
@@ -267,7 +339,7 @@ test.describe('Booking atomicity (API)', () => {
 
     const res = await apiContext.post(`${API}/appointments`, {
       headers: { Authorization: `Bearer ${clientToken}` },
-      data: { patientId, scheduledDate: yesterday, scheduledTime: '09:00', testIds },
+      multipart: appointmentForm({ patientId, scheduledDate: yesterday, scheduledTime: '09:00', testIds }),
     });
     expect(res.status()).toBe(400);
     expect((await res.json()).message).toMatch(/already passed|from today onwards/i);

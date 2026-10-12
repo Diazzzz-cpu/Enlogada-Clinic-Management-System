@@ -24,7 +24,7 @@ const CARD_PNG = Buffer.from(
 // input type rather than by accessible name.
 
 test.describe('HMO card evidence (UI)', () => {
-  test('the booking wizard asks a client for a card photo only when they claim HMO', async ({ page }) => {
+  test("the booking wizard asks for the doctor's request always, and a card only for HMO", async ({ page }) => {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
 
@@ -36,16 +36,22 @@ test.describe('HMO card evidence (UI)', () => {
 
     // Step 1 -> step 2. The card field belongs to the HMO branch of step 2, so getting there is
     // the whole point of walking the wizard rather than asserting on a rendered fragment.
-    await dialog.getByRole('button', { name: /next: hmo/i }).click();
+    await dialog.getByRole('button', { name: /next: doctor's request/i }).click();
 
-    // Self-Pay is the default: no card field, because there is no claim to evidence.
-    await expect(dialog.getByText(/photo of your hmo card/i)).toHaveCount(0);
+    // Self-Pay is the default: no card field, because there is no claim to evidence — but the
+    // doctor's signed request is asked of every booking [1.106.0], and nothing is typed instead of
+    // it: no referring physician, no clinical notes.
+    // By label: the HMO hint mentions the card, and only the field is labelled with it.
+    await expect(dialog.getByLabel(/photo of your hmo card/i)).toHaveCount(0);
+    await expect(dialog.getByLabel(/doctor's request/i)).toBeVisible();
+    await expect(dialog.getByText(/referring physician/i)).toHaveCount(0);
+    await expect(dialog.getByText(/clinical notes/i)).toHaveCount(0);
 
     await dialog.getByRole('combobox').first().click();
     await page.getByRole('option').nth(1).click(); // first real provider, after "Self-Pay / None"
 
-    await expect(dialog.getByText(/photo of your hmo card/i)).toBeVisible();
-    await expect(dialog.getByText(/claiming hmo coverage requires a photo/i)).toBeVisible();
+    await expect(dialog.getByLabel(/photo of your hmo card/i)).toBeVisible();
+    await expect(dialog.getByLabel(/doctor's request/i)).toBeVisible();
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
   });
@@ -80,7 +86,7 @@ test.describe('HMO card evidence (UI)', () => {
     await expect(slot).toBeVisible({ timeout: 10000 });
     await slot.click();
 
-    await dialog.getByRole('button', { name: /next: hmo/i }).click();
+    await dialog.getByRole('button', { name: /next: doctor's request/i }).click();
     await expect(dialog.getByText(/hmo provider/i).first()).toBeVisible();
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
@@ -120,7 +126,8 @@ test.describe('HMO card evidence (UI)', () => {
     form.append('scheduledTime', slots[0].time);
     form.append('testIds[]', String(testId));
     form.append('hmo[providerId]', String(providerId));
-    form.append('referringPhysician', 'Dr. E2E Referrer'); // mandatory on a claim since [1.23.0]
+    // The signed request names the doctor, so nothing is typed for the LOA. [1.106.0]
+    form.append('doctorRequest', new Blob([CARD_PNG], { type: 'image/png' }), 'doctor-request.png');
     form.append('hmoCard', new Blob([CARD_PNG], { type: 'image/png' }), 'card.png');
 
     const booked = await ctx.post(`${API}/appointments`, { headers: auth, multipart: form });
@@ -149,6 +156,13 @@ test.describe('HMO card evidence (UI)', () => {
     const img = dialog.getByAltText(/hmo card/i);
     await expect(img).toBeVisible();
     await expect.poll(() => img.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+
+    // [1.106.0] The doctor's request beside it, read from the visit and decoded too — it is what
+    // the HMO approves against.
+    await expect(dialog.getByText("Doctor's Request", { exact: true })).toBeVisible();
+    const requestImg = dialog.getByAltText(/doctor's signed request/i);
+    await expect(requestImg).toBeVisible();
+    await expect.poll(() => requestImg.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
   });

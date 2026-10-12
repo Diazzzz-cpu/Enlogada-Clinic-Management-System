@@ -102,6 +102,21 @@ class VisitController {
     }
   }
 
+  // [1.106.0] The doctor's signed request, served the way an HMO card is.
+  async downloadDoctorRequest(req, res, next) {
+    try {
+      const { absolutePath, originalName, mimeType } = await visitService.getDoctorRequestFile(
+        Number(req.params.id),
+        req.user
+      );
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${originalName.replace(/"/g, '')}"`);
+      return res.sendFile(absolutePath);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async updateStatus(req, res, next) {
     try {
       const { id } = req.params;

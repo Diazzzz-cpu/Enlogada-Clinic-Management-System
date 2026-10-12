@@ -52,11 +52,30 @@ const isNamed = (value) => typeof value === 'string' && value.trim().length > 0;
  *
  * The message says which rule fired, because "referring physician is required" on a form that did
  * not ask for one a moment ago is the kind of error people work around rather than fix.
+ *
+ * A doctor's signed request on file satisfies it. [1.106.0] It names the doctor, in the doctor's
+ * own hand, which is better evidence than the name typed from it — so a patient booking online
+ * uploads the paper instead of transcribing it.
  */
-function assertReferralIfRequired({ patientTypeName, hasHmoClaim, referringPhysician }) {
+function assertReferralIfRequired({ patientTypeName, hasHmoClaim, referringPhysician, hasDoctorRequest = false }) {
   const { required, because } = referralRequirement({ patientTypeName, hasHmoClaim });
-  if (required && !isNamed(referringPhysician)) {
+  if (required && !isNamed(referringPhysician) && !hasDoctorRequest) {
     const error = new Error(`Please give the referring physician's name — ${because}.`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+/**
+ * A patient's own booking must carry the doctor's signed request. [1.106.0]
+ *
+ * Every online booking, self-pay included: the clinic performs a test on a doctor's request, and
+ * the paper is the request. Staff are exempt, as for the HMO card — at the desk the patient hands
+ * the paper over in person.
+ */
+function assertDoctorRequestIfRequired({ isStaff, hasDoctorRequest }) {
+  if (!isStaff && !hasDoctorRequest) {
+    const error = new Error("Please upload your doctor's signed request for these tests.");
     error.statusCode = 400;
     throw error;
   }
@@ -77,6 +96,7 @@ module.exports = {
   REFERRED_PATIENT_TYPE,
   referralRequirement,
   assertReferralIfRequired,
+  assertDoctorRequestIfRequired,
   normaliseReferral,
   isNamed,
 };

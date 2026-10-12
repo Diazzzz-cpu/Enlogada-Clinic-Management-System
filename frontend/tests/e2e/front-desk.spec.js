@@ -86,7 +86,16 @@ test.describe("The Desk's Who's here box", () => {
       scheduled_date: todayStr(), scheduled_time: '10:30:00',
       first_name: 'Rosario', last_name: 'Magbanua', patient_id: 987654321,
       queue_number: 'Q-099', is_paid: false, categories: [],
+      // [1.106.0] Booked online, so it carries the doctor's signed request.
+      patient_visit_id: 987654321, has_doctor_request: true,
     };
+    await page.route((url) => url.pathname === '/api/visits/987654321/doctor-request', (route) => route.fulfill({
+      contentType: 'image/png',
+      body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        'base64'
+      ),
+    }));
     await page.route((url) => url.pathname === '/api/appointments', (route) => route.fulfill({
       json: { status: 'success', data: { appointments: [booking], total: 1 } },
     }));
@@ -104,6 +113,15 @@ test.describe("The Desk's Who's here box", () => {
     await expect(card.getByRole('button', { name: /No-Show/ })).toBeVisible();
     // Unpaid, and the card says so before anyone checks the patient in.
     await expect(card).toContainText(/no confirmed payment/i);
+
+    // The patient uploaded the doctor's request instead of typing the doctor's name, so check-in
+    // is where the desk reads it — in place, and decoded rather than a broken image. [1.106.0]
+    await card.getByRole('button', { name: "View doctor's request" }).click();
+    const paper = card.getByAltText("The doctor's signed request for this booking");
+    await expect(paper).toBeVisible();
+    await expect.poll(() => paper.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+    await card.getByRole('button', { name: "Hide doctor's request" }).click();
+    await expect(paper).toHaveCount(0);
   });
 
   test('registration opens beside the queue and closes back onto it', async ({ page }) => {

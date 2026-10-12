@@ -6,6 +6,7 @@ import { fixturePerson } from './helpers/people.js';
 import { nthWorkingDay } from './helpers/dates.js';
 import { PORTAL_TABS, openPortalTab } from './helpers/portal.js';
 import { expectHeaderSpreadsOnScroll } from './helpers/header.js';
+import { appointmentForm } from './helpers/booking.js';
 
 /**
  * The patient portal's Home, and the shell around every tab. [1.81.0]
@@ -55,7 +56,7 @@ async function clientWithUnpaidBooking() {
 
   const booked = await ctx.post(`${API}/appointments`, {
     headers,
-    data: { patientId: patient.id, scheduledDate: date, scheduledTime: slot.time, testIds: [labTest.id] },
+    multipart: appointmentForm({ patientId: patient.id, scheduledDate: date, scheduledTime: slot.time, testIds: [labTest.id] }),
   });
   expect(booked.status(), 'the booking should be created').toBe(201);
   const { appointment } = (await booked.json()).data;

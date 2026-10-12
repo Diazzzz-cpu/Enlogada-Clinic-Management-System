@@ -19,7 +19,7 @@ const visitService = require('./visitService');
 const auditService = require('./auditService');
 const appointmentEmailService = require('./appointmentEmailService');
 const logger = require('../config/logger');
-const { assertReferralIfRequired, normaliseReferral } = require('./referralService');
+const { assertReferralIfRequired, assertDoctorRequestIfRequired, normaliseReferral } = require('./referralService');
 
 async function assertClientOwnsPatient(requestingUser, patientId) {
   if (!requestingUser?.roles?.includes('Client')) return; // staff roles are not ownership-restricted
@@ -63,6 +63,9 @@ async function assertSlotWithinOperatingHours(scheduledDate, scheduledTime) {
   }
   return hours;
 }
+
+// appointments.reschedule_reason is VARCHAR(500). [1.105.0]
+const RESCHEDULE_REASON_MAX = 500;
 
 // One message for both places a reschedule can be refused: the pre-check, and the losing side of
 // the compare-and-swap in updateSchedule. A caller cannot tell — and should not need to — whether
@@ -224,7 +227,7 @@ class AppointmentService {
   // not at all.
   async createAppointment({
     patientId, scheduledDate, scheduledTime, notes, createdBy, requestingUser,
-    testIds = [], packageIds = [], hmo = null, hmoCardFile = null, referral = null
+    testIds = [], packageIds = [], hmo = null, hmoCardFile = null, doctorRequestFile = null, referral = null
   }) {
     // db.withTransaction rather than a hand-managed db.pool.connect(). Everything underneath —
     // testService.attachTests, hmoService.createRequest and the auditService.log inside it — runs
@@ -256,10 +259,17 @@ class AppointmentService {
         error.statusCode = 404;
         throw error;
       }
+      // [1.106.0] A patient's own booking carries the doctor's signed request, and that paper
+      // also answers "who referred them" — so a patient no longer types the doctor's name.
+      assertDoctorRequestIfRequired({
+        isStaff: isStaffUser(requestingUser),
+        hasDoctorRequest: Boolean(doctorRequestFile)
+      });
       assertReferralIfRequired({
         patientTypeName: bookingPatient.patient_type_name,
         hasHmoClaim: Boolean(hmo),
-        referringPhysician: referral?.referringPhysician
+        referringPhysician: referral?.referringPhysician,
+        hasDoctorRequest: Boolean(doctorRequestFile)
       });
 
       // Cheapest guard first, and outside the transaction: a past date needs no advisory lock and
@@ -328,7 +338,8 @@ class AppointmentService {
           notes,
           queueNumber: null,
           createdBy,
-          ...normaliseReferral(referral || {})
+          ...normaliseReferral(referral || {}),
+          doctorRequest: doctorRequestFile
         });
 
         // 5. Create the appointment record linked to the visit
@@ -389,19 +400,20 @@ class AppointmentService {
         };
       });
     } catch (err) {
-      // Nothing committed, so nothing references the card and the bytes multer wrote are
-      // unreachable. This is the ONLY place the card is discarded on failure: past this catch the
-      // transaction has committed, and deleting the file would break a booking that exists.
-      discardHmoCard(hmoCardFile);
+      // Nothing committed, so nothing references the card or the doctor's request, and the bytes
+      // multer wrote are unreachable. This is the ONLY place they are discarded on failure: past
+      // this catch the transaction has committed, and deleting them would break a booking that
+      // exists.
+      discardHmoCard(hmoCardFile, doctorRequestFile);
       throw err;
     }
 
-    // ── Committed from here. Nothing below may delete the card or fail the booking. ──────────
+    // ── Committed from here. Nothing below may delete the evidence or fail the booking. ──────
     if (outcome.alreadyBooked) {
-      // A retry re-sends the card the original booking already carries, and this path files no
-      // new claim for it to attach to. Drop the bytes rather than letting a re-submission swap
+      // A retry re-sends the evidence the original booking already carries, and this path files
+      // no new claim for it to attach to. Drop the bytes rather than letting a re-submission swap
       // the evidence under a claim an Admin may already have reviewed.
-      discardHmoCard(hmoCardFile);
+      discardHmoCard(hmoCardFile, doctorRequestFile);
       // No notification either: staff were already told about this booking when it was made.
       return outcome;
     }
@@ -589,8 +601,25 @@ class AppointmentService {
    * Only a Pending booking can move. 'Confirmed' is the receptionist's check-in — the patient is
    * at the desk, so a new date is not what anyone means — and Completed / No Show / Cancelled are
    * all finished.
+   *
+   * A move says why. [1.105.0] Whoever moves it — the patient, or staff on their behalf — gives a
+   * reason, which is kept on the booking, in the audit entry, in the staff notification and in
+   * the patient's email. Checked first, the way a payment rejection's reason is: it is a fact
+   * about the request, and refusing it reveals nothing about the booking.
    */
-  async rescheduleAppointment(id, { scheduledDate, scheduledTime }, requestingUser) {
+  async rescheduleAppointment(id, { scheduledDate, scheduledTime, reason }, requestingUser) {
+    const why = String(reason ?? '').trim();
+    if (!why) {
+      const error = new Error('Say why the appointment is being moved.');
+      error.statusCode = 400;
+      throw error;
+    }
+    if (why.length > RESCHEDULE_REASON_MAX) {
+      const error = new Error(`Keep the reason under ${RESCHEDULE_REASON_MAX} characters.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
     const appointment = await appointmentRepository.findById(id);
     if (!appointment) {
       const error = new Error('Appointment not found');
@@ -644,7 +673,7 @@ class AppointmentService {
         throw error;
       }
 
-      const moved = await appointmentRepository.updateSchedule(id, { scheduledDate, scheduledTime });
+      const moved = await appointmentRepository.updateSchedule(id, { scheduledDate, scheduledTime, reason: why });
 
       // Compare-and-swap: no row means the status stopped being Pending between the read above and
       // this write — the receptionist checked the patient in at the desk while the move was in
@@ -666,7 +695,7 @@ class AppointmentService {
         entityId: appointment.id,
         description:
           `${appointment.appointment_reference}: ${previous.date} ${previous.time} → ` +
-          `${scheduledDate} ${String(scheduledTime).slice(0, 5)}`,
+          `${scheduledDate} ${String(scheduledTime).slice(0, 5)} — ${why}`,
       });
 
       return moved;
@@ -678,20 +707,20 @@ class AppointmentService {
       title: 'Appointment Rescheduled',
       message:
         `${appointment.first_name} ${appointment.last_name} — ${previous.date} ${previous.time} → ` +
-        `${scheduledDate} ${String(scheduledTime).slice(0, 5)}`,
+        `${scheduledDate} ${String(scheduledTime).slice(0, 5)}. Reason: ${why}`,
       type: 'info',
     });
 
     // The patient needs this one more than staff do, and especially when reception moved it on
     // their behalf over the phone — otherwise the only record of the new time is a conversation.
     // Not awaited, for the reason given in createAppointment. [1.74.0]
-    this.emailRescheduleNotice(id, previous, { date: scheduledDate, time: scheduledTime }).catch(() => {});
+    this.emailRescheduleNotice(id, previous, { date: scheduledDate, time: scheduledTime }, why).catch(() => {});
 
     return { ...updated, queue_number: appointment.queue_number, previous };
   }
 
   /** The reschedule notice. Never throws: a mail problem is logged, never reported as a failed move. */
-  async emailRescheduleNotice(id, previous, moved) {
+  async emailRescheduleNotice(id, previous, moved, reason) {
     try {
       const ctx = await appointmentRepository.findEmailContextById(id);
       if (ctx) {
@@ -701,6 +730,7 @@ class AppointmentService {
           reference: ctx.appointment_reference,
           from: previous,
           moved,
+          reason,
           queueNumber: ctx.queue_number,
         });
       }

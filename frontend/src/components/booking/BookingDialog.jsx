@@ -5,12 +5,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '../ui/dialog';
 import SlotPicker from './SlotPicker';
 import TestPicker from './TestPicker';
-import ReferringPhysicianFields from './ReferringPhysicianFields';
+import EvidenceUpload from './EvidenceUpload';
 import BookingConfirmation from '../BookingConfirmation';
 import api from '../../config/api';
 import { formatAppointmentDate } from '../../lib/date';
-import { prepareCardImage } from '../../lib/cardImage';
+import { DOCUMENT_MAX_EDGE } from '../../lib/cardImage';
+import { useEvidenceFile } from '../../hooks/useEvidenceFile';
 import { PlusCircle, AlertCircle } from 'lucide-react';
+
+const DOCTOR_REQUEST_IMAGE = { name: 'doctor-request.jpg', maxEdge: DOCUMENT_MAX_EDGE };
+
+const EMPTY_BOOKING = {
+  scheduledDate: '',
+  scheduledTime: '',
+  testIds: [],
+  packageIds: [],
+  hmoProviderId: '',
+  hmoApprovalCode: '',
+};
 
 /**
  * Booking a diagnostic appointment, from the patient's own portal.
@@ -21,7 +33,7 @@ import { PlusCircle, AlertCircle } from 'lucide-react';
  *
  * It owns its state rather than taking it as props. Passing the twenty-odd values the dialog
  * touches down from the page would have moved the lines without moving the complexity — the page
- * would still have had to reason about `bookingStep` and `hmoCardPreview` while rendering a
+ * would still have had to reason about `bookingStep` and the card's preview while rendering a
  * results table. What crosses the boundary now is only what genuinely belongs to both: which
  * patient is selected, what the clinic sells, who it is accredited with, and a callback so the
  * page can refresh its lists once a booking exists.
@@ -30,21 +42,12 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
   const [showBooking, setShowBooking] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [isBooking, setIsBooking] = useState(false);
-  const [hmoCardFile, setHmoCardFile] = useState(null);
-  const [hmoCardPreview, setHmoCardPreview] = useState('');
-  const [hmoCardError, setHmoCardError] = useState('');
-  const [preparingCard, setPreparingCard] = useState(false);
-  const [bookingData, setBookingData] = useState({
-    scheduledDate: '',
-    scheduledTime: '',
-    notes: '',
-    testIds: [],
-    packageIds: [],
-    hmoProviderId: '',
-    hmoApprovalCode: '',
-    referringPhysician: '',
-    referringPhysicianPrc: ''
-  });
+  // The booking's uploads. [1.106.0] Every booking carries the doctor's signed request, self-pay
+  // included: it names the doctor and the tests in the doctor's own hand, so the patient no longer
+  // types the doctor's name or clinical notes. An HMO claim adds the card.
+  const cardPhoto = useEvidenceFile();
+  const doctorRequest = useEvidenceFile(DOCTOR_REQUEST_IMAGE);
+  const [bookingData, setBookingData] = useState(EMPTY_BOOKING);
 
   // UI/UX Modernization Phase 10: holds the full confirmation payload (not just a success
   // string) so BookingConfirmation.jsx can render a durable QR/reference/queue-ticket card
@@ -58,61 +61,21 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
   const [slotsRefreshKey, setSlotsRefreshKey] = useState(0);
 
 
-  // One predicate for the field's `required`, the pre-submit guard, and what the server enforces.
-  // Derived rather than duplicated: three copies of this rule is how the desk ends up demanding
-  // something the booking form never asked for.
-  const hmoSelected = Boolean(
-    bookingData.hmoProviderId && bookingData.hmoProviderId !== 'none'
-  );
-  const referralRequired = hmoSelected || selectedProfile?.patient_type_name === 'Private';
-
   // The card is identity evidence, so it must never outlive the context it was attached in.
   // Left in state it would follow the patient selector: attach your own card, close the dialog,
-  // switch to your child's profile, and their claim is filed against your member number.
+  // switch to your child's profile, and their claim is filed against your member number. The
+  // doctor's request names the patient too, so it goes with it.
+  const clearCard = cardPhoto.clear;
+  const clearDoctorRequest = doctorRequest.clear;
+  const clearEvidence = useCallback(() => {
+    clearCard();
+    clearDoctorRequest();
+  }, [clearCard, clearDoctorRequest]);
 
-  const clearHmoCard = useCallback(() => {
-    setHmoCardFile(null);
-    setHmoCardError('');
-    setHmoCardPreview((previous) => {
-      if (previous) URL.revokeObjectURL(previous);
-      return '';
-    });
-  }, []);
-
-  // Switching patient invalidates any card already chosen, for the same reason.
+  // Switching patient invalidates any evidence already chosen, for the same reason.
   useEffect(() => {
-    clearHmoCard();
-  }, [selectedProfileId, clearHmoCard]);
-
-  // Nothing renders the object URL after unmount, so release it rather than leaking one per
-  // abandoned booking.
-  useEffect(() => () => {
-    if (hmoCardPreview) URL.revokeObjectURL(hmoCardPreview);
-  }, [hmoCardPreview]);
-
-  const handleCardSelected = async (e) => {
-    const picked = e.target.files?.[0];
-    // Clearing the input lets the same file be re-picked after a rejection; the accepted file is
-    // deliberately NOT cleared, so cancelling a re-pick keeps the photo already chosen.
-    e.target.value = '';
-    if (!picked) return;
-
-    setHmoCardError('');
-    setPreparingCard(true);
-    try {
-      const prepared = await prepareCardImage(picked);
-      setHmoCardFile(prepared);
-      setHmoCardPreview((previous) => {
-        if (previous) URL.revokeObjectURL(previous);
-        return URL.createObjectURL(prepared);
-      });
-    } catch (err) {
-      setHmoCardError(err.message);
-      setHmoCardFile(null);
-    } finally {
-      setPreparingCard(false);
-    }
-  };
+    clearEvidence();
+  }, [selectedProfileId, clearEvidence]);
 
   const handleBookAppointment = async (e) => {
     e.preventDefault();
@@ -120,10 +83,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
     setBookingError('');
     setBookingConfirmation(null);
 
-    const {
-      scheduledDate, scheduledTime, notes, testIds, packageIds, hmoProviderId, hmoApprovalCode,
-      referringPhysician, referringPhysicianPrc,
-    } = bookingData;
+    const { scheduledDate, scheduledTime, testIds, packageIds, hmoProviderId, hmoApprovalCode } = bookingData;
     if (!scheduledDate || !scheduledTime || (testIds.length === 0 && packageIds.length === 0)) {
       setBookingError('Date, Time, and at least one diagnostic test are required.');
       return;
@@ -136,20 +96,14 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       ? { providerId: parseInt(hmoProviderId, 10), approvalCode: hmoApprovalCode || null }
       : null;
 
-    if (hmo && !hmoCardFile) {
-      setBookingError('Please attach a photo of your HMO card to claim HMO coverage.');
+    // The same two rules the server holds (referralService, hmoService), said before the request
+    // rather than after it.
+    if (!doctorRequest.file) {
+      setBookingError("Please upload your doctor's signed request for these tests.");
       return;
     }
-
-    if (referralRequired && !referringPhysician?.trim()) {
-      // Two branches, because the reason differs and the reason is the whole message. Telling a
-      // self-paying Private patient that "your HMO needs it" contradicts the option they just
-      // chose, and the explanation rendered directly above the field.
-      setBookingError(
-        hmoSelected
-          ? 'Please give the name of the doctor who requested these tests — your HMO needs it to approve coverage.'
-          : 'Please give the name of the doctor who requested these tests — a Private patient is one a physician referred.'
-      );
+    if (hmo && !cardPhoto.file) {
+      setBookingError('Please attach a photo of your HMO card to claim HMO coverage.');
       return;
     }
 
@@ -160,48 +114,29 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       // after the first left a booking the patient had been told did not happen, holding a slot
       // their own retry was then refused.
       //
-      // Self-pay stays JSON, byte-identical to what it has always sent. Only an HMO booking —
-      // which has a file to carry — switches to multipart, so the common path is code that did
-      // not change.
-      let response;
+      // Always multipart since [1.106.0]: every booking carries a file now. Self-pay used to be
+      // JSON and only an HMO booking switched.
+      const fd = new FormData();
+      fd.append('patientId', String(parseInt(selectedProfileId, 10)));
+      fd.append('scheduledDate', scheduledDate);
+      fd.append('scheduledTime', scheduledTime);
+      // The [] suffix matters: it makes a single test arrive as a one-element array rather
+      // than a bare string, which a plain repeated field would not.
+      testIds.forEach((id) => fd.append('testIds[]', String(parseInt(id, 10))));
+      packageIds.forEach((id) => fd.append('packageIds[]', String(parseInt(id, 10))));
+      fd.append('doctorRequest', doctorRequest.file, doctorRequest.file.name);
       if (hmo) {
-        const fd = new FormData();
-        fd.append('patientId', String(parseInt(selectedProfileId, 10)));
-        fd.append('scheduledDate', scheduledDate);
-        fd.append('scheduledTime', scheduledTime);
-        fd.append('notes', notes || '');
-        // The [] suffix matters: it makes a single test arrive as a one-element array rather
-        // than a bare string, which a plain repeated field would not.
-        testIds.forEach((id) => fd.append('testIds[]', String(parseInt(id, 10))));
-        packageIds.forEach((id) => fd.append('packageIds[]', String(parseInt(id, 10))));
         fd.append('hmo[providerId]', String(hmo.providerId));
         if (hmo.approvalCode) fd.append('hmo[approvalCode]', hmo.approvalCode);
-        fd.append('referringPhysician', referringPhysician.trim());
-        if (referringPhysicianPrc?.trim()) fd.append('referringPhysicianPrc', referringPhysicianPrc.trim());
-        fd.append('hmoCard', hmoCardFile, hmoCardFile.name);
-
-        // The header override is load-bearing, not decoration: the axios instance defaults to
-        // application/json, and posting FormData under that header serialises the form to JSON
-        // and silently drops the file. AvatarUpload.jsx does the same for the same reason.
-        response = await api.post('/appointments', fd, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-      } else {
-        response = await api.post('/appointments', {
-          patientId: parseInt(selectedProfileId, 10),
-          scheduledDate,
-          scheduledTime,
-          notes,
-          testIds: testIds.map((id) => parseInt(id, 10)),
-          packageIds: packageIds.map((id) => parseInt(id, 10)),
-          hmo: null,
-          // Sent on this branch too: a referred self-payer still belongs on the record, and the
-          // server requires it for a Private patient. The controller already read this field on
-          // both branches — only the client never supplied it here.
-          referringPhysician: referringPhysician?.trim() || undefined,
-          referringPhysicianPrc: referringPhysicianPrc?.trim() || undefined
-        });
+        fd.append('hmoCard', cardPhoto.file, cardPhoto.file.name);
       }
+
+      // The header override is load-bearing, not decoration: the axios instance defaults to
+      // application/json, and posting FormData under that header serialises the form to JSON
+      // and silently drops the file. AvatarUpload.jsx does the same for the same reason.
+      const response = await api.post('/appointments', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
 
       const appt = response.data.data.appointment;
       const { visitTests = [], hmoRequest } = response.data.data;
@@ -225,18 +160,8 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
         amountDue,
         isHmo: !!hmoRequest
       });
-      setBookingData({
-        scheduledDate: '',
-        scheduledTime: '',
-        notes: '',
-        testIds: [],
-        packageIds: [],
-        hmoProviderId: '',
-        hmoApprovalCode: '',
-        referringPhysician: '',
-        referringPhysicianPrc: ''
-      });
-      clearHmoCard();
+      setBookingData(EMPTY_BOOKING);
+      clearEvidence();
       onBooked?.();
     } catch (err) {
       setBookingError(err.response?.data?.message || 'Failed to book appointment');
@@ -278,7 +203,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                       setBookingStep(1);
                       setBookingError('');
                       setBookingConfirmation(null);
-                      clearHmoCard();
+                      clearEvidence();
                     }
                   }}>
                     <DialogTrigger asChild>
@@ -332,7 +257,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                             aria-current={bookingStep === 2 ? 'step' : undefined}
                             className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-500'}`}
                           >
-                            2. HMO / Payment Note
+                            2. Doctor&apos;s Request &amp; HMO
                           </button>
                         </div>
 
@@ -373,7 +298,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
 
                             <div className="flex justify-end pt-2">
                               <Button type="button"  onClick={() => setBookingStep(2)}>
-                                Next: HMO & Notes &rarr;
+                                Next: Doctor&apos;s Request &amp; HMO &rarr;
                               </Button>
                             </div>
                           </div>
@@ -381,10 +306,28 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
 
                         {bookingStep === 2 && (
                           <div className="space-y-4">
+                            {/* First, and for every booking. [1.106.0] The signed request names the
+                                doctor and the tests in the doctor's own hand, which is why this step
+                                no longer asks the patient to type the doctor's name or their
+                                symptoms. Reception reads it at check-in. */}
+                            <EvidenceUpload
+                              id="booking-doctor-request"
+                              label="Doctor's request"
+                              hint="A photo or scan of the request your doctor signed for these tests. It tells the clinic who referred you and what to do, so there is nothing to type — just make sure the doctor's name, signature and the tests are clear."
+                              previewAlt="The doctor's request you attached"
+                              readCheck="Can you clearly read the doctor's name, signature and the tests? If not, take another photo."
+                              pdfCheck="Check it shows the doctor's name, signature and the tests."
+                              evidence={doctorRequest}
+                              disabled={isBooking}
+                            />
+
                             <div className="space-y-1.5">
-                              <label className="field-label">HMO Provider (Optional)</label>
+                              <label className="field-label">
+                                HMO Provider
+                                <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">(optional)</span>
+                              </label>
                               <p className="m-0 text-fine text-slate-500">
-                                Claiming HMO coverage requires a photo of your card. Choose Self-Pay to pay for this visit yourself.
+                                Choose your HMO to claim coverage — you will need a photo of your HMO card. Choose Self-Pay to pay for this visit yourself.
                               </p>
                               <Select
                                 value={bookingData.hmoProviderId}
@@ -415,90 +358,18 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                                   />
                                 </div>
 
-                                <div className="space-y-1.5">
-                                  <label className="field-label">
-                                    Photo of your HMO card <span className="text-rose-600">*</span>
-                                  </label>
-                                  <p className="m-0 text-fine text-slate-500">
-                                    Take a photo of the front of your card, or choose one you already have.
-                                    Make sure the member number is readable.
-                                  </p>
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/webp,application/pdf"
-                                    onChange={handleCardSelected}
-                                    disabled={preparingCard || isBooking}
-                                    className="block w-full text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:text-fine file:font-semibold file:text-white hover:file:bg-brand-700"
-                                  />
-
-                                  {preparingCard && (
-                                    <p className="m-0 text-fine text-slate-500" aria-live="polite">Preparing your photo…</p>
-                                  )}
-
-                                  {hmoCardError && (
-                                    <div role="alert" className="alert alert-error">
-                                      {hmoCardError}
-                                    </div>
-                                  )}
-
-                                  {hmoCardFile && !hmoCardError && hmoCardFile.type === 'application/pdf' && (
-                                    <p className="m-0 text-fine text-slate-600">
-                                      Attached: {hmoCardFile.name}. Check it shows the front of your card
-                                      with the member number readable.
-                                    </p>
-                                  )}
-
-                                  {hmoCardPreview && !hmoCardError && hmoCardFile?.type !== 'application/pdf' && (
-                                    <div className="space-y-1.5">
-                                      {/* Shown large enough to actually read. No API detects blur, glare, a
-                                          thumb over the number or the wrong side of the card — asking the
-                                          patient to confirm they can read it is the only check that does. */}
-                                      <img
-                                        src={hmoCardPreview}
-                                        alt="The HMO card photo you attached"
-                                        className="max-h-64 w-full rounded-xl border border-line bg-sunken object-contain"
-                                      />
-                                      <p className="m-0 text-fine text-slate-600">
-                                        Can you read your member number in this photo? If not, take another.
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
+                                <EvidenceUpload
+                                  id="booking-hmo-card"
+                                  label="Photo of your HMO card"
+                                  hint="Take a photo of the front of your card, or choose one you already have. Make sure the member number is readable."
+                                  previewAlt="The HMO card photo you attached"
+                                  readCheck="Can you read your member number in this photo? If not, take another."
+                                  pdfCheck="Check it shows the front of your card with the member number readable."
+                                  evidence={cardPhoto}
+                                  disabled={isBooking}
+                                />
                               </>
                             )}
-
-                            {/* Shown for every booking, not just an HMO one. A self-paying patient
-                                who WAS referred still needs the doctor on the record — the report
-                                goes back to them — which is what this component's own contract says
-                                and what ReceptionistDashboard already does. Required when an HMO
-                                claim needs it for the LOA, or when the patient's type is Private,
-                                which at this clinic means a physician sent them. Same predicate the
-                                server enforces, so the patient is not told at submit what could
-                                have been said while they were typing. */}
-                            <ReferringPhysicianFields
-                              physician={bookingData.referringPhysician}
-                              prc={bookingData.referringPhysicianPrc}
-                              onPhysicianChange={(v) => setBookingData({ ...bookingData, referringPhysician: v })}
-                              onPrcChange={(v) => setBookingData({ ...bookingData, referringPhysicianPrc: v })}
-                              required={referralRequired}
-                              reason={
-                                hmoSelected
-                                  ? 'Your HMO needs the doctor who requested these tests in order to approve coverage.'
-                                  : referralRequired
-                                    ? 'A Private patient is one a physician referred, so the record needs to name them.'
-                                    : null
-                              }
-                              disabled={isBooking}
-                            />
-
-                            <div className="space-y-1.5">
-                              <label htmlFor="clientdashboard-additional-clinical-notes" className="field-label">Additional Clinical Notes</label>
-                              <Input id="clientdashboard-additional-clinical-notes"
-                                placeholder="Physician referral notes or symptoms..."
-                                value={bookingData.notes}
-                                onChange={e => setBookingData({...bookingData, notes: e.target.value})}
-                              />
-                            </div>
 
                             <div className="flex justify-between pt-2 border-t border-line">
                               <Button type="button" variant="outline" onClick={() => setBookingStep(1)}>

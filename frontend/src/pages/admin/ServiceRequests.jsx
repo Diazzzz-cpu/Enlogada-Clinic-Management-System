@@ -15,7 +15,7 @@ import Pagination from '../../components/ui/pagination';
 import api from '../../config/api';
 import { formatCurrency } from '../../lib/currency';
 import { toastSuccess } from '../../lib/toast';
-import { canRenderPdfInline, previewKindFor } from '../../lib/preview';
+import AttachedFile from '../../components/AttachedFile';
 import { ShieldCheck, AlertCircle, Check, X } from 'lucide-react';
 
 const STATUS_FILTERS = ['All', 'Pending', 'Approved', 'Rejected', 'Cancelled'];
@@ -44,8 +44,6 @@ const ServiceRequests = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [approvalCode, setApprovalCode] = useState('');
   const [detailError, setDetailError] = useState('');
-  const [card, setCard] = useState({ url: '', kind: null });
-  const [cardError, setCardError] = useState('');
   const [detailSubmitting, setDetailSubmitting] = useState(false);
   // Which test is being refused, and the reason being typed for it. A refusal opens an inline row
   // rather than a dialog: the coordinator is reading down a list of tests deciding each one, and
@@ -166,41 +164,6 @@ const ServiceRequests = () => {
 
   // `requests` IS the page — the server sent exactly these rows.
   const pagedRequests = requests;
-
-  // The card image behind the claim. Fetched as a blob rather than pointed at with an <img src>,
-  // because the route requires a bearer token that a plain browser image request cannot send —
-  // the same reason ClientDashboard downloads results this way.
-  //
-  // The kind is read off the blob rather than assumed, because a card may be a PDF: reception
-  // scans arrive that way and the upload allowlist accepts them. Rendering one in an <img> gives
-  // Admin a broken-image icon under the heading "HMO Card" and no way to tell that apart from a
-  // claim filed without evidence — on the screen where they are about to approve coverage.
-  useEffect(() => {
-    let revoked = false;
-    let objectUrl = '';
-    setCard({ url: '', kind: null });
-    setCardError('');
-
-    if (!detailRequest?.id || !detailRequest?.card_file_path) return undefined;
-
-    (async () => {
-      try {
-        const res = await api.get(`/hmo/request/${detailRequest.id}/card`, { responseType: 'blob' });
-        if (revoked) return;
-        objectUrl = URL.createObjectURL(res.data);
-        setCard({ url: objectUrl, kind: previewKindFor(res.data?.type) });
-      } catch (err) {
-        if (!revoked) setCardError(err.response?.status === 410
-          ? 'This card image was removed under the retention policy.'
-          : 'The card image could not be loaded.');
-      }
-    })();
-
-    return () => {
-      revoked = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [detailRequest?.id, detailRequest?.card_file_path]);
 
   // Reception logs a claim and an Admin decides it — two people, two screens, and this
   // one used to fetch once and then sit. An admin who left it open after lunch was
@@ -371,72 +334,42 @@ const ServiceRequests = () => {
               </div>
 
               {/* The evidence the claim rests on. A client booking online must attach a photo of
-                  their card; a receptionist filing at the desk is recorded as having seen the
-                  physical card instead. Approving without being able to see either would make
-                  the requirement pointless. */}
-              <div className="space-y-1.5">
-                <span className="text-fine font-medium text-slate-500">HMO Card</span>
+                  their card and their doctor's signed request; a receptionist filing at the desk
+                  is recorded as having seen the physical card instead. Approving without being
+                  able to see either would make the requirement pointless. */}
+              <AttachedFile
+                url={detailRequest?.id ? `/hmo/request/${detailRequest.id}/card` : null}
+                hasFile={Boolean(detailRequest?.card_file_path)}
+                title="HMO Card"
+                noun="card image"
+                imageAlt="Photo of the patient's HMO card"
+                frameTitle="Scan of the patient's HMO card"
+                missing={
+                  detailRequest?.card_verified_by
+                    ? 'No image — the physical card was confirmed at the front desk.'
+                    : detailRequest?.card_purged_at
+                      ? 'The card image was removed under the retention policy.'
+                      : 'No card on file.'
+                }
+              />
 
-                {card.url && card.kind === 'image' && (
-                  <a href={card.url} target="_blank" rel="noopener noreferrer" className="block">
-                    <img
-                      src={card.url}
-                      alt="Photo of the patient's HMO card"
-                      className="max-h-56 w-full rounded-xl border border-line bg-sunken object-contain"
-                    />
-                    <span className="text-micro font-semibold text-brand-700">Open full size</span>
-                  </a>
-                )}
-
-                {card.url && card.kind === 'pdf' && (
-                  canRenderPdfInline() ? (
-                    <>
-                      <iframe
-                        title="Scan of the patient's HMO card"
-                        src={card.url}
-                        className="h-56 w-full rounded-xl border border-line bg-surface"
-                      />
-                      <a href={card.url} target="_blank" rel="noopener noreferrer" className="text-micro font-semibold text-brand-700">
-                        Open full size
-                      </a>
-                    </>
-                  ) : (
-                    <p className="m-0 text-fine text-slate-600">
-                      The card is a PDF and this browser has no viewer for it.{' '}
-                      <a href={card.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700">
-                        Open it in a new tab
-                      </a>{' '}
-                      to review the claim.
-                    </p>
-                  )
-                )}
-
-                {card.url && !card.kind && (
-                  <p className="m-0 text-fine text-slate-600">
-                    The attached file is not a format this page can display.{' '}
-                    <a href={card.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700">
-                      Open it in a new tab
-                    </a>.
-                  </p>
-                )}
-
-                {cardError && (
-                  <div role="alert" className="alert alert-warning">
-                    <AlertCircle />
-                    <span>{cardError}</span>
-                  </div>
-                )}
-
-                {!detailRequest?.card_file_path && !cardError && (
-                  <p className="m-0 text-fine text-slate-600">
-                    {detailRequest?.card_verified_by
-                      ? 'No image — the physical card was confirmed at the front desk.'
-                      : detailRequest?.card_purged_at
-                        ? 'The card image was removed under the retention policy.'
-                        : 'No card on file.'}
-                  </p>
-                )}
-              </div>
+              {/* [1.106.0] What the doctor signed for, which the HMO approves against. It belongs to
+                  the VISIT — every online booking carries one, HMO or not — so it is read from the
+                  visit's own route. A claim filed at the desk has none because the patient handed
+                  reception the paper; an older booking has none at all, and says so. */}
+              <AttachedFile
+                url={detailRequest?.patient_visit_id ? `/visits/${detailRequest.patient_visit_id}/doctor-request` : null}
+                hasFile={Boolean(detailRequest?.has_doctor_request)}
+                title="Doctor's Request"
+                noun="doctor's request"
+                imageAlt="The doctor's signed request for these tests"
+                frameTitle="Scan of the doctor's signed request"
+                missing={
+                  detailRequest?.card_verified_by
+                    ? 'Not uploaded — the claim was filed at the front desk, where the patient hands over the paper.'
+                    : "Not on file — this booking was made before the doctor's request was asked for."
+                }
+              />
 
               {/* The decision. [1.28.0] This used to be an approve-only form, and it appeared for
                   any claim that was not already Approved — so a refused one still offered an

@@ -28,6 +28,20 @@ class PaymentSubmissionRepository {
   }
 
   /**
+   * What the visit owes, on the same basis the patient was shown it (`appointmentRepository`
+   * `amount_due`) and the cashier's queue shows beside the claim (`findPending`). [1.105.0]
+   */
+  async findAmountDue(patientVisitId) {
+    const result = await db.query(
+      `SELECT COALESCE(SUM(price_at_time), 0) AS amount_due
+         FROM visit_tests
+        WHERE patient_visit_id = $1`,
+      [patientVisitId]
+    );
+    return Number(result.rows[0].amount_due);
+  }
+
+  /**
    * A submission with everything needed to write to the patient about it.
    *
    * The address comes from the account that OWNS the patient profile, not from `submitted_by` —

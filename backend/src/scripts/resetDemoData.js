@@ -119,14 +119,26 @@ async function pruneOrphanedResultFiles() {
  */
 const HMO_CARD_ORPHAN_GRACE_MS = 30 * 60 * 1000;
 
+// The doctor's signed request [1.106.0] is written by the same middleware before the same booking
+// transaction, so its folder needs the same grace period — hence one sweep, two folders.
+const BOOKING_UPLOADS = [
+  { dir: 'hmo-cards', label: 'HMO cards', sql: 'SELECT card_file_path AS p FROM hmo_requests WHERE card_file_path IS NOT NULL' },
+  {
+    dir: 'doctor-requests',
+    label: "doctor's requests",
+    sql: 'SELECT doctor_request_file_path AS p FROM patient_visits WHERE doctor_request_file_path IS NOT NULL',
+  },
+];
+
 async function pruneOrphanedHmoCards() {
-  const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads', 'hmo-cards');
+  for (const target of BOOKING_UPLOADS) await pruneOrphanedBookingUploads(target);
+}
+
+async function pruneOrphanedBookingUploads({ dir, label, sql }) {
+  const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads', dir);
   if (!fs.existsSync(uploadsDir)) return;
 
-  const referenced = new Set(
-    (await db.query('SELECT card_file_path FROM hmo_requests WHERE card_file_path IS NOT NULL')).rows
-      .map((r) => path.basename(r.card_file_path))
-  );
+  const referenced = new Set((await db.query(sql)).rows.map((r) => path.basename(r.p)));
 
   const cutoff = Date.now() - HMO_CARD_ORPHAN_GRACE_MS;
   let removed = 0;
@@ -139,10 +151,10 @@ async function pruneOrphanedHmoCards() {
       fs.unlinkSync(full);
       removed += 1;
     } catch (err) {
-      logger.warn(`  could not remove orphaned card ${name}: ${err.message}`);
+      logger.warn(`  could not remove orphaned upload ${dir}/${name}: ${err.message}`);
     }
   }
-  logger.info(`  orphaned HMO cards       ${removed} removed${skipped ? `, ${skipped} too recent to judge` : ''}`);
+  logger.info(`  orphaned ${label.padEnd(17)}${removed} removed${skipped ? `, ${skipped} too recent to judge` : ''}`);
 }
 
 async function tableCount(table, where = '') {

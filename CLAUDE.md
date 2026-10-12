@@ -101,6 +101,8 @@ node src/scripts/migrateRemove2dEcho.js       # [1.50.0] remove the 2D Echo cate
 node src/scripts/migrateResultSignatureMode.js # [1.64.0] which disclaimer a lab form prints, and how it captions the technologist (--rollback reverses it)
 node src/scripts/migrateAuthCodes.js           # [1.73.0] emailed codes for sign-up and password reset; one account per address (--rollback reverses it)
 node src/scripts/migrateRemoveCriticalValues.js # [1.98.0] withdraw the critical-value workflow; copies each flag into audit_log first (--rollback restores the columns, empty)
+node src/scripts/migrateRescheduleReason.js     # [1.105.0] a reschedule records why; dates earlier moves from audit_log (--rollback reverses it)
+node src/scripts/migrateDoctorRequest.js        # [1.106.0] a patient's booking carries the doctor's signed request; drops the withdrawn hmo_requests draft (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -188,6 +190,14 @@ Run it before and after any non-trivial change and compare the pass/fail counts 
 
 Three notes learned the hard way. The dev rate limiter allows 20,000 requests per 15 minutes; running the suite many times back to back trips it, and the resulting 429s surface as scattered, unrelated-looking failures — restart the backend to reset the counter. (There is now a second, tighter limiter on the credential endpoints, but it only counts *failed* attempts and allows 2,000 outside production, so the suite does not touch it.) Editing a backend file mid-run has the same signature: nodemon restarts, in-flight requests are dropped, and several unrelated specs go red at once — re-run on a settled server before believing a failure. And navigation/role changes need `multirole@enlogada.com` (see `TEST_ACCOUNTS.md`) to exercise properly: a single-role account cannot reveal the class of bug where the sidebar offers a screen the router refuses to open.
 
+**A patient's booking is multipart, and carries the doctor's signed request.** `[1.106.0]` It
+replaced the typed referring physician and clinical notes in the patient's booking dialog, self-pay
+included, and a JSON booking from a Client token is refused 400. Book as a patient in a spec through
+`helpers/booking.js` `appointmentForm()`, and walk the wizard's step 2 with `helpers/portal.js`
+`attachDoctorRequest()`. Staff bookings stay exempt and may be JSON. The file is on the VISIT
+(`uploads/doctor-requests`), read through `GET /visits/:id/doctor-request`, and a request on file
+satisfies the referring-physician rule.
+
 **Manual proof of payment is the live channel; the gateway is not.** `[1.48.0]` The clinic takes
 online payment WITHOUT a gateway: SuperAdmin publishes its own GCash/bank details and QR
 (`payment_methods`), the patient pays and uploads a screenshot plus reference (`payment_submissions`),
@@ -195,7 +205,9 @@ and a cashier verifies it. Approval runs the **existing** `paymentService.proces
 gets a real receipt number, the visit release and the cash-up entry — never a parallel money writer.
 The claimed amount is evidence only: the payment is always the recomputed bill, which is why the
 review queue shows `amount_due` beside `amount_claimed` (approving a ₱50 claim on a ₱1,450 visit
-records ₱1,450 and the drawer is short with nothing on screen to say so). `payment_methods.kind` is
+records ₱1,450 and the drawer is short with nothing on screen to say so). `[1.105.0]` The portal no
+longer asks the patient for an amount: it states the figure with a copy button, omits
+`amountClaimed`, and the server records the amount due in its place. `payment_methods.kind` is
 constrained to **Cash/GCash/Bank** because those are the cash-up buckets `payments` accepts; the
 clinic's own naming goes in `label`. Publishing an account number is **SuperAdmin only and audited**
 — it is where a patient's money is sent. Everything below about PayMongo still applies if the clinic
@@ -268,7 +280,7 @@ This layering is enforced convention in this codebase (checked by the "Project A
 - `authorizeRoles(...roles)` middleware gates routes by role name (e.g. `'Admin'`, `'Receptionist'`).
 - `authorizePermissions(...perms)` gates by fine-grained permission strings (e.g. `billing:process`) and is **enforced on 53 routes**. **SuperAdmin bypasses; Admin does not** — that single difference is what separates the two roles.
 - **`authorizeStaff` replaced the hardcoded role lists on 45 routes [1.20.0].** It asks only "is this a member of staff"; the permission decides the rest. Before this, `POST /payments` named `('SuperAdmin', 'Cashier')` and every result route named the three modality roles, so granting a cashier permission to Laboratory Staff saved, reported success and changed nothing — the matrix could not actually delegate, which is worse than having no matrix. Routes whose role list includes `Client` keep it: that is the one boundary a tick must never cross. Those routes pair the list with a permission anyway, and `verifyRbacWiring.js` then insists every named role holds it — which is why the Client role grants `hmo:request` and `hmo:read` (both ownership-scoped in `hmoService`) rather than the card and claim routes going ungated.
-- **"Is this staff?" has exactly one definition: `isStaffUser` in `src/constants/roles.js`** — holds any role that is not `Client`. `authorizeStaff` uses it, and so do the two places that need the same question answered as a *business* rule (whether an HMO claim needs a card photo, in `hmoService.resolveCardEvidence` and `appointmentController.create`). A local `['SuperAdmin','Admin','Receptionist','Cashier']` list is the wrong shape twice over: it has to be found and edited whenever a role is added, and it disagrees with the matrix the moment a permission like `hmo:request` is delegated to a role the list does not mention.
+- **"Is this staff?" has exactly one definition: `isStaffUser` in `src/constants/roles.js`** — holds any role that is not `Client`. `authorizeStaff` uses it, and so do the two places that need the same question answered as a *business* rule (whether an HMO claim needs a card photo, in `hmoService.resolveCardEvidence` and `appointmentController.create`; and since `[1.106.0]` whether a booking needs the doctor's signed request, in `referralService.assertDoctorRequestIfRequired`). A local `['SuperAdmin','Admin','Receptionist','Cashier']` list is the wrong shape twice over: it has to be found and edited whenever a role is added, and it disagrees with the matrix the moment a permission like `hmo:request` is delegated to a role the list does not mention.
 - **Three axes, resolved server-side in `userRepository` so no caller can disagree with another:**
   - `roles` — staff or patient. Structural, not editable from any screen.
   - `permissions` — the role template **plus** that account's own grants, **minus** its revokes (`user_permissions`). Revoke is applied last as a set difference, so a conflict resolves to *less* access.
@@ -1029,6 +1041,11 @@ Services Catalogue.
   structured measurement while 84 of 90 already had a file. The file is required to RELEASE and
   not to save, so a ticket still parks in 'Waiting for Release' while the report is produced.
   `RESULTS_REQUIRE_FILE=false` restores the old behaviour without a deploy.
+- **A report may be PDF, JPEG, PNG, Word or a spreadsheet.** `[1.96.0]` The list is
+  `backend/src/constants/reportFileTypes.js`, mirrored in `frontend/src/lib/reportFileTypes.js`;
+  change both together. Office types are judged by extension, label AND contents, because their
+  browser labels are unreliable — never go back to trusting the label alone. Macro-enabled files
+  (DOCM, XLSM) stay refused. PDFs and images are served inline, everything else as a download.
 - **The measurement write path is unreachable but alive.** `[1.94.0]` `mergeMeasurements`, the
   derivation pass and `GET /results/field-set/:visitTestId` no longer have a caller in the
   product. They stay because deleting the field-set lookup also deletes the "this test does not
@@ -1041,11 +1058,6 @@ Services Catalogue.
   that is wrong for most patients is worse than no note.
 
 - **`components/ResultReport.jsx` is now the LEGACY rendering.** `[1.94.0]` The generated
-- **A report may be PDF, JPEG, PNG, Word or a spreadsheet.** `[1.96.0]` The list is
-  `backend/src/constants/reportFileTypes.js`, mirrored in `frontend/src/lib/reportFileTypes.js`;
-  change both together. Office types are judged by extension, label AND contents, because their
-  browser labels are unreliable — never go back to trusting the label alone. Macro-enabled files
-  (DOCM, XLSM) stay refused. PDFs and images are served inline, everything else as a download.
   certificate was dropped: the clinic's attached document is the report, and wrapping a letterhead
   and signature block around an empty findings box said less than the file itself. It still renders
   results that carry measurements or no file — the 90 recorded before the change — and the rule

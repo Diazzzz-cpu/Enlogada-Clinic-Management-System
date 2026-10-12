@@ -101,6 +101,12 @@ export default function AppointmentsTab({ bookings }) {
                 two-line form belongs on the pass below rather than repeated in
                 every row header. */}
             <AppointmentTime scheduledTime={appt.scheduled_time} variant="inline" />
+            {/* Why it moved. [1.105.0] Most useful when the clinic moved it for them. */}
+            {isOpen && appt.reschedule_reason && (
+              <span className="mt-0.5 block text-fine text-slate-500">
+                Moved &middot; {appt.reschedule_reason}
+              </span>
+            )}
           </div>
           <StatusBadge status={appt.status} />
         </div>

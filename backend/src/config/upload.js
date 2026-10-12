@@ -205,17 +205,33 @@ const HMO_CARD_MIME_EXTENSIONS = new Map([
 // before sending, so this ceiling is a backstop rather than the normal case.
 const MAX_HMO_CARD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
+// The doctor's signed request for a booking's tests. [1.106.0] A file on the VISIT, not on an HMO
+// claim: every online booking carries one, self-pay included, and it stands in for the doctor's
+// name and the clinical notes the patient used to type. Its own folder, because it is part of the
+// visit's record rather than insurance evidence, and pruneHmoCards.js must never reach it.
+const DOCTOR_REQUEST_UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads', 'doctor-requests');
+fs.mkdirSync(DOCTOR_REQUEST_UPLOAD_ROOT, { recursive: true });
+
+// The two files a booking may carry, by multipart field: where each is stored, its filename
+// prefix, and how a refusal names it. Same mime allowlist and size ceiling for both.
+const BOOKING_FILE_FIELDS = {
+  hmoCard: { root: HMO_CARD_UPLOAD_ROOT, prefix: 'hmo', label: 'The HMO card' },
+  doctorRequest: { root: DOCTOR_REQUEST_UPLOAD_ROOT, prefix: 'docreq', label: "The doctor's request" },
+};
+
 const hmoCardStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, HMO_CARD_UPLOAD_ROOT),
+  destination: (req, file, cb) => cb(null, BOOKING_FILE_FIELDS[file.fieldname]?.root || HMO_CARD_UPLOAD_ROOT),
   filename: (req, file, cb) => {
     const ext = HMO_CARD_MIME_EXTENSIONS.get(file.mimetype) || '.bin';
-    assertInside(HMO_CARD_UPLOAD_ROOT, `hmo-${req.user.userId}-${crypto.randomBytes(16).toString('hex')}${ext}`, cb);
+    const { root = HMO_CARD_UPLOAD_ROOT, prefix = 'hmo' } = BOOKING_FILE_FIELDS[file.fieldname] || {};
+    assertInside(root, `${prefix}-${req.user.userId}-${crypto.randomBytes(16).toString('hex')}${ext}`, cb);
   }
 });
 
 const hmoCardFileFilter = (req, file, cb) => {
   if (!HMO_CARD_MIME_EXTENSIONS.has(file.mimetype)) {
-    const error = new Error('The HMO card must be a JPEG, PNG, WebP or PDF file.');
+    const label = BOOKING_FILE_FIELDS[file.fieldname]?.label || 'The file';
+    const error = new Error(`${label} must be a JPEG, PNG, WebP or PDF file.`);
     error.statusCode = 400;
     return cb(error);
   }
@@ -227,28 +243,53 @@ const uploadHmoCard = multer({
   fileFilter: hmoCardFileFilter,
   // files/fields bounds so a multipart body cannot be used to hold the connection open. The
   // booking body carries at most a handful of fields plus one testIds[] entry per test.
-  limits: { fileSize: MAX_HMO_CARD_SIZE_BYTES, files: 1, fields: 40, fieldNameSize: 200 }
+  limits: { fileSize: MAX_HMO_CARD_SIZE_BYTES, files: 2, fields: 40, fieldNameSize: 200 }
 });
 
+const sizeRefusal = (err) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    const label = BOOKING_FILE_FIELDS[err.field]?.label || 'The file';
+    err.friendlyMessage = `${label} must be 8MB or smaller.`;
+  }
+  return classifyUploadError(err);
+};
+
+// POST /hmo/request: the card alone, as req.file.
 const uploadHmoCardMiddleware = (req, res, next) => {
   uploadHmoCard.single('hmoCard')(req, res, (err) => {
-    if (err) {
-      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-        err.friendlyMessage = 'The HMO card image must be 8MB or smaller.';
-      }
-      return next(classifyUploadError(err));
-    }
+    if (err) return next(sizeRefusal(err));
     next();
   });
 };
 
-// Best-effort cleanup for a card whose booking did not commit. Callback form with an empty
+/**
+ * POST /appointments: the card and the doctor's request, handed on as `req.bookingFiles` —
+ * `{ card, doctorRequest }`, each a multer file or null. [1.106.0] Any other file field is refused
+ * by multer as unexpected, so nothing else can be written to either folder.
+ */
+const uploadBookingFilesMiddleware = (req, res, next) => {
+  uploadHmoCard.fields(
+    Object.keys(BOOKING_FILE_FIELDS).map((name) => ({ name, maxCount: 1 }))
+  )(req, res, (err) => {
+    if (err) return next(sizeRefusal(err));
+    req.bookingFiles = {
+      card: req.files?.hmoCard?.[0] || null,
+      doctorRequest: req.files?.doctorRequest?.[0] || null,
+    };
+    next();
+  });
+};
+
+// Best-effort cleanup for uploads whose booking did not commit. Callback form with an empty
 // callback, never awaited: mirrors authService.uploadAvatar, and for the same reason — losing a
 // stray file must never turn a rejected booking into a 500, nor mask the real error. multer
 // removes its own partial writes when IT fails, so this only covers files it handed over
-// successfully to a request that then went on to fail.
-const discardHmoCard = (file) => {
-  if (file && file.path) fs.unlink(file.path, () => {});
+// successfully to a request that then went on to fail. Takes any number of files, so a booking's
+// card and doctor's request are dropped together.
+const discardHmoCard = (...files) => {
+  for (const file of files) {
+    if (file && file.path) fs.unlink(file.path, () => {});
+  }
 };
 
 // [1.48.0] Two more image paths, both the same server-generated-filename pattern as everything
@@ -398,6 +439,8 @@ module.exports = {
   uploadAvatarMiddleware,
   AVATAR_UPLOAD_ROOT,
   uploadHmoCardMiddleware,
+  uploadBookingFilesMiddleware,
+  DOCTOR_REQUEST_UPLOAD_ROOT,
   HMO_CARD_UPLOAD_ROOT,
   discardHmoCard,
   uploadPaymentProofMiddleware,

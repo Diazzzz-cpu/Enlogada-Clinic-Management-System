@@ -7,7 +7,9 @@ const notificationService = require('./notificationService');
 const { HMO_CARD_UPLOAD_ROOT } = require('../config/upload');
 const { CLIENT_ROLE, isStaffUser } = require('../constants/roles');
 const visitRepository = require('../repositories/visitRepository');
-const { assertReferralIfRequired, normaliseReferral, isNamed } = require('./referralService');
+const {
+  assertReferralIfRequired, assertDoctorRequestIfRequired, normaliseReferral, isNamed,
+} = require('./referralService');
 
 // The decisions an HMO claim's individual test can carry, mirroring chk_hmo_request_tests_status.
 // Kept here so a bad value is refused with a 400 that names the alternatives, rather than passed
@@ -166,18 +168,24 @@ class HmoService {
    * land or neither does. A claim that committed while the physician write failed would sit in
    * Admin's review queue looking complete and be refused by the HMO weeks later.
    */
-  async assertVisitNamesReferrer(visitTestIds, referral) {
+  async assertVisitNamesReferrer(visitTestIds, referral, requestingUser) {
     const visitId = await hmoRepository.findVisitIdByVisitTestIds(visitTestIds);
     if (!visitId) return; // ownership/existence is assertClientOwnsVisitTests's job, not this one
 
     const visit = await visitRepository.findVisitById(visitId);
     const supplied = normaliseReferral(referral || {});
     const already = isNamed(visit?.referring_physician);
+    // [1.106.0] The doctor's signed request lives on the visit. A patient's own claim needs one —
+    // their booking carried it, so this only refuses a visit booked for them some other way — and
+    // a request on file names the doctor, so it answers the LOA rule below as well.
+    const hasDoctorRequest = Boolean(visit?.doctor_request_file_path);
+    assertDoctorRequestIfRequired({ isStaff: isStaffUser(requestingUser), hasDoctorRequest });
 
     assertReferralIfRequired({
       patientTypeName: visit?.patient_type_name,
       hasHmoClaim: true,
       referringPhysician: already ? visit.referring_physician : supplied.referringPhysician,
+      hasDoctorRequest,
     });
 
     // Only written when the visit had none. A claim filed later must not quietly rewrite the
@@ -220,7 +228,7 @@ class HmoService {
       // and reception filing a claim at the desk against a walk-in registered ten minutes ago is
       // the ordinary case: the visit exists and has no physician on it yet, because nothing
       // required one until the claim was made.
-      await this.assertVisitNamesReferrer(visitTestIds, referral);
+      await this.assertVisitNamesReferrer(visitTestIds, referral, requestingUser);
 
       const request = await hmoRepository.createRequestWithTests({
         hmoProviderId,

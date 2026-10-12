@@ -3,6 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { loginAs } from './helpers/ticketRelease.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { nthWorkingDay, dateStr } from './helpers/dates.js';
+import { appointmentForm } from './helpers/booking.js';
 
 // Moving a booking instead of cancelling and rebooking it.
 //
@@ -68,16 +69,17 @@ test.describe('Appointment reschedule (API)', () => {
   const book = async (date, time) => {
     const res = await ctx.post(`${API}/appointments`, {
       headers: auth(clientToken),
-      data: { patientId, scheduledDate: date, scheduledTime: time },
+      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: time }),
     });
     expect(res.status(), 'booking setup').toBe(201);
     return (await res.json()).data.appointment;
   };
 
-  const move = (id, date, time, token = clientToken) =>
+  // Every move says why. [1.105.0]
+  const move = (id, date, time, token = clientToken, reason = 'Schedule conflict') =>
     ctx.put(`${API}/appointments/${id}/reschedule`, {
       headers: auth(token),
-      data: { scheduledDate: date, scheduledTime: time },
+      data: { scheduledDate: date, scheduledTime: time, reason },
     });
 
   test.beforeAll(async () => {
@@ -168,6 +170,40 @@ test.describe('Appointment reschedule (API)', () => {
       data: {},
     });
     expect(missing.status()).toBe(400);
+  });
+
+  // [1.105.0] The clinic could not tell a patient who was unwell from one who changed their mind,
+  // nor a booking it asked to move itself. A blank reason is no reason, and the booking keeps its
+  // slot when one is refused.
+  test('a move must say why, and the reason stays on the booking', async () => {
+    const from = await claimSlot(DAY_A);
+    const appt = await book(DAY_A, from);
+    const to = await claimSlot(DAY_B);
+
+    // Not through move(): its default would fill in the reason this is checking for.
+    const omitted = await ctx.put(`${API}/appointments/${appt.id}/reschedule`, {
+      headers: auth(clientToken),
+      data: { scheduledDate: DAY_B, scheduledTime: to },
+    });
+    expect(omitted.status(), 'no reason sent').toBe(400);
+    expect((await omitted.json()).message).toMatch(/why/i);
+
+    for (const reason of ['', '   ']) {
+      const refused = await move(appt.id, DAY_B, to, clientToken, reason);
+      expect(refused.status(), `reason ${JSON.stringify(reason)}`).toBe(400);
+    }
+    expect((await move(appt.id, DAY_B, to, clientToken, 'x'.repeat(501))).status()).toBe(400);
+
+    const res = await move(appt.id, DAY_B, to, clientToken, '  Feeling unwell  ');
+    expect(res.status()).toBe(200);
+    const moved = (await res.json()).data.appointment;
+    expect(moved.reschedule_reason, 'stored trimmed').toBe('Feeling unwell');
+    expect(moved.rescheduled_at).toBeTruthy();
+
+    // And the patient's own list carries it.
+    const mine = (await (await ctx.get(`${API}/appointments/my-bookings`, { headers: auth(clientToken) })).json())
+      .data.bookings.find((b) => b.id === appt.id);
+    expect(mine.reschedule_reason).toBe('Feeling unwell');
   });
 
   test('only roles holding appointments:reschedule may move a booking', async () => {

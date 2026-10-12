@@ -1,5 +1,132 @@
 # Database Migration & Schema History
 
+## [1.106.0] - 2026-10-12 (A booking carries the doctor's signed request, in place of typing it)
+
+Run on an existing database:
+
+```bash
+node src/scripts/migrateDoctorRequest.js            # --rollback reverses it
+```
+
+Five columns on `patient_visits`, folded into `schema.sql`: `doctor_request_file_path`,
+`_original_name`, `_mime_type`, `_size_bytes` and `_uploaded_at`. The file lives in
+`uploads/doctor-requests`.
+
+### Why
+
+A patient booking online typed the doctor's name, the PRC number and free-text "Additional Clinical
+Notes". The clinic performs a test on a doctor's request, and the signed paper says all three in the
+doctor's own hand, so the booking now uploads the paper and the three typed fields are gone from the
+patient's booking dialog. An HMO reads the same paper before it issues the LOA.
+
+### The rule
+
+Every booking a patient makes carries it, self-pay as well as HMO
+(`referralService.assertDoctorRequestIfRequired`). Refused before the transaction, so the slot stays
+free: "Please upload your doctor's signed request for these tests." Staff are exempt, as for the HMO
+card: at the desk the patient hands the paper over in person. The HMO card is still the HMO's ID and
+is still required for a claim; it was never a second upload.
+
+A doctor's request on file satisfies the referring-physician rule ([1.23.0]) for an HMO claim and for
+a Private patient, so `assertReferralIfRequired` takes `hasDoctorRequest`. A patient's own HMO claim
+on the standalone `POST /hmo/request` needs the visit to carry one, so a booking the desk made for
+them cannot be claimed from home without it. Desk rules are unchanged: reception still types the
+physician on a walk-in and an HMO claim.
+
+There is no CHECK constraint: every visit before today has none, and desk visits are exempt.
+
+### Where it shows
+
+- **Booking dialog**, step 2 ("Doctor's Request & HMO"): the doctor's request comes first, for every
+  booking, then the optional HMO provider, then the LOA code and card photo for an HMO claim. Referring
+  Physician and Additional Clinical Notes are removed. The page is downscaled to 2400px (the card's
+  1600 blurs a signature). The dialog went from 527 to 392 lines, the card and the request sharing
+  `useEvidenceFile` and `EvidenceUpload`.
+- **The Desk**, on the booking card at check-in: "View doctor's request" shows it in place.
+- **Service Requests**, Admin's claim review: under the HMO card, read from the visit.
+- `GET /visits/:id/doctor-request` streams it: staff on `visits:read`, a patient only for their own
+  visit (404 otherwise, as for payment proofs). `components/AttachedFile.jsx` renders it, and the
+  card, on both screens.
+
+### What the typed name still feeds
+
+`patient_visits.referring_physician` is still read by the department worklist ("Ref:"), the legacy
+report and the result email. An online booking no longer fills it, so those show no doctor for it
+until somebody types one. Nothing on the Desk offers that yet.
+
+### Retention and cleanup
+
+The request is part of the visit's record, not insurance evidence, so `pruneHmoCards.js` never
+touches it and nothing ages it out. `purgeE2eData.js` and `resetDemoData.js` sweep
+`uploads/doctor-requests` for orphans, the reset with the card folder's 30-minute grace.
+`seedDemoScenario.js` books online with a generated one-page PDF request from an invented doctor.
+
+### A withdrawn draft
+
+For an hour this was six columns on `hmo_requests`, required only for an HMO claim
+(`migrateHmoDoctorRequest.js`, never committed). Self-pay needing it too moved it to the visit.
+`migrateDoctorRequest.js` drops the draft's columns when empty and refuses if any holds a file.
+
+### Tests
+
+`tests/unit/referral.test.js` (new) pins both directions of the rule. `booking-atomicity.spec.js`
+refuses a booking without the request and checks the slot, checks who may read it, and refuses an HMO
+claim from home on a desk-made visit. `hmo-card-review.spec.js` and `front-desk.spec.js` check both
+screens decode it. Every spec that books as a patient goes through `helpers/booking.js`
+`appointmentForm()`, and every wizard submission through `helpers/portal.js` `attachDoctorRequest()`.
+
+## [1.105.0] - 2026-10-12 (A move says why; the amount to pay is stated, not typed)
+
+Run on an existing database:
+
+```bash
+node src/scripts/migrateRescheduleReason.js            # --rollback reverses it
+```
+
+Two columns on `appointments`, folded into `schema.sql`: `reschedule_reason VARCHAR(500)` and
+`rescheduled_at TIMESTAMP`, both describing the LATEST move. Every move, with its reason, is also in
+`audit_log`. The script fills `rescheduled_at` for earlier moves from their
+`appointment.rescheduled` audit entries (11 on the dev database) and leaves their reason empty:
+nobody was asked, and a guessed reason is the [1.32.0] mistake. Those rows read "no reason
+recorded" on the staff Appointments screen.
+
+### A reschedule must give a reason
+
+`PUT /appointments/:id/reschedule` takes `reason` and refuses a blank one (400, "Say why the
+appointment is being moved."), or one over 500 characters. The dialog offers five common reasons as
+one tap each (Schedule conflict, Feeling unwell, Can't prepare in time, Transport problem, Clinic
+asked to move it) and "Other", which needs words; Confirm stays disabled until there is one. The
+same dialog serves the patient and reception moving a booking over the phone, so it is worded for
+both. The reason is saved as the words chosen, so the list can change without touching a row.
+
+It goes everywhere the move already went: the audit entry, the staff notification ("Reason: …"),
+the patient's email, the patient's own booking card ("Moved · Feeling unwell") and the staff
+Appointments screen.
+
+### The patient no longer types the amount they sent
+
+The proof-of-payment form had an editable "Amount sent" box under a sentence already stating the
+figure, so a patient could send, and claim, something other than what the booking owes. The box is
+gone; the amount sits beside the account number with a copy button (digits only, ready for a banking
+app's amount field).
+
+The API is unchanged: `amountClaimed` is still accepted and still only evidence. When it is
+omitted, as the portal now omits it, the server records the visit's amount due, on the same
+`SUM(price_at_time)` basis the patient was shown and the cashier's queue puts beside it. So a claim
+from the portal never raises the cashier's "amount differs" flag; the flag still works for a claim
+that states its own figure.
+
+The screenshot reader used to fill the amount box. It now compares what it read with the amount due
+and warns, without blocking, when they differ ("The amount does not match."), since the screenshot
+is now the only place a short payment shows before a cashier opens it.
+
+### Tests
+
+`appointment-reschedule.spec.js` refuses a missing, blank and over-long reason and checks the
+stored one; `reschedule-ui.spec.js` drives the reason picker; `manual-payment.spec.js` submits a
+claim with no amount; `booking-pass-gating.spec.js` checks the panel shows the amount with a copy
+button and no number box.
+
 ## [1.96.0] - 2026-10-04 (A report may be a Word document or a spreadsheet)
 
 No migration and no setup step. `test_results.file_mime_type` is free text and already holds

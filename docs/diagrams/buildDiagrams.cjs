@@ -317,10 +317,11 @@ const CASHIER_FLOW = {
   ],
 };
 
-// A department ticket is recorded and then released, which are two separate acts in the system —
-// saving parks it in 'Waiting for Release' and nothing has left the department yet. The decision
-// says so. Releasing is what emails the patient, so that is drawn as its consequence rather than
-// as another thing the technologist does.
+// A result IS the report file the department produces; nothing is retyped into the website, and
+// the clinic asked for it that way. The decision is the two acts the dialog offers: Save for
+// Later parks the ticket in 'Waiting for Release' with nothing authorised yet, and Authorize &
+// Release is what sends it — so the patient's email is drawn as the consequence of releasing
+// rather than as another thing the technologist does.
 function departmentFlow(dept, formStep) {
   return {
     name: dept, actor: `${dept} Staff`, landing: 'Today',
@@ -329,15 +330,14 @@ function departmentFlow(dept, formStep) {
         { k: 'proc', l: 'Open a released ticket' },
         { k: 'proc', l: 'Perform the test' },
         { k: 'io', l: formStep },
-        { k: 'proc', l: 'Save findings' },
         { k: 'dec', l: 'Ready to release?', mainLabel: 'yes',
-          side: { l: 'Leave for release later', label: 'no', toEnd: true } },
-        { k: 'proc', l: 'Release the result' },
+          side: { l: 'Save for later', label: 'no', toEnd: true } },
+        { k: 'proc', l: 'Authorise and release' },
         { k: 'proc', l: 'Patient emailed the report' }],
       [{ k: 'proc', l: `${dept} History` },
         { k: 'proc', l: 'Search past reports' },
         { k: 'dec', l: 'Correction needed?', mainLabel: 'no',
-          side: { l: 'Amend; earlier version kept', label: 'yes', toEnd: true } },
+          side: { l: 'Correct and re-notify', label: 'yes', toEnd: true } },
         { k: 'io', l: 'Print or resend report' }],
     ],
   };

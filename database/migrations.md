@@ -1,5 +1,25 @@
 # Database Migration & Schema History
 
+## [1.104.0] - 2026-10-12 (The department chart follows the report file, after the entry form changed)
+
+No migration. Documentation only.
+
+Merged Diazzzz-cpu's work, which had already landed the critical-value removal independently and
+then merged mine. One of their changes moves a diagram: "The report is the document, not the
+typing" took the templates, the measurement grid, Findings and Remarks out of the result entry
+dialog, so a result IS the uploaded file, and the file is demanded at RELEASE rather than at save.
+"Save Findings" became "Save for Later" because that is what it does.
+
+The three department flowcharts said "Save findings" and "Release the result". They now read
+Upload report file → Ready to release? → Authorise and release, with the no branch going to "Save
+for later" — the two buttons the dialog actually offers — and correcting a released report on
+History reads "Correct and re-notify", which is its button too.
+
+**The ERD is unchanged and still right.** `result_field_sets`, `result_fields`,
+`result_field_set_tests` and `result_measurements` are still in the database — the grid was
+removed from the screen, not the tables from the schema — and the ERD is generated from the live
+database, so it keeps drawing all 36.
+
 ## [1.103.0] - 2026-10-12 (The diagrams checked against the system, and the two places they disagreed)
 
 No migration. Documentation only.

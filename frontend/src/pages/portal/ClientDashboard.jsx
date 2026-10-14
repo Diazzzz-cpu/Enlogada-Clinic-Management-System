@@ -154,7 +154,7 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
 
       <TabsContent value="results" className="m-0">
         {screen(
-          <PortalBand title="Results" subtitle="Reports the clinic has released, to read and print." />,
+          <PortalBand title="Results" subtitle="Reports the clinic has released, to read online. The original is at the clinic." />,
           <ResultsTab profiles={profiles} results={results} onPreviewDocument={setPreviewDoc} />
         )}
       </TabsContent>

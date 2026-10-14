@@ -85,7 +85,9 @@ const DEFAULT_GROUP = {
   iconClassName: "",
 };
 
-function StatusBadge({ status, className, ...props }) {
+// `children` replaces the words and keeps the status's colour and glyph: a worklist group says
+// "5 Processing" in the badge that means Processing. [1.115.0]
+function StatusBadge({ status, className, children, ...props }) {
   const group = STATUS_GROUPS[STATUS_TO_GROUP[status]] || DEFAULT_GROUP;
   const Icon = group.icon;
 
@@ -102,7 +104,7 @@ function StatusBadge({ status, className, ...props }) {
       {/* aria-hidden: the status text beside it already conveys this to a screen reader, and a
           second announcement would just be noise. The glyph is for visual scanning. */}
       {Icon && <Icon aria-hidden="true" className={cn("w-3 h-3 flex-shrink-0", group.iconClassName)} />}
-      {status}
+      {children ?? status}
     </Badge>
   );
 }

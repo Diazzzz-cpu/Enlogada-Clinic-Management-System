@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { categoryLabel as categoryLabelFor, categoryIcon } from '../../lib/categories';
-import { Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
+import { groupByVisit, statusCounts, worklistCountLabel } from '../../lib/worklistGroups';
+import { cn } from '../../lib/utils';
+import { ChevronRight, Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
 import Toolbar, { SegmentedFilter, ToolbarSpacer } from '../ui/toolbar';
@@ -19,6 +21,78 @@ import { useAuth } from '../../contexts/AuthContext';
 const PAGE_SIZE = 10;
 const WORKLIST_STATUS_FILTERS = ['All', 'Processing', 'Waiting for Release'];
 
+/** PT number, age and sex: the line under a patient's name. */
+function PatientDetails({ test, className }) {
+  // Age and sex, on the screen where findings are recorded. Diagnostic reference ranges are banded
+  // by both — a haemoglobin that is normal for a 40-year-old man is anaemia in a child — and the
+  // tech had to open a second screen to find out which band applied.
+  const age = ageFromBirthdate(test.birthdate);
+  return (
+    <span className={cn('block text-meta font-normal text-slate-500', className)}>
+      PT-{test.patient_id}
+      {age !== null && <> &middot; {age}y</>}
+      {test.sex && <> &middot; {test.sex}</>}
+    </span>
+  );
+}
+
+/** Who asked for the test [1.23.0]. The report goes back to this doctor, and a tech querying an
+ *  odd result needs to know who to call. */
+function Referrer({ test }) {
+  if (!test.referring_physician) return null;
+  return (
+    <span className="block text-meta font-normal text-brand-700">Ref: {test.referring_physician}</span>
+  );
+}
+
+/**
+ * One test's examination, status and actions: the last three cells of a plain row, and the whole
+ * of a row under a patient's name.
+ */
+function TestCells({ test, entry, canRecord, canRelease, showReferrer = true }) {
+  return (
+    <>
+      <TableCell label="Examination" className="py-3.5 text-fine font-bold text-slate-800">
+        {test.test_name}
+        <span className="block text-meta font-normal text-slate-500">{test.category_name}</span>
+        {showReferrer && <Referrer test={test} />}
+      </TableCell>
+
+      <TableCell label="Status" className="py-3.5">
+        <div className="flex flex-col items-start gap-1">
+          <StatusBadge status={test.test_status} className="px-2.5 py-0.5" />
+          {/* Phase C finding 05: HMO-approval status wasn't surfaced anywhere on the worklist — a
+              tech had no on-screen signal that an expensive test's authorization was rejected
+              before running it. */}
+          {test.hmo_approval_status && (
+            <span className="flex items-center gap-1 text-meta font-bold text-slate-500">
+              <ShieldCheck className="w-3 h-3" />
+              HMO:&nbsp;<StatusBadge status={test.hmo_approval_status} className="px-1.5 py-0" />
+            </span>
+          )}
+        </div>
+      </TableCell>
+
+      <TableCell className="py-3.5 text-right">
+        <div className="flex items-center justify-end gap-2">
+          {canRecord && (
+            <Button onClick={() => entry.openFor(test)} variant="outline" size="xs">
+              <FileText className="h-3 w-3" />
+              <span>{test.test_status === 'Waiting for Release' ? 'Edit Report' : 'Attach Report'}</span>
+            </Button>
+          )}
+          {canRelease && test.test_status === 'Waiting for Release' && (
+            <Button onClick={() => entry.openRelease(test)} size="xs">
+              <Send className="h-3 w-3" />
+              <span>Release Result</span>
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </>
+  );
+}
+
 /**
  * What this department has to do today, and the state each ticket is in.
  *
@@ -28,6 +102,11 @@ const WORKLIST_STATUS_FILTERS = ['All', 'Processing', 'Waiting for Release'];
  * [1.79.0] Tidied to the rest of the staff side: the ticket is the shared queue badge (the Desk
  * draws it the same way), a failed load is the standard error state with one Try again, and the
  * secondary lines use the muted ink that clears AA rather than a grey that did not.
+ *
+ * [1.115.0] One row per patient. A visit with several tests is one row whose name opens them
+ * underneath (lib/worklistGroups.js); a visit with one test is the ordinary row it always was.
+ * Groups start closed, so the list reads as the people waiting, and stay open across the polling
+ * refresh because they are remembered by visit.
  */
 export default function WorklistPanel({ worklist, entry }) {
   const categoryLabel = categoryLabelFor(worklist.category);
@@ -60,8 +139,18 @@ export default function WorklistPanel({ worklist, entry }) {
     return matchesSearch;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((worklist.worklistPage - 1) * PAGE_SIZE, worklist.worklistPage * PAGE_SIZE);
+  // Paged by patient, not by test, so one person's tests are never split across two pages.
+  const groups = groupByVisit(filtered);
+  const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+  const paged = groups.slice((worklist.worklistPage - 1) * PAGE_SIZE, worklist.worklistPage * PAGE_SIZE);
+
+  const [openGroups, setOpenGroups] = useState(() => new Set());
+  const toggleGroup = (key) => setOpenGroups((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
 
   return (
       <>
@@ -122,82 +211,93 @@ export default function WorklistPanel({ worklist, entry }) {
               ) : worklist.loading ? (
                 <SkeletonRows rows={5} columns={5} />
               ) : paged.length > 0 ? (
-                paged.map(test => (
-                  <TableRow key={test.visit_test_id} className="hover:bg-slate-50/70 transition-colors">
+                paged.map(({ key, first, tests }) => {
+                  const name = `${first.first_name} ${first.last_name}`;
+                  const ticket = (
                     <TableCell label="Queue Ticket" className="py-3.5">
-                      <DataBadge variant="queue" label="Queue ticket">{test.queue_number || `VT-${test.visit_test_id}`}</DataBadge>
+                      <DataBadge variant="queue" label="Queue ticket">{first.queue_number || `VT-${first.visit_test_id}`}</DataBadge>
                     </TableCell>
+                  );
 
-                    <TableCell label="Patient" className="py-3.5 text-fine font-bold text-slate-900">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>{test.first_name} {test.last_name}</span>
-                        {/* The oldest ticket is usually the one to pick up next, and until now
-                            this screen gave no indication of age at all. */}
-                        <WaitBadge since={test.visit_created_at} />
-                      </div>
-                      {/* Age and sex, on the screen where findings are recorded.
-                          Diagnostic reference ranges are banded by both — a haemoglobin that is
-                          normal for a 40-year-old man is anaemia in a child — and the tech had
-                          to open a second screen to find out which band applied. The query has
-                          returned birthdate and sex all along; nothing rendered them. */}
-                      <span className="block text-meta font-normal text-slate-500">
-                        PT-{test.patient_id}
-                        {ageFromBirthdate(test.birthdate) !== null && (
-                          <> &middot; {ageFromBirthdate(test.birthdate)}y</>
-                        )}
-                        {test.sex && <> &middot; {test.sex}</>}
-                      </span>
-                    </TableCell>
+                  if (tests.length === 1) {
+                    return (
+                      <TableRow key={key} className="hover:bg-slate-50/70 transition-colors">
+                        {ticket}
+                        <TableCell label="Patient" className="py-3.5 text-fine font-bold text-slate-900">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{name}</span>
+                            {/* The oldest ticket is usually the one to pick up next. */}
+                            <WaitBadge since={first.visit_created_at} />
+                          </div>
+                          <PatientDetails test={first} />
+                        </TableCell>
+                        <TestCells test={first} entry={entry} canRecord={canRecord} canRelease={canRelease} />
+                      </TableRow>
+                    );
+                  }
 
-                    <TableCell label="Examination" className="py-3.5 text-fine font-bold text-slate-800">
-                      {test.test_name}
-                      <span className="block text-meta font-normal text-slate-500">{test.category_name}</span>
-                      {/* Who asked for it [1.23.0]. The report goes back to this doctor, and a
-                          tech querying an odd result needs to know who to call. */}
-                      {test.referring_physician && (
-                        <span className="block text-meta font-normal text-brand-700">
-                          Ref: {test.referring_physician}
-                        </span>
-                      )}
-                    </TableCell>
+                  const open = openGroups.has(key);
+                  return (
+                    <React.Fragment key={key}>
+                      <TableRow data-testid="worklist-group" className="hover:bg-slate-50/70 transition-colors">
+                        {ticket}
+                        <TableCell label="Patient" className="py-3.5 text-fine font-bold text-slate-900">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* The name is the dropdown: their tests open underneath it. */}
+                            <button
+                              type="button"
+                              onClick={() => toggleGroup(key)}
+                              aria-expanded={open}
+                              className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 text-left font-bold text-slate-900 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+                            >
+                              <ChevronRight
+                                aria-hidden="true"
+                                className={cn('h-4 w-4 flex-shrink-0 text-slate-500 transition-transform', open && 'rotate-90')}
+                              />
+                              {name}
+                            </button>
+                            <WaitBadge since={first.visit_created_at} />
+                          </div>
+                          <PatientDetails test={first} className="pl-4" />
+                        </TableCell>
+                        <TableCell label="Examination" className="py-3.5 text-fine font-bold text-slate-800">
+                          {tests.length} tests
+                          {/* Which tests, while they are hidden; once open, the rows below say it. */}
+                          {!open && (
+                            <span className="block max-w-[14rem] truncate text-meta font-normal text-slate-500">
+                              {tests.map((t) => t.test_name).join(', ')}
+                            </span>
+                          )}
+                          {/* A visit names one requesting doctor, so it is said once, here. */}
+                          <Referrer test={first} />
+                        </TableCell>
+                        <TableCell label="Status" className="py-3.5">
+                          <div className="flex flex-col items-start gap-1">
+                            {statusCounts(tests).map(({ status, count }) => (
+                              <StatusBadge key={status} status={status} className="px-2.5 py-0.5">
+                                {count} {status}
+                              </StatusBadge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-3.5" />
+                      </TableRow>
 
-                    <TableCell label="Status" className="py-3.5">
-                      <div className="flex flex-col items-start gap-1">
-                        <StatusBadge status={test.test_status} className="px-2.5 py-0.5" />
-                        {/* Phase C finding 05: HMO-approval status wasn't surfaced anywhere on
-                            the worklist — a tech had no on-screen signal that an expensive
-                            test's authorization was rejected before running it. */}
-                        {test.hmo_approval_status && (
-                          <span className="flex items-center gap-1 text-meta font-bold text-slate-500">
-                            <ShieldCheck className="w-3 h-3" />
-                            HMO:&nbsp;<StatusBadge status={test.hmo_approval_status} className="px-1.5 py-0" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {canRecord && (
-                          <Button
-                            onClick={() => entry.openFor(test)}
-                            variant="outline"
-                            size="xs"
-                          >
-                            <FileText className="h-3 w-3" />
-                            <span>{test.test_status === 'Waiting for Release' ? 'Edit Report' : 'Attach Report'}</span>
-                          </Button>
-                        )}
-                        {canRelease && test.test_status === 'Waiting for Release' && (
-                          <Button onClick={() => entry.openRelease(test)} size="xs">
-                            <Send className="h-3 w-3" />
-                            <span>Release Result</span>
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                      {open && tests.map((test) => (
+                        <TableRow
+                          key={test.visit_test_id}
+                          data-subrow="true"
+                          data-testid="worklist-group-test"
+                          className="bg-slate-50/60 hover:bg-slate-50 transition-colors"
+                        >
+                          <TableCell className="py-3" />
+                          <TableCell className="py-3" />
+                          <TestCells test={test} entry={entry} canRecord={canRecord} canRelease={canRelease} showReferrer={false} />
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  );
+                })
               ) : (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={5} className="p-0">
@@ -220,7 +320,9 @@ export default function WorklistPanel({ worklist, entry }) {
           page={worklist.worklistPage}
           totalPages={totalPages}
           onPageChange={worklist.setWorklistPage}
-          total={filtered.length} pageSize={PAGE_SIZE}
+          totalLabel={groups.length > 0
+            ? worklistCountLabel({ groups: groups.length, tests: filtered.length, page: worklist.worklistPage, pageSize: PAGE_SIZE })
+            : undefined}
         />
       </Panel>
       </div>

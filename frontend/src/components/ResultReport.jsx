@@ -136,9 +136,12 @@ export default function ResultReport({
       {/* The patient's screen is a copy, and says so. [1.114.0] The original, sealed and signed, is
           handed over at the clinic; nothing a patient sees should read as that document. */}
       {variant === 'patient' && (
-        <p data-testid="digital-copy-note" className="m-0 pt-2 text-center text-meta font-bold text-slate-600">
-          DIGITAL COPY · For the original with the official seal, please visit the clinic and ask for it.
-        </p>
+        <div data-testid="digital-copy-note" className="m-0 pt-3 text-center">
+          <p className="m-0 text-base font-bold tracking-wide text-slate-900">DIGITAL COPY</p>
+          <p className="m-0 text-sm text-slate-700">
+            For the original with the official seal, please visit the clinic and ask for it.
+          </p>
+        </div>
       )}
 
       {/* Who authorised it, and when. A report that cannot say who released it is weaker than one

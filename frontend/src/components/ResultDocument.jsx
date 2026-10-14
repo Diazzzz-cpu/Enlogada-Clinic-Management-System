@@ -43,13 +43,14 @@ import { FileText, Download, Printer, AlertCircle, ExternalLink } from 'lucide-r
  * written — what Patient Records shows. `autoPrint` prints as soon as the report has loaded, for
  * a Print button on a list.
  *
- * ── A patient views and prints; they are not offered a download [1.113.0] ──────────────────────
- * The clinic's choice: a patient who wants their own copy asks for it to be emailed, and the clinic
- * sends it. So for a Client there is no Download and no "Open in new tab" (a tab is a download one
- * click later), and the PDF viewer's own toolbar is asked to hide (`#toolbar=0`, honoured by Chrome
- * and Edge). This is what the portal OFFERS, not a lock: a report on someone's screen can still be
- * kept by whoever is looking at it. The one exception is a phone with no PDF viewer, where a new tab
- * is the only way to read it at all.
+ * ── A patient views; they are not offered a download or a print [1.113.0] [1.115.0] ───────────
+ * The clinic's choice: the original, sealed and printed, is handed over at the clinic, and a copy
+ * is emailed on request. So for a Client there is no Download, no Print and no "Open in new tab" (a
+ * tab is a download one click later), and the PDF viewer's own toolbar is asked to hide
+ * (`#toolbar=0`, honoured by Chrome and Edge). This is what the portal OFFERS, not a lock: a report
+ * on someone's screen can still be kept by whoever is looking at it, which is why what they are
+ * shown is the marked copy. The one exception is a phone with no PDF viewer, where a new tab is the
+ * only way to read it at all.
  *
  * ── What a patient is served is the DIGITAL COPY [1.114.0] ─────────────────────────────────────
  * The server marks it on every page (backend/src/utils/digitalCopy.js) and it is always a PDF; the
@@ -164,13 +165,13 @@ const ResultDocument = ({
     else window.open(state.url, '_blank', 'noopener');
   };
 
-  const canPrint = state.status === 'ready'
+  const canPrint = !isPatient && state.status === 'ready'
     && (state.kind === 'image' || (state.kind === 'pdf' && canRenderPdfInline()));
 
   // Called from the frame's or the image's onLoad: printing before the document has drawn prints
   // a blank page. The short wait is for the PDF viewer, which reports load before it has painted.
   const printIfAsked = () => {
-    if (!autoPrint || autoPrintedRef.current) return;
+    if (!canPrint || !autoPrint || autoPrintedRef.current) return;
     autoPrintedRef.current = true;
     setTimeout(printDocument, 300);
   };
@@ -182,7 +183,8 @@ const ResultDocument = ({
           <DialogTitle>{testName || 'Diagnostic Report'}</DialogTitle>
           <DialogDescription>
             {patientName ? `${patientName} · ` : ''}
-            {fileName || 'Attached report'}
+            {/* A patient is shown the marked copy, so it is named as one, not by the clinic's file. */}
+            {isPatient ? 'Digital copy' : fileName || 'Attached report'}
           </DialogDescription>
         </DialogHeader>
 
@@ -262,30 +264,25 @@ const ResultDocument = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {state.status === 'ready' && (
-            <>
-              {!isPatient && (
-                <Button variant="outline" onClick={() => window.open(state.url, '_blank', 'noopener')}>
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Open in new tab
-                </Button>
-              )}
-              {canPrint && (
-                <Button variant={isPatient ? 'default' : 'outline'} onClick={printDocument}>
-                  <Printer className="h-3.5 w-3.5" />
-                  Print
-                </Button>
-              )}
-              {!isPatient && (
-                <Button onClick={download}>
-                  <Download className="h-3.5 w-3.5" />
-                  Download
-                </Button>
-              )}
-            </>
-          )}
-        </div>
+        {/* The clinic's own copies: open, print, save. A patient has none of the three. */}
+        {!isPatient && state.status === 'ready' && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => window.open(state.url, '_blank', 'noopener')}>
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open in new tab
+            </Button>
+            {canPrint && (
+              <Button variant="outline" onClick={printDocument}>
+                <Printer className="h-3.5 w-3.5" />
+                Print
+              </Button>
+            )}
+            <Button onClick={download}>
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

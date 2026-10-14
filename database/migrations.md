@@ -1,5 +1,33 @@
 # Database Migration & Schema History
 
+## [1.115.0] - 2026-10-15 (One worklist row per patient; a patient views but does not print)
+
+No schema change; nothing to run.
+
+**A department's worklist is one row per patient.** It listed TESTS, so a patient in for six
+laboratory tests filled six rows with the same ticket, name and wait. A visit with several tests is
+now one row: its name is a button that opens the tests underneath, each with its own Attach Report
+/ Release Result. Closed, the row says how many tests and which, and counts them by status in the
+status's own badge ("4 Processing"). A visit with one test is the ordinary row it always was, which
+is what every other worklist spec drives. Grouped by VISIT, not patient, because a visit is one
+queue ticket. Paged by patient, so one person's tests never split across pages; the footer reads
+"2 patients · 5 tests", since the sidebar badge and the two figures above the list count tests.
+`lib/worklistGroups.js` (unit-tested) holds the rules; `StatusBadge` takes `children` to replace its
+words while keeping its colour. On a phone a test is an indented card under its patient
+(`tr[data-subrow]` in the stacked-table CSS), and an empty cell is left out of a card.
+
+**A patient views a released report; they are no longer offered Print.** [1.113.0] took Download
+away; the clinic's rule is that the original is printed and handed over at the clinic, so Print
+goes too, from the viewer and from autoPrint. The viewer names the document "Digital copy" rather
+than by the clinic's file name. The portal band, the FAQ and the result email stop saying "print".
+A phone with no PDF viewer still has "Open in new tab", the only way to read it there.
+
+**The DIGITAL COPY note is larger.** Two lines in a taller strip (56pt): "DIGITAL COPY" in 16pt
+bold, then the sentence in 12pt. At 8pt on one line it was the smallest text on the page. The
+portal summary's note is the same two lines.
+
+`worklist-groups.spec.js` holds the worklist; `release-email-choice.spec.js` the viewer.
+
 ## [1.114.0] - 2026-10-15 (A patient's copy is marked DIGITAL COPY; the clinic keeps the original)
 
 No schema change; nothing to run. One new backend dependency, `pdf-lib` 1.17.1 (pinned exactly):

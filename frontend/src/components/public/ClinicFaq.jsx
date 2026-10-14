@@ -58,8 +58,9 @@ export default function ClinicFaq() {
       question: 'How will I get my results?',
       answer: (
         <p className="m-0">
-          Released results are emailed to the address on your record. If you have an account, they are
-          also saved in your patient portal, where you can view and print them at any time.
+          If you have an account, a released result appears in your patient portal, where you can read a
+          digital copy at any time, and the clinic can email it to you on request. The original, with
+          the official seal, is given to you at the clinic.
         </p>
       ),
     },

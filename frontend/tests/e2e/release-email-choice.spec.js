@@ -8,7 +8,7 @@ import { fixturePerson, fixtureEmail, FIXTURE_CONTACT } from './helpers/people.j
 import { reportPart, pdfReport } from './helpers/reportFile.js';
 
 /**
- * Releasing does not email, and a patient views and prints but is not offered a download. [1.113.0]
+ * Releasing does not email, and a patient views a released report: no download [1.113.0], no print [1.115.0].
  *
  * Releasing used to email the patient automatically. Not every patient wants a medical report in
  * their inbox, so release now only authorises the report and puts it in the portal; a member of
@@ -111,7 +111,7 @@ test.describe('Release, then email only when asked', () => {
     await expect(offer.getByRole('button', { name: 'Email to patient' })).toBeVisible();
   });
 
-  test('a patient views and prints a released report, and is not offered a download', async ({ page }) => {
+  test('a patient views a released report, and is offered neither a download nor a print', async ({ page }) => {
     const profile = (await (await ctx.get(`${API}/patients/my-profiles`, { headers: auth(client) })).json()).data.patients[0];
     const { visitTestId } = await paidVisit(profile.id);
     await ctx.post(`${API}/results/${visitTestId}`, { headers: auth(lab), multipart: { file: reportPart('portal view') } });
@@ -124,7 +124,12 @@ test.describe('Release, then email only when asked', () => {
 
     await page.getByRole('button', { name: 'View Report' }).first().click();
     const viewer = page.getByRole('dialog', { name: /./ }).last();
-    await expect(viewer.getByRole('button', { name: /Print|Open in new tab/ }).first()).toBeVisible({ timeout: 15000 });
+    // The report itself, or on a browser with no PDF viewer the one way to read it. [1.115.0]
+    await expect(
+      viewer.locator('#result-document-frame').or(viewer.getByRole('button', { name: 'Open in new tab' })).first()
+    ).toBeVisible({ timeout: 15000 });
+    await expect(viewer, 'named as the copy it is').toContainText('Digital copy');
     await expect(viewer.getByRole('button', { name: 'Download' }), 'no download in the viewer').toHaveCount(0);
+    await expect(viewer.getByRole('button', { name: 'Print' }), 'no print in the viewer [1.115.0]').toHaveCount(0);
   });
 });

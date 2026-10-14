@@ -937,6 +937,13 @@ with a link to the printable document.
   `config/navigation.js` (`findNavItem(activeNav).label`), and so does the diagnostic console's
   heading; the other consoles' headings are written to match. A screen that needs to say more says
   it in the description, not in a longer title. `screen-names.spec.js` checks every role's screens.
+- **A department's worklist is one row per patient.** `[1.115.0]` A visit with several tests is
+  one row whose NAME is the dropdown (`aria-expanded`), with its tests underneath; a visit with one
+  test stays an ordinary row, which is what every worklist spec drives. Grouped by visit (one queue
+  ticket), paged by patient, and the footer counts both ("2 patients · 5 tests") because the
+  sidebar badge counts tests. Rules in `lib/worklistGroups.js`. Test contracts:
+  `data-testid="worklist-group"` and `"worklist-group-test"`. On a phone a sub-row is
+  `tr[data-subrow="true"]`, indented under its patient's card.
 - **A queue ticket is always `<DataBadge variant="queue">`.** `[1.79.0]` The Desk's queue, the
   diagnostic worklist and history, Visit History and the booking card all draw it that way. Four
   hand-drawn versions had drifted apart, one in a grey that failed AA.
@@ -1092,11 +1099,12 @@ Services Catalogue.
   (`results:release`), the only path that emails a result, audited as `result.emailed`. History
   reads "Not sent" for a released report with an address and no send, which is now the normal
   state, so Today no longer lists unemailed reports as work.
-- **A patient views and prints a released report; the portal offers no download.** `[1.113.0]` The
-  clinic's choice: a patient who wants their own copy asks for it by email. `ResultDocument` hides
-  Download and "Open in new tab" for a Client and asks the PDF viewer to hide its toolbar
-  (`#toolbar=0`, Chrome and Edge). It is what the portal OFFERS, not a lock — a report on someone's
-  screen can be kept. A phone with no PDF viewer keeps "Open in new tab", the only way to read it.
+- **A patient views a released report; the portal offers no download and no print.** `[1.113.0]`
+  `[1.115.0]` The clinic's choice: the original is printed and handed over at the clinic, and a copy
+  is emailed on request. `ResultDocument` hides Download, Print and "Open in new tab" for a Client,
+  names the document "Digital copy", and asks the PDF viewer to hide its toolbar (`#toolbar=0`,
+  Chrome and Edge). It is what the portal OFFERS, not a lock — a report on someone's screen can be
+  kept. A phone with no PDF viewer keeps "Open in new tab", the only way to read it.
 - **A patient's copy is marked DIGITAL COPY; the clinic keeps the original.** `[1.114.0]` Against
   forgery. Everything a patient receives, in the portal (`getResultFile` for a Client) or attached to
   an email (`resolveReportAttachment`), goes through `utils/digitalCopy.js`: a faint diagonal

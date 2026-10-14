@@ -1114,6 +1114,20 @@ body.printing-report {
   table[data-stack='true'] td[colspan]::before {
     content: none;
   }
+
+  /* An empty cell is a label with nothing beside it; on a card it is left out. */
+  table[data-stack='true'] td:empty {
+    display: none;
+  }
+
+  /* A row that belongs to the row above it — a test under its patient on a worklist [1.115.0] —
+     is indented under that row's card, so it reads as part of it rather than as the next person. */
+  table[data-stack='true'] tr[data-subrow='true'] {
+    margin-left: 1rem;
+    width: calc(100% - 1rem);
+    margin-top: -0.375rem;
+    background: var(--color-slate-50, #f8fafc);
+  }
 }
 
 /* The browser's own calendar glyph on <input type="date">.

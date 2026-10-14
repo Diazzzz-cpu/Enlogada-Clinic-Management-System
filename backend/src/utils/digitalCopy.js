@@ -29,8 +29,11 @@ const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
  */
 
 const WATERMARK = 'DIGITAL COPY';
-const NOTE = 'DIGITAL COPY. For the original with the official seal, please visit the clinic and ask for it.';
-const STRIP = 26;            // points added below each page for the note
+// The note is two lines, the heading in bold, sized to be read at a glance on a phone. [1.115.0]
+// At 8pt on one line it was the smallest text on the page, under the report it qualifies.
+const NOTE_TITLE = 'DIGITAL COPY';
+const NOTE = 'For the original with the official seal, please visit the clinic and ask for it.';
+const STRIP = 56;            // points added below each page for the note
 const IMAGE_WIDTH = 595;     // an image report is laid out at A4 width, so the text sizes match a PDF's
 
 const MARKABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
@@ -81,19 +84,30 @@ function markPage(page, { bold, regular }) {
     }
   }
 
-  // The strip is cleared AFTER the pattern, which runs into it, so the note sits on plain white.
+  // The strip is cleared AFTER the pattern, which runs into it, so the note sits on plain white,
+  // under a hairline that separates it from the report.
   if (upright) {
     page.drawRectangle({ x, y: y - STRIP, width, height: STRIP, color: rgb(1, 1, 1) });
+    page.drawLine({
+      start: { x: x + 18, y: y - 1 },
+      end: { x: x + width - 18, y: y - 1 },
+      thickness: 0.6,
+      color: rgb(0.7, 0.7, 0.7),
+    });
   }
-  const noteSize = fitSize(regular, NOTE, width - 24, 8);
-  const noteWidth = regular.widthOfTextAtSize(NOTE, noteSize);
-  page.drawText(NOTE, {
-    x: x + (width - noteWidth) / 2,
-    y: upright ? y - STRIP + 9 : y + 6,
-    size: noteSize,
-    font: regular,
-    color: rgb(0.2, 0.2, 0.2),
-  });
+  const base = upright ? y - STRIP : y;
+  const centred = (text, font, max, lineY, color) => {
+    const size = fitSize(font, text, width - 36, max);
+    page.drawText(text, {
+      x: x + (width - font.widthOfTextAtSize(text, size)) / 2,
+      y: lineY,
+      size,
+      font,
+      color,
+    });
+  };
+  centred(NOTE_TITLE, bold, 16, base + 32, rgb(0.1, 0.1, 0.1));
+  centred(NOTE, regular, 12, base + 12, rgb(0.15, 0.15, 0.15));
 }
 
 /**
@@ -135,4 +149,4 @@ async function digitalCopy(buffer, mimeType) {
 const digitalCopyName = (name) =>
   `${String(name || 'report').replace(/\.[a-z0-9]{1,5}$/i, '')} (Digital Copy).pdf`;
 
-module.exports = { digitalCopy, digitalCopyName, isMarkable, WATERMARK, NOTE, STRIP };
+module.exports = { digitalCopy, digitalCopyName, isMarkable, WATERMARK, NOTE_TITLE, NOTE, STRIP };

@@ -157,7 +157,7 @@ function findingsBlock(info, { attached = false } = {}) {
     return `<p style="margin:18px 0;padding:12px 14px;background:#f8fafc;border-radius:6px;color:#475569;">
               ${attached
                 ? 'The full report for this examination is attached to this email, and is also available in your patient portal.'
-                : 'The full report for this examination is available in your patient portal, where you can view and print it.'}
+                : 'The full report for this examination is available in your patient portal, where you can view it.'}
             </p>`;
   }
 

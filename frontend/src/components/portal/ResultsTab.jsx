@@ -154,9 +154,9 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                                       {item.file_original_name || 'Attached report'}
                                     </span>
                                   </span>
-                                  {/* View and print only. [1.113.0] A released report is not offered as
-                                      a download in the portal; a patient who wants their own copy asks
-                                      the clinic to email it, which the clinic does on request. */}
+                                  {/* View only. [1.113.0] [1.115.0] A released report is not offered as
+                                      a download or a print in the portal: the original is handed over at
+                                      the clinic, and a copy is emailed on request. */}
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -177,8 +177,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
 
                           {/* No "Print official copy" here. [1.114.0] It printed this letterhead
                               page, not the report, and called it official; the official copy is
-                              the original at the clinic. A patient prints the DIGITAL COPY from
-                              View Report, marked on every page. */}
+                              the original at the clinic. */}
 
                           </DialogContent>
                         </Dialog>

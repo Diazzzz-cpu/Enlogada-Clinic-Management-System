@@ -102,6 +102,7 @@ node src/scripts/migrateRemoveResultForms.js  # [1.109.0] drop the five typed re
                                               #   and REFUSES if a current result has typed values and no file (--force drops anyway; --rollback restores the tables and signatories)
 # The [1.50.0]-[1.64.0] form migrations (ResultFieldSets, BiophysicalScore, LabResultForms, ResultPrecision,
 # ResultSignatureMode) and seedResultFieldSets.js were deleted with it: they only built what [1.109.0] removes.
+node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at, which every report now reads as "released" (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -466,12 +467,15 @@ portal screen is where they look it up afterwards, not how they find out.
 
 **PHI reads are audited; keep the scope narrow.** `auditService.logPhiRead` records reads of an *identified patient's* records (demographics, result history, report file). Do not add it to searches, worklists or queues — staff refresh those constantly, and the entries that matter would drown in traffic that is just people doing their job. That is the fan-out mistake that took `notification_reads` to 255,540 rows.
 
-**A released result is `authorised_at IS NOT NULL`, never `released_at`.** `[1.108.0]`
+**A released result is `authorised_at IS NOT NULL`, never `released_at`.** `[1.108.0]` `[1.110.0]`
 `released_at` defaults to `CURRENT_TIMESTAMP` when a result is SAVED, so `released_at IS NOT NULL`
 is true of every draft. Patient Records' roster counted drafts as "released" that way for months.
 The final record of a test is its latest AUTHORISED version (`findLatestAuthorisedByVisitTestId`,
 `findReleasedResultsByPatientId`), which also keeps the report that went out readable while an
-amendment is being written.
+amendment is being written. The reports made the same mistake until `[1.110.0]`: throughput,
+turnaround against target and staff workload counted drafts and timed every report from when it was
+typed. They now count a test once, at its FIRST authorised version (`FIRST_RELEASE` in
+`reportRepository`), so a correction weeks later is not read as weeks of turnaround.
 
 **Patient Records shows the final record, and only to whoever may read results.** `[1.108.0]` Any
 holder of `results:read` opens a patient's name and gets their authorised results, newest visit

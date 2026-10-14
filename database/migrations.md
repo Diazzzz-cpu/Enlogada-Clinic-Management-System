@@ -1,5 +1,32 @@
 # Database Migration & Schema History
 
+## [1.110.0] - 2026-10-14 (A report counts a release once it is authorised, and once per test)
+
+Run on an existing database:
+
+```bash
+node src/scripts/migrateAuthorisedIndex.js       # --rollback reverses it
+```
+
+Three reports read `test_results.released_at` as the moment a report went out. It is stamped when
+a result is SAVED, so:
+
+- **Departments → Turnaround by department** (`getDiagnosticThroughput`) and **Analytics →
+  Turnaround against target** (`getDepartmentTurnaroundPerformance`) counted drafts nobody had
+  authorised, and timed every report to when it was typed rather than released;
+- **Staff Workload** (`getDiagnosticWorkload`) credited people with drafts.
+
+All three now read `authorised_at`, and count a test once, at its FIRST authorised version
+(`FIRST_RELEASE` in `reportRepository`): a correction authorised weeks later is an amendment, not
+weeks of turnaround or a second patient. The two turnaround reports stay on one basis, as [1.62.0]
+requires. `idx_test_results_authorised_at` (partial, `WHERE authorised_at IS NOT NULL`) serves the
+new date ranges. `report-release-basis.spec.js` holds it: a draft adds nothing, a release adds one,
+a correction adds an amendment.
+
+[1.109.0] was applied to the development database the same day: 31 tables, and `schema.sql`
+matches it on tables, columns and indexes. The ERD was regenerated from it (`erd.drawio` and the
+three `png/erd-*.png`); the other diagrams came out byte-identical.
+
 ## [1.109.0] - 2026-10-14 (The typed result forms are removed, tables and all: 36 tables become 31)
 
 Run on an existing database:

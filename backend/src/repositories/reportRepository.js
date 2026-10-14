@@ -3,6 +3,23 @@ const {
   ISSUED_IN_RANGE, REVERSED_IN_RANGE, ISSUED_IN_DAY_RANGE, MONEY_IN_RANGE, ISSUED_RECEIPT_CLAUSE
 } = require('../constants/moneyRange');
 
+/**
+ * A test's FIRST release, as a predicate on `tr` — its earliest authorised version. [1.110.0]
+ *
+ * "Released" means AUTHORISED. `released_at` is stamped when a result is SAVED, so reading it as
+ * the release counted drafts nobody had authorised, and timed every report from when it was
+ * typed rather than when it went out. The FIRST authorisation, because that is when the patient
+ * got a report: an amendment authorised three weeks later is a correction, not three weeks of
+ * turnaround, and counting the test once per version would count the same patient twice.
+ *
+ * An anti-join rather than MIN() over a LATERAL, so the date range below can be served by the
+ * index on authorised_at instead of walking every visit test the clinic has ever had.
+ */
+const FIRST_RELEASE = `tr.authorised_at IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM test_results earlier
+                          WHERE earlier.visit_test_id = tr.visit_test_id
+                            AND earlier.authorised_at < tr.authorised_at)`;
+
 class ReportRepository {
   /**
    * Money taken in per day. [1.30.0]
@@ -108,16 +125,18 @@ class ReportRepository {
 
   async getDiagnosticWorkload(startDate, endDate) {
     const queryText = `
-      SELECT u.id as staff_id, u.first_name, u.last_name, tc.name as category_name, COUNT(*) as result_count
+      SELECT u.id as staff_id, u.first_name, u.last_name, tc.name as category_name,
+             COUNT(DISTINCT tr.visit_test_id) as result_count
       FROM test_results tr
       JOIN users u ON tr.released_by = u.id
       JOIN visit_tests vt ON tr.visit_test_id = vt.id
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
-      -- is_current: an amended result would otherwise count once per version, inflating a
-      -- clinician's throughput every time somebody corrected a report.
-      WHERE tr.is_current
-        AND tr.released_at >= $1::date AND tr.released_at < ($2::date + 1)
+      -- AUTHORISED versions only [1.110.0]: released_at is stamped at save, so it credited people
+      -- with drafts nobody had released. A test counts once per person who released it — someone
+      -- authorising their own correction is not credited twice, and a colleague who authorised a
+      -- correction is credited for that work.
+      WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
       GROUP BY u.id, u.first_name, u.last_name, tc.name
       ORDER BY result_count DESC
     `;
@@ -261,35 +280,42 @@ class ReportRepository {
   }
 
   /**
-   * Per-department turnaround: payment to released report.
+   * Per-department turnaround: payment to the report's first release.
    *
    * Payment is the right start point because that is when the ticket actually reaches the
    * modality — a visit registered at 8am but paid at 11am did not spend three hours in the lab.
-   * `is_current` throughout, or an amended report counts twice and its correction time is
-   * averaged in as though it were a second patient.
+   * Each test counts once, at its first authorised version (FIRST_RELEASE), or an amended report
+   * counts twice and its correction time is averaged in as though it were a second patient.
    */
   async getDiagnosticThroughput(startDate, endDate) {
+    // Each test once, at its FIRST release (see FIRST_RELEASE). `amended` is a released test
+    // that later had a correction authorised.
     const queryText = `
-      SELECT tc.name AS category_name,
-             COUNT(*)::int                                        AS released,
-             COUNT(*) FILTER (WHERE tr.version > 1)::int          AS amended,
-             COALESCE(AVG(EXTRACT(EPOCH FROM (tr.released_at - pay.paid_at)) / 60)
-                      FILTER (WHERE pay.paid_at IS NOT NULL), 0)::int AS avg_turnaround_minutes,
-             COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                        ORDER BY EXTRACT(EPOCH FROM (tr.released_at - pay.paid_at)) / 60
-                      ), 0)::int                                  AS median_turnaround_minutes
-        FROM test_results tr
-        JOIN visit_tests vt     ON vt.id = tr.visit_test_id
-        JOIN tests t            ON t.id = vt.test_id
-        JOIN test_categories tc ON tc.id = t.category_id
-        LEFT JOIN LATERAL (
-          SELECT MIN(p2.paid_at) AS paid_at
-            FROM payments p2
-           WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
-        ) pay ON TRUE
-       WHERE tr.is_current
-         AND tr.released_at >= $1::date AND tr.released_at < ($2::date + 1)
-       GROUP BY tc.name
+      WITH released AS (
+        SELECT tc.name AS category_name,
+               EXTRACT(EPOCH FROM (tr.authorised_at - pay.paid_at)) / 60 AS minutes,
+               EXISTS (SELECT 1 FROM test_results later
+                        WHERE later.visit_test_id = tr.visit_test_id
+                          AND later.authorised_at > tr.authorised_at) AS amended
+          FROM test_results tr
+          JOIN visit_tests vt     ON vt.id = tr.visit_test_id
+          JOIN tests t            ON t.id = vt.test_id
+          JOIN test_categories tc ON tc.id = t.category_id
+          LEFT JOIN LATERAL (
+            SELECT MIN(p2.paid_at) AS paid_at
+              FROM payments p2
+             WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
+          ) pay ON TRUE
+         WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
+           AND ${FIRST_RELEASE}
+      )
+      SELECT category_name,
+             COUNT(*)::int                                               AS released,
+             COUNT(*) FILTER (WHERE amended)::int                        AS amended,
+             COALESCE(AVG(minutes), 0)::int                              AS avg_turnaround_minutes,
+             COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY minutes), 0)::int AS median_turnaround_minutes
+        FROM released
+       GROUP BY category_name
        ORDER BY released DESC
     `;
     const result = await db.query(queryText, [startDate, endDate]);
@@ -426,11 +452,11 @@ class ReportRepository {
    *
    * So the columns say which is which:
    *
-   *   median_turnaround_minutes  payment -> release. The DEPARTMENT-owned span, identical in
+   *   median_turnaround_minutes  payment -> first release. The DEPARTMENT-owned span, identical in
    *                              basis to getDiagnosticThroughput, and the one the target is
    *                              measured against — you cannot hold Ultrasound to a target for
    *                              time the patient spent queueing at the till.
-   *   median_total_minutes       registration -> release. The whole visit, end to end.
+   *   median_total_minutes       registration -> first release. The whole visit, end to end.
    *
    * ── Why p90 as well as the median ───────────────────────────────────────────────────────────
    *
@@ -448,8 +474,8 @@ class ReportRepository {
     const queryText = `
       WITH released AS (
         SELECT tc.name AS category_name,
-               EXTRACT(EPOCH FROM (tr.released_at - pay.paid_at)) / 60      AS dept_minutes,
-               EXTRACT(EPOCH FROM (tr.released_at - pv.created_at)) / 60    AS total_minutes,
+               EXTRACT(EPOCH FROM (tr.authorised_at - pay.paid_at)) / 60    AS dept_minutes,
+               EXTRACT(EPOCH FROM (tr.authorised_at - pv.created_at)) / 60  AS total_minutes,
                COALESCE(($3::jsonb ->> tc.name)::numeric, NULL)             AS target_minutes
           FROM test_results tr
           JOIN visit_tests vt     ON vt.id = tr.visit_test_id
@@ -464,11 +490,10 @@ class ReportRepository {
               FROM payments p2
              WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
           ) pay ON TRUE
-         -- is_current, or an amended report is counted once per version and its correction time
-         -- is averaged in as though it were a second patient.
-         WHERE tr.is_current
-           AND tr.released_at IS NOT NULL
-           AND tr.released_at >= $1::date AND tr.released_at < ($2::date + 1)
+         -- Each test once, at its FIRST release [1.110.0] — see FIRST_RELEASE. An amendment's
+         -- correction time is not averaged in as though it were a second patient.
+         WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
+           AND ${FIRST_RELEASE}
       )
       SELECT category_name,
              COUNT(*)::int                                                       AS released,

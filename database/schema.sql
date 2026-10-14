@@ -1004,6 +1004,10 @@ CREATE INDEX IF NOT EXISTS idx_payments_status_paid_at ON payments (payment_stat
 CREATE INDEX IF NOT EXISTS idx_patient_visits_status_created ON patient_visits (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_visit_tests_created_at ON visit_tests (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_test_results_released_at ON test_results (released_at DESC);
+-- [1.110.0] What the reports filter on: "released" means AUTHORISED, and released_at is stamped
+-- when a result is saved. Partial, because a draft has no authorised_at to look up.
+CREATE INDEX IF NOT EXISTS idx_test_results_authorised_at ON test_results (authorised_at)
+    WHERE authorised_at IS NOT NULL;
 
 -- Foreign keys that grew with later features and had no index of their own.
 CREATE INDEX IF NOT EXISTS idx_test_results_recorded_by ON test_results (recorded_by);

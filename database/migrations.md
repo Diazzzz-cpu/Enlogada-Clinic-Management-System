@@ -1,5 +1,37 @@
 # Database Migration & Schema History
 
+## [1.112.0] - 2026-10-14 (Patient feedback: the clinic's paper form, in the portal and at the desk)
+
+Run on an existing database:
+
+```bash
+node src/scripts/migrateVisitFeedback.js        # --rollback reverses it
+```
+
+The clinic hands out a paper form: four questions, each ticked MAAYO / OKAY LANG / DILI MAAYO, and
+a comment box. It is now in the system, asked once per FINISHED visit (status 'Completed').
+
+| | |
+|---|---|
+| `feedback_questions` | the wording in Cebuano, Tagalog and English; order; on/off |
+| `visit_feedback_answers` | visit × question → rating 3 / 2 / 1; PK on the pair |
+| `patient_visits.feedback_*` | submitted_at, comment, channel (`portal` / `paper`), language, recorded_by, name_hidden |
+
+Two tables is the floor with real foreign keys; everything that is one-per-visit is a column on the
+visit, as the doctor's request is. An answered question cannot be deleted (RESTRICT) and its wording
+is locked by the service; it can be turned off. Permissions: `feedback:manage` (Admin) and
+`feedback:record` (Receptionist, Admin); the overview reads `reports:view`. The migration loads the
+four questions from the paper form when there are none: the Cebuano is the form's, the Tagalog and
+English are drafts for the clinic to confirm.
+
+Screens: the portal's Home asks "How was your visit?" with a language switch; Visit History offers
+reception "Record feedback" on a finished visit; Admin and SuperAdmin get **Patient Feedback**
+(Overview, printable, and Questions). The demo seed adds nine paper forms from the fortnight's
+walk-ins. `schema.sql` matches the live database at 33 tables; the ERD was regenerated.
+
+The SuperAdmin demo account (`admin@enlogada.com`) is now named **Jesie Enlogada**, at the clinic's
+request — in `seedUsers.js` for a fresh database and set directly on the existing one.
+
 ## [1.111.0] - 2026-10-14 (Reports has four tabs; the Activity Log leaves out migration archives)
 
 No schema change; nothing to run.

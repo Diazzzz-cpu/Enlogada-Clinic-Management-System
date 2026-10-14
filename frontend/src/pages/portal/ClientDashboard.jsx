@@ -10,6 +10,8 @@ import { usePatientProfiles } from '../../hooks/usePatientProfiles';
 import { useMyResultHistory } from '../../hooks/useMyResultHistory';
 import { useMyAppointments } from '../../hooks/useMyAppointments';
 import { useMyPayments } from '../../hooks/useMyPayments';
+import { useMyPendingFeedback } from '../../hooks/useMyPendingFeedback';
+import FeedbackDialog from '../../components/portal/FeedbackDialog';
 import { useClinicReferenceData } from '../../hooks/useClinicReferenceData';
 import PortalLayout from '../../components/portal/PortalLayout';
 import PortalBand from '../../components/portal/PortalBand';
@@ -40,6 +42,9 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
   const results = useMyResultHistory({ patientId: profiles.selectedId });
   const bookings = useMyAppointments();
   const payments = useMyPayments();
+  // [1.112.0] Finished visits to rate, and the one being rated.
+  const feedback = useMyPendingFeedback();
+  const [rating, setRating] = useState(null);
 
   // Returning from the provider's hosted page. The URL flag is presentational only — it says
   // "the browser came back", not "the money arrived", and is deliberately not trusted to mark
@@ -74,6 +79,7 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
     results.reload?.();
     bookings.reload?.();
     payments.reload?.();
+    feedback.reload?.();
   };
   const onBooked = () => {
     results.reload();
@@ -125,6 +131,13 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
           onOpenTab={onTabChange}
           refresh={refresh}
           bookButton={bookButton}
+          feedback={feedback.visits}
+          onRate={setRating}
+        />
+        <FeedbackDialog
+          visit={rating}
+          onOpenChange={(open) => { if (!open) setRating(null); }}
+          onSent={feedback.reload}
         />
       </TabsContent>
 

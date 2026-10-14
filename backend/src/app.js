@@ -187,6 +187,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const feedbackRoutes = require('./routes/feedbackRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const clinicRoutes = require('./routes/clinicRoutes');
 const discountRoutes = require('./routes/discountRoutes');
@@ -208,6 +209,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/clinic', clinicRoutes);
 

@@ -103,6 +103,7 @@ node src/scripts/migrateRemoveResultForms.js  # [1.109.0] drop the five typed re
 # The [1.50.0]-[1.64.0] form migrations (ResultFieldSets, BiophysicalScore, LabResultForms, ResultPrecision,
 # ResultSignatureMode) and seedResultFieldSets.js were deleted with it: they only built what [1.109.0] removes.
 node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at, which every report now reads as "released" (--rollback reverses it)
+node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 tables, 6 visit columns, 2 permissions, the paper form's 4 questions (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -459,6 +460,24 @@ in the service so every caller gets it. The controller's `isActive: isActive !==
 isActive : true` was the same bug pointing the other way, turning "I did not mention it" into
 "switch it on". If you add a repository method that writes a whole row, the service above it owes
 the same treatment.
+
+**Patient feedback is the clinic's paper form, asked once per finished visit.** `[1.112.0]` Four
+questions answered MAAYO / OKAY LANG / DILI MAAYO (stored 3 / 2 / 1; the scale is fixed so months
+compare), a comment, and an optional "don't show my name". Asked of a VISIT once its status is
+'Completed' (its last result released), never per test, because one question is whether the result
+came on time. Three ways the rules are held:
+- **Two tables, with the form's own fields on the visit.** `feedback_questions` (wording in Cebuano,
+  Tagalog and English as COLUMNS, since the language set is fixed) and `visit_feedback_answers`
+  (visit × question). The comment, channel, language, typist and name switch are `patient_visits`
+  columns, one form per visit. The name is never copied; `findForms` withholds it in SQL when hidden.
+- **Two ways in.** The patient answers in the portal (Home → "How was your visit?", within 30 days),
+  and reception types in a walk-in's paper form from Visit History (`feedback:record`, Receptionist
+  and Admin), which `chk_visits_feedback_paper` requires to name its typist. Most patients have no
+  account, so the paper path is what makes the overview describe the clinic.
+- **An answered question keeps its wording** (409); turning it off is always allowed, and the
+  overview keeps showing a turned-off question for periods that answered it. `feedback:manage`
+  (Admin) writes and orders questions; the overview is `reports:view`, bucketed by VISIT date, and
+  prints. The pure rules are `utils/feedback.js` (unit-tested); `feedback.spec.js` holds the rest.
 
 **The patient portal has no notification bell — email is the only channel that reaches a patient.**
 `[1.49.0]` `notifyRoles` writes to staff, who have a bell in `SidebarLayout`. A Client does not, so

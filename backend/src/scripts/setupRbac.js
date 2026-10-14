@@ -82,6 +82,9 @@ const PERMISSIONS = [
 
   // Oversight
   { name: 'reports:view', module: 'Reports', description: 'View clinic reports and analytics' },
+  // [1.112.0] Patient feedback. Reading the overview is reports:view; these are the two writes.
+  { name: 'feedback:manage', module: 'Feedback', description: 'Write, order and turn off the patient feedback questions' },
+  { name: 'feedback:record', module: 'Feedback', description: "Type in a walk-in patient's paper feedback form" },
   { name: 'audit:view', module: 'Reports', description: 'View the activity and audit log' },
   { name: 'staff:manage', module: 'Administration', description: 'Create and manage operational staff accounts' },
   { name: 'rbac:manage', module: 'Administration', description: 'Edit the role-permission matrix' },
@@ -105,6 +108,8 @@ const RECEPTION = [
   'billing:discount',
   // Front office is clinic-wide by function, not departmental — see the note on the permission.
   'patients:read_all_departments',
+  // [1.112.0] The paper feedback form is handed back at the desk, so the desk types it in.
+  'feedback:record',
 ];
 
 // The cashier VERIFIES proofs of payment; they do not file them.
@@ -145,6 +150,8 @@ const ADMIN = [
   'billing:read', 'billing:refund', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve',
   'reports:view', 'audit:view', 'staff:manage',
+  // [1.112.0] Admin decides what patients are asked, and can type in a paper form too.
+  'feedback:manage', 'feedback:record',
 ];
 
 /**

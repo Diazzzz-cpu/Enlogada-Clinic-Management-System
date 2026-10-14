@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertCircle, History, RefreshCw } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, History, MessageSquareText, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
 import Toolbar, { SegmentedFilter } from '../ui/toolbar';
@@ -15,6 +15,7 @@ import { formatDateTime } from '../../lib/date';
 import { ReceptionThroughputPanel } from '../reports/OperationsPanels';
 import { HISTORY_PAGE_SIZE } from '../../hooks/useVisitHistory';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
+import PaperFeedbackDialog from './PaperFeedbackDialog';
 
 /**
  * Past visits over a chosen range, with the desk's own throughput beside them.
@@ -30,7 +31,11 @@ import { DateField, RANGE_PRESETS } from '../ui/date-field';
 const VISIT_TYPE_FILTERS = ['All', 'Walk in', 'Appointment'];
 const VISIT_STATUS_FILTERS = ['All', 'Pending', 'Processing', 'Completed', 'Cancelled'];
 
-export default function VisitHistoryPanel({ history, operations }) {
+export default function VisitHistoryPanel({ history, operations, canRecordFeedback = false }) {
+  // [1.112.0] The visit whose paper feedback form is being typed in, and the ones done this session
+  // — marked here so the row changes at once, without reloading the page the receptionist is on.
+  const [feedbackVisit, setFeedbackVisit] = useState(null);
+  const [recorded, setRecorded] = useState(() => new Set());
   return (
         <div>
           <Toolbar attached>
@@ -124,6 +129,26 @@ export default function VisitHistoryPanel({ history, operations }) {
                         </TableCell>
                         <TableCell label="Status">
                           <StatusBadge status={v.visit_status} />
+                          {/* Feedback is asked of a FINISHED visit. [1.112.0] */}
+                          {v.visit_status === 'Completed' && (
+                            v.feedback_submitted_at || recorded.has(v.id) ? (
+                              <span data-testid="feedback-in" className="mt-1 flex items-center gap-1 text-micro font-semibold text-brand-700">
+                                <MessageSquareText className="h-3 w-3" aria-hidden="true" />
+                                Feedback in
+                              </span>
+                            ) : canRecordFeedback ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                className="mt-1.5"
+                                onClick={() => setFeedbackVisit(v)}
+                              >
+                                <MessageSquareText className="h-3 w-3" />
+                                Record feedback
+                              </Button>
+                            ) : null
+                          )}
                         </TableCell>
                         <TableCell label="Date" className="text-right text-fine text-slate-500">
                           {formatDateTime(v.created_at)}
@@ -167,6 +192,12 @@ export default function VisitHistoryPanel({ history, operations }) {
               description="Check-in to payment, last 7 days"
             />
           </div>
+
+          <PaperFeedbackDialog
+            visit={feedbackVisit}
+            onOpenChange={(open) => { if (!open) setFeedbackVisit(null); }}
+            onRecorded={(id) => setRecorded((prev) => new Set(prev).add(id))}
+          />
         </div>
   );
 }

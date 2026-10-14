@@ -88,7 +88,7 @@ export const visitWhen = (appt) => `${formatAppointmentDate(appt.scheduled_date)
  * News is not here. A newly released result is on Home's "Latest results", and listing it twice
  * would be the same fact said in two places.
  */
-export function attentionItems({ appointments = [], patientId = null, today, bookingsFailed = false, hasProfile = true }) {
+export function attentionItems({ appointments = [], patientId = null, today, bookingsFailed = false, hasProfile = true, feedback = [] }) {
   if (!hasProfile) {
     return [{
       id: 'no-profile',
@@ -131,6 +131,21 @@ export function attentionItems({ appointments = [], patientId = null, today, boo
       tab: 'appointments',
     });
   }
+
+  // [1.112.0] A finished visit not yet rated, for the profile on screen. Last, because it is an
+  // invitation, not something they have to do; and `feedbackVisit` rather than a tab, because the
+  // button opens the form where they are.
+  feedback
+    // forPatient: the selected profile's id arrives as a string, the API's as a number.
+    .filter(forPatient(patientId))
+    .forEach((v) => items.push({
+      id: `rate-${v.visit_id}`,
+      tone: 'info',
+      title: `How was your visit on ${formatAppointmentDate(v.visit_date)}?`,
+      detail: 'Tell the clinic how it went. It takes a minute.',
+      action: 'Rate visit',
+      feedbackVisit: v,
+    }));
   return items;
 }
 

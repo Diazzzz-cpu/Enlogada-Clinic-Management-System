@@ -82,6 +82,8 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
     startVisit: hasPermission('visits:create'),
     searchRecords: hasPermission('patients:read'),
     seeBookings: hasPermission('appointments:read'),
+    // [1.112.0] Typing in a walk-in's paper feedback form, from Visit History.
+    recordFeedback: hasPermission('feedback:record'),
   };
   const showWho = can.checkIn || can.startVisit;
 
@@ -232,7 +234,7 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
         )}
 
         {view === 'reception-history' && (
-          <VisitHistoryPanel history={history} operations={operations} />
+          <VisitHistoryPanel history={history} operations={operations} canRecordFeedback={can.recordFeedback} />
         )}
 
         {/* Mounted only while open (Radix unmounts a closed dialog), so the form's ids exist once. */}

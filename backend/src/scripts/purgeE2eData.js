@@ -130,6 +130,15 @@ async function purgeNameScopedFixtures() {
           AND NOT EXISTS (SELECT 1 FROM test_package_items pi WHERE pi.test_id = t.id)`
     );
 
+    // Feedback questions a spec added. [1.112.0] Answered ones went with their visits above (the
+    // answers cascade), so only a question nothing answers is removed — the same rule as the
+    // catalogue, and the reason it runs after the visits.
+    await db.query(
+      `DELETE FROM feedback_questions q
+        WHERE q.prompt_en LIKE 'E2E %'
+          AND NOT EXISTS (SELECT 1 FROM visit_feedback_answers a WHERE a.question_id = q.id)`
+    );
+
     // Package fixtures, for the same reason and with the same rule: only ones nothing references.
     // packages.spec.js creates a bundle to prove who may price one, and a package left behind is a
     // fake deal sitting in the admin catalogue and, if it were still active, on the public price

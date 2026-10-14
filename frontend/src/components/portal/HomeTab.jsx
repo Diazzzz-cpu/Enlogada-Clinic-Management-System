@@ -51,7 +51,7 @@ function SummaryTile({ tile, label, icon: Icon, value, caption, onClick }) {
  *
  * `bookButton` is the dashboard's one booking dialog, so Home and Appointments offer the same one.
  */
-export default function HomeTab({ profiles, results, bookings, payments, onOpenTab, refresh, bookButton }) {
+export default function HomeTab({ profiles, results, bookings, payments, onOpenTab, refresh, bookButton, feedback = [], onRate }) {
   const { user } = useAuth();
   const now = new Date();
   const today = todayStr();
@@ -60,7 +60,7 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
 
   const next = nextVisit(bookings.appointments, { patientId, today });
   const needs = attentionItems({
-    appointments: bookings.appointments, patientId, today, hasProfile, bookingsFailed: Boolean(bookings.error),
+    appointments: bookings.appointments, patientId, today, hasProfile, bookingsFailed: Boolean(bookings.error), feedback,
   });
   const latest = latestResults(results.history, 3);
   const receipts = payments.payments.length;
@@ -133,7 +133,7 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
                 compact
                 icon={CheckCircle}
                 title="Nothing needs you right now"
-                description="Anything to pay or to prepare for a visit shows up here."
+                description="Anything to pay, to prepare for, or to rate shows up here."
               />
             ) : (
               <ul className="m-0 list-none divide-y divide-line p-0">
@@ -154,7 +154,11 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
                         <span className="block text-fine leading-relaxed text-ink-muted">{need.detail}</span>
                       </span>
                       {need.action && (
-                        <Button size="sm" variant={need.id.startsWith('pay-') ? 'default' : 'outline'} onClick={() => onOpenTab(need.tab)}>
+                        <Button
+                          size="sm"
+                          variant={need.id.startsWith('pay-') ? 'default' : 'outline'}
+                          onClick={() => (need.feedbackVisit ? onRate?.(need.feedbackVisit) : onOpenTab(need.tab))}
+                        >
                           {need.action}
                         </Button>
                       )}

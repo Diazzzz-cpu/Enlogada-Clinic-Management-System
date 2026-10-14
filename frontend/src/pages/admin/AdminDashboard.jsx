@@ -7,6 +7,7 @@ import CashierMonitoring from './CashierMonitoring';
 import AppointmentsOversight from './AppointmentsOversight';
 import PatientRecordsOversight from './PatientRecordsOversight';
 import ReportsOverview from './ReportsOverview';
+import PatientFeedback from './PatientFeedback';
 import SuperAdminManagement from './SuperAdminManagement';
 import ActivityLog from './ActivityLog';
 import ClinicSchedule from './ClinicSchedule';
@@ -42,6 +43,8 @@ const AdminDashboard = ({ activeNav = 'staff', onSelectNav }) => {
         return <ClinicSchedule />;
       case 'reports':
         return <ReportsOverview />;
+      case 'patient-feedback':
+        return <PatientFeedback />;
       case 'activity':
         return <ActivityLog />;
       case 'superadmin':

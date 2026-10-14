@@ -249,22 +249,65 @@ CREATE TABLE patient_visits (
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    -- The doctor's signed request for the visit's tests. [1.106.0] Required of a patient booking
-    -- online, self-pay or HMO, by appointmentService (referralService) rather than a CHECK: every
-    -- visit before it has none, and a visit started at the desk is exempt. It also answers the
-    -- referring-physician rule above. Lives in uploads/doctor-requests; see migrations.md [1.106.0].
+    -- The doctor's signed request for the visit's tests. [1.106.0] Required of a patient's own HMO
+    -- booking or a Private patient's, optional for self-pay [1.107.0], by appointmentService
+    -- (referralService) rather than a CHECK: every visit before it has none, and a visit started at
+    -- the desk is exempt. It also answers the referring-physician rule above. Lives in
+    -- uploads/doctor-requests; see migrations.md [1.106.0].
     doctor_request_file_path VARCHAR(255),
     doctor_request_original_name TEXT,
     doctor_request_mime_type VARCHAR(100),
     doctor_request_size_bytes INT,
     doctor_request_uploaded_at TIMESTAMP,
+    -- The patient's feedback form for this visit, one per visit. [1.112.0] Its answers are in
+    -- visit_feedback_answers. The name is never copied: it is read through the patient, and
+    -- feedback_name_hidden keeps it off the overview when the patient asked.
+    feedback_submitted_at TIMESTAMP,
+    feedback_comment TEXT,
+    feedback_channel VARCHAR(10),          -- 'portal' (the patient) or 'paper' (typed in at the desk)
+    feedback_language VARCHAR(3),          -- the language they answered in
+    feedback_recorded_by INT,              -- who typed in a paper form
+    feedback_name_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT fk_visits_patient FOREIGN KEY (patient_id) REFERENCES patients(id),
     CONSTRAINT fk_visits_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_visits_discount_type FOREIGN KEY (discount_type_id) REFERENCES discount_types(id),
     CONSTRAINT fk_visits_discount_granted_by FOREIGN KEY (discount_granted_by) REFERENCES users(id),
     CONSTRAINT chk_visits_type CHECK (visit_type IN ('Walk in', 'Appointment')),
-    CONSTRAINT chk_visits_status CHECK (status IN ('Pending', 'Processing', 'Completed', 'Cancelled'))
+    CONSTRAINT chk_visits_status CHECK (status IN ('Pending', 'Processing', 'Completed', 'Cancelled')),
+    CONSTRAINT chk_visits_feedback_channel CHECK (feedback_channel IN ('portal', 'paper')),
+    CONSTRAINT chk_visits_feedback_language CHECK (feedback_language IN ('ceb', 'tl', 'en')),
+    CONSTRAINT chk_visits_feedback_paper CHECK (feedback_channel IS DISTINCT FROM 'paper' OR feedback_recorded_by IS NOT NULL),
+    CONSTRAINT fk_visits_feedback_recorded_by FOREIGN KEY (feedback_recorded_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- ── Patient feedback [1.112.0] ───────────────────────────────────────────────────────────────
+-- What is asked, in the clinic's three languages, and the answers: 3 / 2 / 1 for the paper form's
+-- MAAYO / OKAY LANG / DILI MAAYO. An answered question cannot be deleted, only turned off.
+CREATE TABLE feedback_questions (
+    id          SERIAL PRIMARY KEY,
+    prompt_ceb  TEXT NOT NULL,
+    prompt_tl   TEXT NOT NULL,
+    prompt_en   TEXT NOT NULL,
+    sort_order  INT NOT NULL,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by  INT,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_feedback_questions_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE visit_feedback_answers (
+    patient_visit_id INT NOT NULL,
+    question_id      INT NOT NULL,
+    rating           SMALLINT NOT NULL,
+    CONSTRAINT pk_visit_feedback_answers PRIMARY KEY (patient_visit_id, question_id),
+    CONSTRAINT fk_feedback_answers_visit FOREIGN KEY (patient_visit_id) REFERENCES patient_visits(id) ON DELETE CASCADE,
+    CONSTRAINT fk_feedback_answers_question FOREIGN KEY (question_id) REFERENCES feedback_questions(id),
+    CONSTRAINT chk_feedback_answers_rating CHECK (rating IN (1, 2, 3))
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_answers_question ON visit_feedback_answers (question_id);
+CREATE INDEX IF NOT EXISTS idx_patient_visits_feedback_recorded_by
+    ON patient_visits (feedback_recorded_by) WHERE feedback_recorded_by IS NOT NULL;
 
 CREATE TABLE appointments (
     id SERIAL PRIMARY KEY,

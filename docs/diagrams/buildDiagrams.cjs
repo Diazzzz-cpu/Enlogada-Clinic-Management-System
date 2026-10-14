@@ -669,7 +669,7 @@ const DFD1 = [
 
 // ── 5. ERD, read from the live database ─────────────────────────────────────────────────────────
 const SHEETS = [
-  { name: 'Clinical Core', tables: ['patients', 'patient_types', 'patient_visits', 'appointments', 'visit_tests', 'tests', 'test_categories', 'test_packages', 'test_package_items', 'test_results'] },
+  { name: 'Clinical Core', tables: ['patients', 'patient_types', 'patient_visits', 'appointments', 'visit_tests', 'tests', 'test_categories', 'test_packages', 'test_package_items', 'test_results', 'feedback_questions', 'visit_feedback_answers'] },
   { name: 'Money and HMO', tables: ['payments', 'payment_methods', 'payment_submissions', 'discount_types', 'daily_counters', 'hmo_providers', 'hmo_requests', 'hmo_request_tests'] },
   { name: 'Access Schedule and System', tables: ['users', 'roles', 'permissions', 'role_permissions', 'user_roles', 'user_permissions', 'user_departments', 'auth_codes', 'clinic_operating_hours', 'clinic_schedule_overrides', 'audit_log', 'notification_events', 'notification_reads'] },
 ];

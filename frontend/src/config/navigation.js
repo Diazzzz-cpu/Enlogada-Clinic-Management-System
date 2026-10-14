@@ -14,7 +14,7 @@
 import {
   House, Users, ClipboardList, FileText, CreditCard, Calendar,
   FolderKanban, BarChart3, Activity, ShieldCheck, History,
-  Receipt, FlaskConical, Stethoscope, Scan, Wallet, CalendarCog } from 'lucide-react';
+  Receipt, FlaskConical, Stethoscope, Scan, Wallet, CalendarCog, MessageSquareText } from 'lucide-react';
 
 // Which top-level screen component handles a destination. App.jsx maps these to real
 // components; this module stays free of component imports so it can be used from anywhere
@@ -89,6 +89,8 @@ export const MAIN_NAV_ITEMS = [
   // staffing, both already Admin's. The API agrees: authorizeRoles('SuperAdmin', 'Admin').
   { id: 'clinic-schedule', label: 'Clinic Schedule', icon: CalendarCog, roleRequired: ADMINS, console: CONSOLE.ADMIN },
   { id: 'reports', label: 'Reports', icon: BarChart3, roleRequired: ADMINS, permission: 'reports:view', console: CONSOLE.ADMIN },
+  // [1.112.0] Read like a report, so it answers to reports:view; its Questions tab asks feedback:manage.
+  { id: 'patient-feedback', label: 'Patient Feedback', icon: MessageSquareText, roleRequired: ADMINS, permission: 'reports:view', console: CONSOLE.ADMIN },
   { id: 'activity', label: 'Activity Log', icon: Activity, roleRequired: ADMINS, permission: 'audit:view', console: CONSOLE.ADMIN },
   { id: 'superadmin', label: 'Super Admin', icon: ShieldCheck, roleRequired: ['SuperAdmin'], permission: 'rbac:manage', console: CONSOLE.ADMIN },
 ];

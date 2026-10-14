@@ -109,6 +109,14 @@ describe('attentionItems', () => {
     expect(items.map((i) => i.id)).toEqual(['bookings-failed']);
   });
 
+  it('invites a rating for a finished visit, for the profile on screen, after everything to do', () => {
+    const visit = { visit_id: 40, patient_id: 7, visit_date: dateOf(9, 10), first_name: 'Elena', last_name: 'Cabrera' };
+    const other = { ...visit, visit_id: 41, patient_id: 8 };
+    const items = attentionItems({ appointments: [booking()], patientId: 7, today: TODAY, feedback: [visit, other] });
+    expect(items.map((i) => i.id)).toEqual(['pay-1', 'rate-40']);
+    expect(items[1]).toMatchObject({ action: 'Rate visit', feedbackVisit: visit });
+  });
+
   it('asks for a profile first when the account has none', () => {
     expect(attentionItems({ appointments: [], today: TODAY, hasProfile: false })[0].tab).toBe('profile');
   });

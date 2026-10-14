@@ -905,6 +905,41 @@ async function main() {
     }
   });
 
+  // ── Patient feedback [1.112.0] ────────────────────────────────────────────────────────────
+  // The paper forms reception typed in for the fortnight's walk-ins, as the clinic's own form
+  // reads: mostly MAAYO, a few OKAY LANG, and two DILI MAAYO worth following up. Comments are
+  // what patients write on the slip, in Cebuano. One patient left the name blank. Ratings are in
+  // question order; null leaves that row unticked, as patients do.
+  const FEEDBACK = [
+    { ratings: [3, 3, 3, 3], comment: 'Salamat kaayo, paspas ang serbisyo ug buotan ang mga staff.' },
+    { ratings: [3, 2, 3, 3], comment: 'Medyo dugay ang result sa ultrasound pero okay ra.' },
+    { ratings: [3, 3, 3, 2], comment: 'Limpyo ang clinic. Ang CR lang kulang ug tissue.' },
+    { ratings: [3, 3, 3, 3], comment: null },
+    { ratings: [2, 3, 3, 1], comment: 'Walay tubig sa CR pag-abot nako sa buntag.' },
+    { ratings: [3, 3, 3, 3], comment: 'Very accommodating ang receptionist. Thank you!' },
+    { ratings: [3, 3, 2, null], comment: 'Init kaayo sa waiting area, dugangan unta ug electric fan.', nameHidden: true },
+    { ratings: [3, 1, 3, 3], comment: 'Na-delay ug usa ka adlaw ang akong result.' },
+    { ratings: [3, 3, 3, 3], comment: 'Maayo kaayo ang pag-atiman sa akong mama.' },
+  ];
+  const feedbackQuestions = (await call('/feedback/questions', { token: tok.receptionist })).data.questions;
+  const rated = historical.filter((_, i) => i % 3 !== 2).slice(0, FEEDBACK.length);
+  for (const [i, h] of rated.entries()) {
+    const f = FEEDBACK[i];
+    const answers = Object.fromEntries(
+      feedbackQuestions.map((q, n) => [q.id, f.ratings[n]]).filter(([, rating]) => rating)
+    );
+    await call(`/feedback/visits/${h.visit.id}/paper`, {
+      method: 'POST', token: tok.receptionist,
+      body: { answers, comment: f.comment, language: 'ceb', nameHidden: Boolean(f.nameHidden) },
+    });
+  }
+  // Handed back at the end of the visit, so typed in that afternoon rather than today.
+  await db.query(
+    `UPDATE patient_visits SET feedback_submitted_at = created_at + INTERVAL '3 hours'
+      WHERE id = ANY($1::int[])`,
+    [rated.map((h) => h.visit.id)]
+  );
+
   // ── Appointments: the demo patient's online bookings, and the front desk's ────────────────
   const client = await login('client@enlogada.com');
   const profiles = (await call('/patients/my-profiles', { token: client })).data.patients;
@@ -1064,7 +1099,8 @@ async function main() {
       (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'Paid' AND paid_at >= CURRENT_DATE AND paid_at < CURRENT_DATE + 1) AS paid_today,
       (SELECT COALESCE(SUM(amount),0)::numeric(10,2) FROM payments WHERE payment_status = 'Paid' AND paid_at >= CURRENT_DATE AND paid_at < CURRENT_DATE + 1) AS revenue_today,
       (SELECT COUNT(*)::int FROM test_results WHERE version > 1) AS amended,
-      (SELECT COUNT(*)::int FROM appointments) AS appointments
+      (SELECT COUNT(*)::int FROM appointments) AS appointments,
+      (SELECT COUNT(*)::int FROM patient_visits WHERE feedback_submitted_at IS NOT NULL) AS feedback
   `);
   const c = counts.rows[0];
 
@@ -1077,6 +1113,7 @@ async function main() {
   logger.info(`   paid today          ${c.paid_today}   —  PHP ${c.revenue_today}`);
   logger.info(`   amended results     ${c.amended}`);
   logger.info(`   appointments        ${c.appointments}`);
+  logger.info(`   feedback forms      ${c.feedback}`);
   logger.info('');
   logger.info('Every "today" screen filters on the current date, so re-run this before a demo.');
   logger.info('Frontend: http://localhost:5173');

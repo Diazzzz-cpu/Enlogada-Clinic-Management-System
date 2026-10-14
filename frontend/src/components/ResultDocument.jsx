@@ -48,9 +48,13 @@ import { FileText, Download, Printer, AlertCircle, ExternalLink } from 'lucide-r
  * sends it. So for a Client there is no Download and no "Open in new tab" (a tab is a download one
  * click later), and the PDF viewer's own toolbar is asked to hide (`#toolbar=0`, honoured by Chrome
  * and Edge). This is what the portal OFFERS, not a lock: a report on someone's screen can still be
- * kept by whoever is looking at it. A Word or Excel report cannot be shown in a browser at all, so
- * the patient is told to ask for it by email. The one exception is a phone with no PDF viewer, where
- * a new tab is the only way to read it at all.
+ * kept by whoever is looking at it. The one exception is a phone with no PDF viewer, where a new tab
+ * is the only way to read it at all.
+ *
+ * ── What a patient is served is the DIGITAL COPY [1.114.0] ─────────────────────────────────────
+ * The server marks it on every page (backend/src/utils/digitalCopy.js) and it is always a PDF; the
+ * original stays on the staff side, which is where the clinic prints it. A Word or Excel report
+ * cannot be marked, so the server refuses it with a 409 and this dialog shows the reason it gives.
  */
 
 const ResultDocument = ({
@@ -94,18 +98,30 @@ const ResultDocument = ({
         setState({ status: 'ready', url, kind, error: '' });
       } catch (err) {
         if (cancelled) return;
+        // A 409 carries the server's own reason [1.114.0]: a patient's report that cannot be made
+        // into a digital copy (a Word document, a damaged file) is given out at the clinic, and the
+        // message says so. The body arrives as a Blob, because the request asked for one.
+        let reason = '';
+        if (err.response?.status === 409 && err.response.data instanceof Blob) {
+          try {
+            reason = JSON.parse(await err.response.data.text()).message || '';
+          } catch {
+            // Not JSON: the generic message below stands.
+          }
+        }
+        if (cancelled) return;
         setState({
           status: 'error',
           url: null,
           kind: null,
           // 404 here means the row references a file that is not on disk, which is a different
           // problem from "you may not see this" and worth saying differently.
-          error:
-            err.response?.status === 404
+          error: reason
+            || (err.response?.status === 404
               ? 'The report file is missing from storage. The record references it, but it is not there.'
               : err.response?.status === 403
                 ? 'You do not have access to this report.'
-                : 'Could not load the report. Check your connection and try again.',
+                : 'Could not load the report. Check your connection and try again.'),
         });
       }
     })();
@@ -233,7 +249,7 @@ const ResultDocument = ({
               <EmptyState
                 icon={FileText}
                 title="This report can't be shown here"
-                description="It is a Word document or a spreadsheet, which a browser cannot display. Ask the clinic to email it to you, or to print you a copy."
+                description="It is a Word document or a spreadsheet, which a browser cannot display. Please visit the clinic and ask for it."
               />
             ) : (
               <EmptyState

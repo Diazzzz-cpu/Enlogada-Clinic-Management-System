@@ -5,7 +5,7 @@ import { openPortalTab } from './helpers/portal.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
 import { patientTypeId } from './helpers/patients.js';
 import { fixturePerson, fixtureEmail, FIXTURE_CONTACT } from './helpers/people.js';
-import { reportPart } from './helpers/reportFile.js';
+import { reportPart, pdfReport } from './helpers/reportFile.js';
 
 /**
  * Releasing does not email, and a patient views and prints but is not offered a download. [1.113.0]
@@ -100,7 +100,7 @@ test.describe('Release, then email only when asked', () => {
     await expect(name).toBeVisible({ timeout: 15000 });
     await name.locator('xpath=ancestor::tr[1]').getByRole('button', { name: 'Attach Report' }).click();
     await page.locator('input[type="file"]').setInputFiles({
-      name: 'report.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 E2E report'),
+      name: 'report.pdf', mimeType: 'application/pdf', buffer: pdfReport('report'),
     });
     await page.getByRole('button', { name: 'Authorize & Release Result' }).click();
     await page.getByRole('button', { name: 'Authorize & Release' }).click();

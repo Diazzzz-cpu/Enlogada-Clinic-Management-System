@@ -3,6 +3,7 @@ const path = require('path');
 const env = require('../config/environment');
 const logger = require('../config/logger');
 const { UPLOAD_ROOT } = require('../config/upload');
+const { digitalCopy, digitalCopyName, isMarkable } = require('../utils/digitalCopy');
 
 /**
  * The released-result email: its letterhead, its report table, and its attachment. [1.61.0]
@@ -156,7 +157,7 @@ function findingsBlock(info, { attached = false } = {}) {
     return `<p style="margin:18px 0;padding:12px 14px;background:#f8fafc;border-radius:6px;color:#475569;">
               ${attached
                 ? 'The full report for this examination is attached to this email, and is also available in your patient portal.'
-                : 'The full report for this examination is available in your patient portal, where you can view, download and print it.'}
+                : 'The full report for this examination is available in your patient portal, where you can view and print it.'}
             </p>`;
   }
 
@@ -197,8 +198,20 @@ function findingsBlock(info, { attached = false } = {}) {
  */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
-function resolveReportAttachment(info) {
+/**
+ * [1.114.0] The attachment is the DIGITAL COPY, never the stored original: marked on every page,
+ * with the note saying the original is at the clinic. A report that cannot be marked is not sent
+ * at all — a Word document or spreadsheet throws NOT_MARKABLE, a PDF that cannot be read throws
+ * MARK_FAILED — because an unmarked file in a patient's inbox is the forgery this exists to stop.
+ * The caller turns either into a message for the person who pressed Send.
+ */
+async function resolveReportAttachment(info) {
   if (!info || !info.file_path) return null;
+  if (!isMarkable(info.file_mime_type)) {
+    const error = new Error('This report is a Word document or spreadsheet, which cannot be marked as a digital copy.');
+    error.code = 'NOT_MARKABLE';
+    throw error;
+  }
 
   try {
     const absolutePath = path.resolve(UPLOAD_ROOT, info.file_path);
@@ -220,18 +233,24 @@ function resolveReportAttachment(info) {
     // The name the PATIENT sees, built from the examination rather than reusing whatever the
     // technician's machine called the file. "laboratory-report-de jesus.pdf" tells the patient
     // nothing about which of their tests it is.
-    const ext = path.extname(info.file_original_name || '') || path.extname(absolutePath) || '.pdf';
     const safeName = `${info.test_name} - ${info.first_name} ${info.last_name}`
       .replace(/[^\w\s.-]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    return {
-      filename: `${safeName}${ext}`,
-      path: absolutePath,
-      contentType: info.file_mime_type || 'application/octet-stream',
-    };
+    let content;
+    try {
+      content = await digitalCopy(await fs.promises.readFile(absolutePath), info.file_mime_type);
+    } catch (err) {
+      logger.error(`Could not mark ${info.file_path} as a digital copy; nothing was sent:`, err);
+      const error = new Error('This report could not be prepared as a digital copy.');
+      error.code = 'MARK_FAILED';
+      throw error;
+    }
+
+    return { filename: digitalCopyName(safeName), content, contentType: 'application/pdf' };
   } catch (err) {
+    if (err.code === 'MARK_FAILED') throw err;
     logger.error('Could not attach the result file, sending findings only:', err);
     return null;
   }

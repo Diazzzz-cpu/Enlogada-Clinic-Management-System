@@ -133,9 +133,11 @@ export default function ResultReport({
         NOTE: DO NOT ACKNOWLEDGE THE RESULT WITHOUT THE OFFICIAL SEAL
       </p>
 
+      {/* The patient's screen is a copy, and says so. [1.114.0] The original, sealed and signed, is
+          handed over at the clinic; nothing a patient sees should read as that document. */}
       {variant === 'patient' && (
-        <p className="m-0 pt-2 text-center text-meta font-bold text-brand-600">
-          Confidential Medical Document
+        <p data-testid="digital-copy-note" className="m-0 pt-2 text-center text-meta font-bold text-slate-600">
+          DIGITAL COPY · For the original with the official seal, please visit the clinic and ask for it.
         </p>
       )}
 

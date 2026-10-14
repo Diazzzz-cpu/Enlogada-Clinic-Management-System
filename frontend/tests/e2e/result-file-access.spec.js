@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { pdfReport } from './helpers/reportFile.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
 
 /**
@@ -98,7 +99,7 @@ test.describe('Who may open a result file', () => {
         file: {
           name: 'draft-report.pdf',
           mimeType: 'application/pdf',
-          buffer: Buffer.from('%PDF-1.4 E2E draft report'),
+          buffer: pdfReport('draft report'),
         },
       },
     });
@@ -142,7 +143,7 @@ test.describe('Who may open a result file', () => {
         file: {
           name: 'corrected-report.pdf',
           mimeType: 'application/pdf',
-          buffer: Buffer.from('%PDF-1.4 E2E corrected report'),
+          buffer: pdfReport('corrected report'),
         },
       },
     });
@@ -151,12 +152,12 @@ test.describe('Who may open a result file', () => {
     const res = await asPatient();
     expect(res.status(), 'the copy they were sent stays readable while it is being corrected').toBe(200);
 
-    // And it is the OLD document, not the unauthorised correction.
+    // And it is the OLD document, not the unauthorised correction — as a digital copy. [1.114.0]
     const disposition = res.headers()['content-disposition'] || '';
     expect(
       disposition,
       'the patient must be served the version that was authorised, not the draft replacing it'
-    ).toContain('draft-report.pdf');
+    ).toContain('draft-report (Digital Copy).pdf');
   });
 
   test('and they get the correction once THAT is authorised', async () => {
@@ -168,6 +169,6 @@ test.describe('Who may open a result file', () => {
     expect(
       res.headers()['content-disposition'] || '',
       'the newest authorised version is the one they get'
-    ).toContain('corrected-report.pdf');
+    ).toContain('corrected-report (Digital Copy).pdf');
   });
 });

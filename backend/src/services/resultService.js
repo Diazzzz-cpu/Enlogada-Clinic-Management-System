@@ -8,6 +8,8 @@ const { sendEmail } = require('../config/email');
 const notificationService = require('./notificationService');
 const { UPLOAD_ROOT } = require('../config/upload');
 const auditService = require('./auditService');
+const logger = require('../config/logger');
+const { digitalCopy, digitalCopyName, isMarkable } = require('../utils/digitalCopy');
 const env = require('../config/environment');
 const {
   escapeHtml, wrapEmail, reportTable, findingsBlock, resolveReportAttachment,
@@ -389,6 +391,36 @@ class ResultService {
       throw error;
     }
 
+    // A patient receives the DIGITAL COPY, never the original. [1.114.0] The original — the one the
+    // clinic prints and seals — stays on the staff side; what a patient can open, print or keep is
+    // marked on every page, so it cannot be passed off as the clinic's document. A report that
+    // cannot be marked is refused, never handed over unmarked.
+    if (isClient) {
+      const refuse = (message) => {
+        const error = new Error(message);
+        error.statusCode = 409;
+        return error;
+      };
+      if (!isMarkable(result.file_mime_type)) {
+        throw refuse('This report is a Word document or spreadsheet, so it is given out at the clinic. Please visit the clinic and ask for it.');
+      }
+      let buffer;
+      try {
+        buffer = await digitalCopy(await fs.promises.readFile(absolutePath), result.file_mime_type);
+      } catch (err) {
+        logger.error(`Could not mark ${result.file_path} as a digital copy for the portal:`, err);
+        throw refuse('This report could not be prepared for viewing online. Please visit the clinic and ask for it.');
+      }
+      return {
+        buffer,
+        originalName: digitalCopyName(result.file_original_name),
+        mimeType: 'application/pdf',
+        patientId: ownership.patient_id,
+        testName: ownership.test_name,
+        patientName: `${ownership.patient_first_name} ${ownership.patient_last_name}`,
+      };
+    }
+
     return {
       absolutePath,
       originalName: result.file_original_name || 'result',
@@ -456,7 +488,7 @@ class ResultService {
     // Attached when the department uploaded a document, and set out in the body either way. Both,
     // not one or the other: an attachment a patient cannot open on their phone is no report at
     // all, and a body with no document is not what a referring physician will accept.
-    const attachment = resolveReportAttachment(patientInfo);
+    const attachment = await resolveReportAttachment(patientInfo);
 
     const subject = isAmendment
       ? `Updated ${patientInfo.test_name} result - ${env.CLINIC_NAME}`
@@ -490,6 +522,12 @@ class ResultService {
         }</p>
         ${reportTable(patientInfo)}
         ${findingsBlock(patientInfo, { attached: Boolean(attachment) })}
+        ${attachment ? `<p style="margin:16px 0 0;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;
+                    border-radius:6px;color:#334155;">
+             The attached report is a <strong>digital copy</strong>, marked DIGITAL COPY on every page.
+             The original, with the clinic's official seal, is kept at the clinic: please visit and ask
+             for it if you need it.
+           </p>` : ''}
         <p style="margin:20px 0 0;font-size:13px;color:#475569;">
           These findings are for your doctor to interpret. If anything here is unclear, or if you
           feel unwell, please contact the clinic on ${escapeHtml(env.CLINIC_PHONE)}.
@@ -546,11 +584,23 @@ class ResultService {
       throw error;
     }
 
-    const emailStatus = await this.deliverResultEmail({
-      patientInfo,
-      isAmendment: (result.version || 1) > 1,
-      visitTestId,
-    });
+    // A report is emailed only as a marked digital copy. [1.114.0] One that cannot be marked is not
+    // sent at all, and whoever pressed Send is told why and what to do instead.
+    let emailStatus;
+    try {
+      emailStatus = await this.deliverResultEmail({
+        patientInfo,
+        isAmendment: (result.version || 1) > 1,
+        visitTestId,
+      });
+    } catch (err) {
+      if (err.code !== 'NOT_MARKABLE' && err.code !== 'MARK_FAILED') throw err;
+      const error = new Error(err.code === 'NOT_MARKABLE'
+        ? 'This report is a Word document or spreadsheet, which cannot be marked DIGITAL COPY, so it is not emailed. Attach it as a PDF to send it, or give the patient the original at the clinic.'
+        : 'This report could not be prepared as a digital copy, so nothing was sent. Give the patient the original at the clinic.');
+      error.statusCode = 409;
+      throw error;
+    }
 
     if (emailStatus !== 'sent') {
       const error = new Error(

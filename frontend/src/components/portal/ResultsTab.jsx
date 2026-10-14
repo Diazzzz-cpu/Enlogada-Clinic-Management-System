@@ -1,6 +1,5 @@
 import React from 'react';
-import { printElement } from '../../lib/printArea';
-import { Activity, Calendar, CheckCircle, Clock, Eye, FileText, FlaskConical, Printer, Scan, Search, Stethoscope } from 'lucide-react';
+import { Activity, Calendar, CheckCircle, Clock, Eye, FileText, FlaskConical, Scan, Search, Stethoscope } from 'lucide-react';
 
 // The mark a patient recognises their own report by. Elements rather than components because
 // they are looked up by name and rendered as-is; the sizing is the same everywhere it appears.
@@ -176,15 +175,10 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                               )}
                           </ResultReport>
 
-                          <div className="flex justify-end pt-2">
-                            <Button
-                              onClick={() => printElement(null, 'printing-report')}
-                              variant="outline"
-                            >
-                              <Printer className="h-3.5 w-3.5" aria-hidden="true" />
-                              Print official copy
-                            </Button>
-                          </div>
+                          {/* No "Print official copy" here. [1.114.0] It printed this letterhead
+                              page, not the report, and called it official; the official copy is
+                              the original at the clinic. A patient prints the DIGITAL COPY from
+                              View Report, marked on every page. */}
 
                           </DialogContent>
                         </Dialog>

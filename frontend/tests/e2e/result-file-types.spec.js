@@ -10,7 +10,9 @@ import { docxReport, xlsxReport, csvReport, executableBytes, MIME } from './help
  * processor as documents, so "Attach Report & Release Result" now accepts them alongside PDF and
  * images. These pin the parts a browser test would not show:
  *
- *   - a real .docx / .xlsx / .csv is accepted, saved as what it is, and released to the patient;
+ *   - a real .docx / .xlsx / .csv is accepted, saved as what it is, and released;
+ *   - a patient is not handed it [1.114.0]: their copy is marked DIGITAL COPY, and a Word document
+ *     or spreadsheet cannot be marked, so the original is given out at the clinic;
  *   - it downloads as a file rather than opening in the browser, because no browser renders it;
  *   - a .csv that Windows labels as an Excel file is still stored and served as CSV;
  *   - a file whose contents do not match its name is refused, and nothing of it is kept.
@@ -85,7 +87,7 @@ test.describe('Report file types', () => {
       .toMatch(/^attachment; filename="CBC report\.docx"/);
   });
 
-  test('an Excel report is released and reaches the patient intact', async () => {
+  test('an Excel report is released; the clinic keeps the original and the patient is sent to the clinic', async () => {
     const workbook = xlsxReport();
     const res = await upload(ids[1], 'Lipid profile.xlsx', MIME.xlsx, workbook);
     expect(res.status(), await res.text()).toBe(201);
@@ -93,11 +95,16 @@ test.describe('Report file types', () => {
     const released = await ctx.post(`${API}/results/${ids[1]}/release`, { headers: auth(lab) });
     expect(released.status(), 'a spreadsheet counts as the report for release').toBe(200);
 
-    const file = await fileAs(client, ids[1]);
-    expect(file.status(), 'the released spreadsheet is the patient\'s').toBe(200);
-    expect(file.headers()['content-type']).toContain('spreadsheetml.sheet');
-    expect(file.headers()['content-disposition']).toMatch(/^attachment;/);
-    expect(Buffer.compare(await file.body(), workbook), 'the patient receives the same bytes').toBe(0);
+    const staff = await fileAs(lab, ids[1]);
+    expect(staff.headers()['content-type']).toContain('spreadsheetml.sheet');
+    expect(staff.headers()['content-disposition']).toMatch(/^attachment;/);
+    expect(Buffer.compare(await staff.body(), workbook), 'the clinic is served the original bytes').toBe(0);
+
+    // A spreadsheet cannot be marked DIGITAL COPY, and an unmarked, editable file is the one thing
+    // a patient's copy must not be, so it is given out at the clinic. [1.114.0]
+    const patient = await fileAs(client, ids[1]);
+    expect(patient.status(), 'never handed to the patient unmarked').toBe(409);
+    expect((await patient.json()).message).toContain('visit the clinic');
   });
 
   test('a CSV that Windows labels as an Excel file is still stored and served as CSV', async () => {

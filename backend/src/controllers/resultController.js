@@ -126,7 +126,7 @@ class ResultController {
   async downloadResultFile(req, res, next) {
     try {
       const { visitTestId } = req.params;
-      const { absolutePath, originalName, mimeType, patientId, testName, patientName } = await resultService.getResultFile(
+      const { absolutePath, buffer, originalName, mimeType, patientId, testName, patientName } = await resultService.getResultFile(
         visitTestId, req.user, { authorisedOnly: req.query.version === 'authorised' }
       );
 
@@ -149,6 +149,8 @@ class ResultController {
       const disposition = servesInline(mimeType) ? 'inline' : 'attachment';
       res.setHeader('Content-Type', mimeType);
       res.setHeader('Content-Disposition', `${disposition}; filename="${originalName.replace(/"/g, '')}"`);
+      // A patient's digital copy is made in memory [1.114.0]; staff are sent the stored original.
+      if (buffer) return res.send(buffer);
       return res.sendFile(absolutePath);
     } catch (err) {
       next(err);

@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
+import { pdfReport } from './helpers/reportFile.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
 import { selfPayTypeId } from './helpers/patients.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
@@ -204,7 +205,7 @@ test.describe('Laboratory — browser flow', () => {
     await page.locator('input[type="file"]').setInputFiles({
       name: 'cbc-report.pdf',
       mimeType: 'application/pdf',
-      buffer: Buffer.from('%PDF-1.4 E2E laboratory report'),
+      buffer: pdfReport('laboratory report'),
     });
     await expect(page.getByText('cbc-report.pdf')).toBeVisible();
     await expect(release, 'the attached report is what makes it releasable').toBeEnabled();

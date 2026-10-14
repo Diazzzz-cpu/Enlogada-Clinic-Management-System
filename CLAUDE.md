@@ -246,7 +246,7 @@ start releasing their slot after 15 minutes ([1.35.0] — HMO and staff bookings
 the client's booking cards begin offering GCash instead of "pay at the counter".
 
 **Outbound email is configured and working.** `[1.50.0]` The clinic sends from
-`enlogada2011@gmail.com` via Gmail SMTP — a released result when staff choose to send it `[1.113.0]`, booking confirmations, and the
+`enlogada2011@gmail.com` via Gmail SMTP — a released result when staff choose to send it `[1.113.0]`, as a marked digital copy `[1.114.0]`, booking confirmations, and the
 6-digit codes for sign-up and password reset `[1.73.0]`, so without it nobody can create an
 account online (sign-up answers 503 and says why). `SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` in `backend/.env` (gitignored, untracked);
 `EMAIL_USER`/`EMAIL_APP_PASSWORD`/`EMAIL_FROM` are accepted as aliases because that is how Google
@@ -1096,8 +1096,17 @@ Services Catalogue.
   clinic's choice: a patient who wants their own copy asks for it by email. `ResultDocument` hides
   Download and "Open in new tab" for a Client and asks the PDF viewer to hide its toolbar
   (`#toolbar=0`, Chrome and Edge). It is what the portal OFFERS, not a lock — a report on someone's
-  screen can be kept. A Word or Excel report cannot be shown in a browser, so the patient is told to
-  ask for it by email; a phone with no PDF viewer keeps "Open in new tab", the only way to read it.
+  screen can be kept. A phone with no PDF viewer keeps "Open in new tab", the only way to read it.
+- **A patient's copy is marked DIGITAL COPY; the clinic keeps the original.** `[1.114.0]` Against
+  forgery. Everything a patient receives, in the portal (`getResultFile` for a Client) or attached to
+  an email (`resolveReportAttachment`), goes through `utils/digitalCopy.js`: a faint diagonal
+  DIGITAL COPY pattern over every page, and a strip ADDED below each page saying the original with
+  the official seal is at the clinic. Staff are served the stored original, which is what the clinic
+  prints. Marked in memory per request, never stored. An image becomes a one-page PDF; a Word or
+  Excel report, or a PDF that cannot be parsed, is REFUSED (409) rather than handed over unmarked —
+  never add a fallback to the original. A label, not a lock: pdf-lib cannot encrypt. Spec fixtures
+  must be real PDFs (`helpers/reportFile.js` `pdfReport`); a fake `%PDF-1.4` buffer is refused for a
+  patient, as a damaged upload should be. `digital-copy.spec.js` holds it.
 - **The typed result forms are gone, tables and all.** `[1.109.0]` `result_field_sets`,
   `result_fields`, `result_field_set_tests`, `result_measurements` and `clinic_signatories` were
   dropped by `migrateRemoveResultForms.js`, which writes every typed value

@@ -1,5 +1,42 @@
 # Database Migration & Schema History
 
+## [1.114.0] - 2026-10-15 (A patient's copy is marked DIGITAL COPY; the clinic keeps the original)
+
+No schema change; nothing to run. One new backend dependency, `pdf-lib` 1.17.1 (pinned exactly):
+run `npm install` in `backend/` after pulling.
+
+**What reaches a patient is a copy, and says so.** A report opened in the portal or attached to an
+email is the clinic's document marked DIGITAL COPY on every page, with a line beneath it: "For the
+original with the official seal, please visit the clinic and ask for it." The staff side is served
+the stored original, untouched, because that is what the clinic prints and seals. The point is
+forgery: nothing a patient can save should pass for the clinic's document.
+
+`utils/digitalCopy.js` does the marking, in memory, on every request; nothing marked is stored.
+- **The note goes in a strip ADDED below each page**, never over it. A report ends in signatures
+  and licence numbers, and the report keeps its own coordinates, so nothing the clinic printed is
+  covered.
+- **The watermark repeats diagonally across the whole page**, faint (22%) so every figure stays
+  legible. A single stamp in the middle can be cropped or painted out with the area around it left
+  clean; a pattern leaves no clean region to lift.
+- **A JPEG or PNG report becomes a one-page PDF**, so a patient's copy is always a PDF, named
+  "<test> (Digital Copy).pdf".
+- **A Word document or spreadsheet cannot be marked, so it is refused**: 409 in the portal ("given
+  out at the clinic"), 409 on Email to patient (attach it as a PDF to send it). A PDF that cannot be
+  read is refused the same way. Never fall back to the unmarked file: that is the forgery this
+  exists to stop.
+
+It is a label, not a lock: `pdf-lib` cannot encrypt, and a determined person with a PDF editor can
+work at the marks. The protection is that the sealed original only ever leaves the clinic by hand.
+
+The portal's "Print official copy" button is gone. It printed the letterhead summary, not the
+report, and called it official. The summary now reads "DIGITAL COPY · For the original…"; a patient
+prints the marked report from View Report.
+
+All 37 authorised reports in the dev database were marked without a failure before this shipped.
+The spec fixtures were five-byte fake PDFs, which cannot be parsed, so `helpers/reportFile.js`
+builds a real one-page PDF (`pdfReport`). `digital-copy.spec.js` holds who gets which file;
+`backend/tests/unit/digitalCopy.test.js` holds the marking.
+
 ## [1.113.0] - 2026-10-15 (Releasing does not email; the portal views and prints, no download)
 
 No schema change; nothing to run.

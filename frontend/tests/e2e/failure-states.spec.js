@@ -71,17 +71,18 @@ for (const { nav, mustNotSay } of ADMIN_SCREENS) {
   });
 }
 
-test("the Reports snapshot refuses to state a revenue figure it could not load", async ({ page }) => {
+// [1.111.0] Reports opens on Departments since its Today tab went (the Today screen holds those
+// figures). The property is the one the snapshot was held to: a failed load is said, and no peso
+// figure is invented from state that initialises to zero.
+test("Reports refuses to state a figure it could not load", async ({ page }) => {
   await signInThenBreakApi(page, 'admin@enlogada.com');
   await page.getByRole('button', { name: 'Reports', exact: true }).first().click();
   await page.waitForTimeout(2200);
 
+  // Said as an alert — the words are the server's own message, so the role is what is held.
+  await expect(page.getByRole('alert').first()).toBeVisible();
   const body = await page.evaluate(() => document.body.innerText);
-  expect(body).toMatch(/unavailable|could not/i);
-  // The specific falsehood: a peso total and a comparison against yesterday, both invented from
-  // state that initialises to zero.
   expect(body, 'a revenue figure was shown for data that never arrived').not.toMatch(/₱0\.00/);
-  expect(body).not.toMatch(/vs yesterday/i);
 });
 
 // The screens sign-in lands on. [1.74.0]

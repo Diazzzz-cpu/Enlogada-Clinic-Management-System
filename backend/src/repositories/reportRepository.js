@@ -630,16 +630,6 @@ class ReportRepository {
     return result.rows[0] || { median_minutes: null, sample_size: 0 };
   }
 
-  /**
-   * The same daily revenue series as getRevenueTrend, for an arbitrary range. [1.62.0]
-   *
-   * Exists so the trend chart can overlay a previous period without a second endpoint or a
-   * different basis — it delegates rather than re-deriving, because a comparison drawn from two
-   * differently-computed series is worse than no comparison at all.
-   */
-  async getRevenueTrendForRange(startDate, endDate) {
-    return this.getRevenueTrend(startDate, endDate);
-  }
 }
 
 module.exports = new ReportRepository();

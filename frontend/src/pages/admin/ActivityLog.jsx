@@ -45,12 +45,17 @@ const ActivityLog = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Records a migration kept before dropping data are not activity, and one removal can write
+  // dozens of them, so they are left out unless asked for. [1.111.0]
+  const [showArchives, setShowArchives] = useState(false);
 
   const fetchActivity = useCallback(async (pageNum) => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/admin/activity', { params: { page: pageNum, limit: PAGE_SIZE } });
+      const res = await api.get('/admin/activity', {
+        params: { page: pageNum, limit: PAGE_SIZE, ...(showArchives ? { archives: 'true' } : {}) },
+      });
       setEntries(res.data.data.entries || []);
       setTotalPages(res.data.data.totalPages || 1);
       setTotal(res.data.data.total || 0);
@@ -60,12 +65,12 @@ const ActivityLog = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showArchives]);
 
   useEffect(() => {
     fetchActivity(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, showArchives]);
 
   // An audit trail is consulted precisely when something has just happened, so "is this the
   // current list?" is the first question its reader has.
@@ -83,7 +88,25 @@ const ActivityLog = () => {
       />
 
       <Panel>
-        <PanelHeader title="Recorded Actions" description="Newest first" icon={ActivityIcon} />
+        <PanelHeader
+          title="Recorded Actions"
+          description="Newest first"
+          icon={ActivityIcon}
+          actions={
+            <label className="flex cursor-pointer items-center gap-1.5 text-fine font-medium text-slate-600">
+              <input
+                type="checkbox"
+                checked={showArchives}
+                onChange={(e) => {
+                  setShowArchives(e.target.checked);
+                  setPage(1);
+                }}
+                className="rounded text-brand-600 focus:ring-brand-500"
+              />
+              Show archived records
+            </label>
+          }
+        />
         <PanelBody flush>
           {error ? (
             <EmptyState

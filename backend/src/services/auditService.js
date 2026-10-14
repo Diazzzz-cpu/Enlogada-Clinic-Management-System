@@ -54,9 +54,9 @@ class AuditService {
     });
   }
 
-  async getRecentActivity({ page = 1, limit = 25 }) {
+  async getRecentActivity({ page = 1, limit = 25, includeArchives = false }) {
     const offset = (page - 1) * limit;
-    const { entries, total } = await auditRepository.findRecent({ limit, offset });
+    const { entries, total } = await auditRepository.findRecent({ limit, offset, includeArchives });
     return { entries, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
 }

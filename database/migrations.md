@@ -1,5 +1,28 @@
 # Database Migration & Schema History
 
+## [1.111.0] - 2026-10-14 (Reports has four tabs; the Activity Log leaves out migration archives)
+
+No schema change; nothing to run.
+
+**Reports: seven tabs became four.** Each removed tab repeated another screen:
+
+| Removed | Already shown by |
+|---|---|
+| Today | the Today screen, where every Admin and SuperAdmin lands |
+| Access Matrix | "Who sees what" on Access Control, which can also change it |
+| Analytics | Departments (turnaround) and Trends (revenue); its arrivals by hour moved to Trends |
+
+Left: **Departments**, **Trends**, **HMO Claims** (was "Claim Value") and **Staff Workload**.
+`GET /reports/summary` now carries `hourlyArrivals` (and its CSV an "Arrivals by Hour of Day"
+section), from the same query the Today screen reads. `GET /reports/analytics` stays, because Today
+reads its turnaround and arrivals, but loses `revenueComparison`, which only the Analytics tab drew;
+`previousPeriod` and `getRevenueTrendForRange` went with it.
+
+**Activity Log.** [1.109.0] wrote 33 archive entries in one go, and they buried the real activity.
+Entries whose action is in `ARCHIVE_ACTIONS` (`auditRepository`) are left out of the feed unless
+"Show archived records" is ticked (`GET /admin/activity?archives=true`). They are never deleted:
+on the clinic's database they are the only remaining copy of what the dropped tables held.
+
 ## [1.110.0] - 2026-10-14 (A report counts a release once it is authorised, and once per test)
 
 Run on an existing database:

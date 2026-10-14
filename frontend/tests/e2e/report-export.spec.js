@@ -224,12 +224,17 @@ test.describe('Clinic analytics', () => {
     }
   });
 
-  test('the comparison period is the same length and immediately before', async () => {
+  // [1.111.0] Arrivals by hour moved to Trends with the Analytics tab's removal, so the summary
+  // carries them, and its file does too: an export holds what the screen shows.
+  test('Trends carries arrivals by hour, in the JSON and in the file', async () => {
     const token = await login('clinicadmin@enlogada.com');
-    const res = await ctx.get(`${API}/reports/analytics?startDate=2026-08-08&endDate=2026-08-14`, { headers: auth(token) });
-    const { revenueComparison } = (await res.json()).data.report;
-
-    expect(revenueComparison.previousRange).toEqual({ startDate: '2026-08-01', endDate: '2026-08-07' });
+    const report = (await (await ctx.get(`${API}/reports/summary?${QS}`, { headers: auth(token) })).json()).data.report;
+    expect(Array.isArray(report.hourlyArrivals)).toBeTruthy();
+    for (const h of report.hourlyArrivals) {
+      expect(Number(h.total)).toBe(Number(h.walk_in) + Number(h.online));
+    }
+    const csv = await (await ctx.get(`${API}/reports/summary?${QS}&format=csv`, { headers: auth(token) })).text();
+    expect(csv).toContain('Arrivals by Hour of Day');
   });
 
   test('each analytics slice answers to its own permission', async () => {
@@ -238,14 +243,16 @@ test.describe('Clinic analytics', () => {
     const client = await login('client@enlogada.com');
 
     const labReport = (await (await ctx.get(`${API}/reports/analytics?${QS}`, { headers: auth(lab) })).json()).data.report;
-    // results:read — turnaround yes; billing:read — the revenue comparison must be absent, not
-    // empty. A technician reading their own turnaround does not thereby get the clinic's takings.
+    // results:read — turnaround yes.
     expect(labReport.turnaroundSla).toBeTruthy();
+    // [1.111.0] The revenue comparison went with the Analytics tab; nobody receives it.
     expect(labReport.revenueComparison).toBeUndefined();
 
     const cashierReport = (await (await ctx.get(`${API}/reports/analytics?${QS}`, { headers: auth(cashier) })).json()).data.report;
-    expect(cashierReport.revenueComparison).toBeTruthy();
+    // visits:read — arrivals yes; no results:read — turnaround must be absent, not empty.
+    expect(cashierReport.hourlyArrivals).toBeTruthy();
     expect(cashierReport.turnaroundSla).toBeUndefined();
+    expect(cashierReport.revenueComparison).toBeUndefined();
 
     // Holding none of the three is a refusal, not an empty report.
     const refused = await ctx.get(`${API}/reports/analytics?${QS}`, { headers: auth(client) });

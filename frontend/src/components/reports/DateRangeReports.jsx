@@ -9,13 +9,14 @@ import { Button } from '../ui/button';
 import ExportCsvButton from '../ui/export-csv-button';
 import RevenueTrendChart from '../charts/RevenueTrendChart';
 import CategoryVolumeChart from '../charts/CategoryVolumeChart';
+import PeakHoursArrivalChart from '../charts/PeakHoursArrivalChart';
 import api from '../../config/api';
 import { formatCurrency } from '../../lib/currency';
 // `todayStr` / `daysAgoStr` were re-implemented locally at the top of this file. The local copies
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
 // second place for the toISOString bug to come back — see the dates note in CLAUDE.md.
 import { todayStr, daysAgoStr } from '../../lib/date';
-import { ClipboardList, Info, RefreshCw, DollarSign, FlaskConical, Printer, TrendingUp } from 'lucide-react';
+import { ClipboardList, Info, RefreshCw, DollarSign, FlaskConical, Printer, TrendingUp, Users } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
 const STATUS_COLORS = {
@@ -55,6 +56,7 @@ const DateRangeReports = () => {
   const serviceVolume = report?.serviceVolume || [];
   const visitStatusBreakdown = report?.visitStatusBreakdown || [];
   const paymentMethodBreakdown = report?.paymentMethodBreakdown || [];
+  const hourlyArrivals = report?.hourlyArrivals || [];
 
   const totalRevenue = revenueTrend.reduce((s, r) => s + parseFloat(r.total), 0);
   const totalVisits = visitStatusBreakdown.reduce((s, v) => s + parseInt(v.visit_count, 10), 0);
@@ -199,6 +201,26 @@ const DateRangeReports = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* When patients arrive. [1.111.0] Moved here from the Analytics tab, which is gone: a
+          peak made of walk-ins is a desk to staff, the same peak made of bookings is a schedule to
+          change. Hours come from the clinic's own opening times, so an hour with no bar was open
+          and quiet, not missing. */}
+      <Card className="border-line rounded-xl bg-surface overflow-hidden">
+        <CardHeader className="space-y-0.5 border-b border-line px-5 py-3.5">
+          <CardTitle className="text-note font-semibold text-slate-900">Arrivals by Hour</CardTitle>
+          <p className="text-fine text-gray-500 m-0">When patients turn up, walk-in against booked.</p>
+        </CardHeader>
+        <CardContent className="p-5">
+          {loading ? (
+            <div className="h-44 animate-pulse rounded-lg bg-skeleton" />
+          ) : !hourlyArrivals.some((h) => Number(h.total) > 0) ? (
+            <EmptyState compact icon={Users} title="No arrivals in this range" description="Walk-ins and checked-in appointments both count as arrivals." />
+          ) : (
+            <PeakHoursArrivalChart data={hourlyArrivals} />
+          )}
+        </CardContent>
+      </Card>
       </div>
     </div>
   );

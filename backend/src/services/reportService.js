@@ -51,40 +51,6 @@ function parseTargets(raw) {
 
 const TURNAROUND_TARGET_MINUTES = parseTargets(process.env.TURNAROUND_TARGETS);
 
-/**
- * The equal-length period immediately before this one, for the trend overlay.
- *
- * Calendar arithmetic done entirely in UTC — `Date.UTC` in, `getUTC*` out. That is not the
- * timezone bug CLAUDE.md warns about; it is the fix for it. The hazard there is mixing bases:
- * parsing 'YYYY-MM-DD' (which JavaScript reads as UTC midnight) and then reading it back with
- * LOCAL getters, which in PHT lands on the previous day. Staying in one basis for both halves
- * makes the result a pure day count, independent of where the server sits.
- *
- * Inclusive on both ends, matching how every range in this file is queried: 2026-08-01..08-07 is
- * seven days, and its predecessor is 2026-07-25..07-31.
- */
-function previousPeriod(startDate, endDate) {
-  const DAY_MS = 86400000;
-  const toUtc = (s) => {
-    const [y, m, d] = s.split('-').map(Number);
-    return Date.UTC(y, m - 1, d);
-  };
-  const fromUtc = (ms) => {
-    const d = new Date(ms);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-  };
-
-  const start = toUtc(startDate);
-  const end = toUtc(endDate);
-  const lengthDays = Math.round((end - start) / DAY_MS) + 1;
-
-  return {
-    startDate: fromUtc(start - lengthDays * DAY_MS),
-    endDate: fromUtc(start - DAY_MS),
-  };
-}
-
 function assertValidRange(startDate, endDate) {
   if (!startDate || !endDate) {
     const error = new Error('startDate and endDate are both required (YYYY-MM-DD).');
@@ -107,14 +73,17 @@ class ReportService {
   async getSummaryReport(startDate, endDate) {
     assertValidRange(startDate, endDate);
 
-    const [revenueTrend, serviceVolume, visitStatusBreakdown, paymentMethodBreakdown] = await Promise.all([
+    const [revenueTrend, serviceVolume, visitStatusBreakdown, paymentMethodBreakdown, hourlyArrivals] = await Promise.all([
       reportRepository.getRevenueTrend(startDate, endDate),
       reportRepository.getServiceVolume(startDate, endDate),
       reportRepository.getVisitStatusBreakdown(startDate, endDate),
-      reportRepository.getPaymentMethodBreakdown(startDate, endDate)
+      reportRepository.getPaymentMethodBreakdown(startDate, endDate),
+      // [1.111.0] Moved here from the Analytics tab, which is gone: when patients arrive is a
+      // volume question, and Trends is where volume is read. The same query Today reads.
+      reportRepository.getHourlyPatientArrivals(startDate, endDate),
     ]);
 
-    return { revenueTrend, serviceVolume, visitStatusBreakdown, paymentMethodBreakdown };
+    return { revenueTrend, serviceVolume, visitStatusBreakdown, paymentMethodBreakdown, hourlyArrivals };
   }
 
   /**
@@ -239,8 +208,11 @@ class ReportService {
   }
 
   /**
-   * Clinic analytics for the BI dashboard: turnaround against target, and arrivals by hour.
-   * [1.62.0]
+   * Turnaround against target, and arrivals by hour. [1.62.0]
+   *
+   * [1.111.0] The Reports screen's Analytics tab is gone; the Today screen is what reads this now,
+   * for its departments' turnaround and the day's arrivals. The previous-period revenue overlay
+   * went with the tab, as nothing else drew it.
    *
    * Gated the same way `getOperationsReport` is, and for the same reason: this route carries no
    * `authorizePermissions` of its own, so the SLICES are the gate, and a caller holding neither
@@ -284,25 +256,6 @@ class ReportService {
       work.push(
         reportRepository.getHourlyPatientArrivals(startDate, endDate).then((rows) => {
           report.hourlyArrivals = rows;
-        })
-      );
-    }
-
-    // The comparative overlay on the revenue trend. Money, so it answers to `billing:read` and
-    // not to either of the two above — a technician reading their own turnaround figures does not
-    // thereby get the clinic's takings.
-    if (may('billing:read')) {
-      const previous = previousPeriod(startDate, endDate);
-      work.push(
-        Promise.all([
-          reportRepository.getRevenueTrend(startDate, endDate),
-          reportRepository.getRevenueTrend(previous.startDate, previous.endDate),
-        ]).then(([current, prior]) => {
-          report.revenueComparison = {
-            current,
-            previous: prior,
-            previousRange: previous,
-          };
         })
       );
     }

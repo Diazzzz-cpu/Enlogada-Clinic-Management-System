@@ -6,7 +6,9 @@ class AdminController {
     try {
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 25;
-      const activity = await auditService.getRecentActivity({ page, limit });
+      // Migration archives are left out unless asked for. [1.111.0] See auditRepository.
+      const includeArchives = req.query.archives === 'true';
+      const activity = await auditService.getRecentActivity({ page, limit, includeArchives });
       return res.status(200).json({
         status: 'success',
         data: activity

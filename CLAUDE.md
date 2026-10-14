@@ -258,7 +258,8 @@ the seeded `@enlogada.com` ones, a domain that does not exist. A booking made as
 `client@enlogada.com` therefore sends no email; test real delivery with an address you can read.
 
 `TURNAROUND_TARGETS` (optional, e.g. `Laboratory:90,Xray:30`) sets the per-department turnaround
-benchmarks the analytics chart draws its reference line against. `[1.62.0]` They are a clinic
+benchmarks the Today screen's department table judges against (it reads "Not set" without one).
+`[1.62.0]` `[1.111.0]` They are a clinic
 POLICY, not a measurement, and the built-in values are plausible defaults nobody has agreed — which
 is why they are a setting rather than a table. A department absent from the map is measured and not
 judged, with a NULL rate rather than 0.
@@ -676,6 +677,22 @@ visit paid before it arrived (a booking paid from home). `booking-queue.spec.js`
 **Numbers that must be unique** (queue tickets, receipt numbers) come from `daily_counters` via `INSERT … ON CONFLICT DO UPDATE … RETURNING`, never from `SELECT COUNT(*) + 1`. Counting rows is not a sequence: it races under concurrency, and it rewinds when a row is cancelled or refunded, reissuing a number already handed to a patient. Unique indexes back all three invariants. Core flow through the tables:
 
 `users` → `patients` (1:N via `user_id` — one account owns several profiles, e.g. a parent booking for dependents; `GET /patients/my-profiles` is plural for this reason, and ownership checks must compare per-patient rather than resolving a user to a single patient) → `patient_visits` (a clinic visit/queue entry) → `visit_tests` (tests attached to a visit, priced via `price_at_time`) → `test_results` (findings/file per visit_test, released by staff) and `payments` (billed against a visit). `appointments` link to a `patient_visit`. `hmo_requests` link a visit to an `hmo_providers` approval flow. `tests` belong to a `test_categories` row (Laboratory/Xray/Ultrasound, plus the retired 2D Echo/ECG that only history uses) and have an `is_active` flag that controls public visibility.
+
+**Reports has four tabs, one per question.** `[1.111.0]` Departments (what each part of the clinic
+did), Trends (money and volume over time, and arrivals by hour), HMO Claims (what the insurers owe)
+and Staff Workload (who did how much). Today, Access Matrix and Analytics were removed because each
+repeated another screen: the Today screen, "Who sees what", and Departments plus Trends.
+`GET /reports/analytics` stays — the Today screen reads its turnaround and arrivals — but lost the
+previous-period revenue overlay only the Analytics tab drew. Add a report where it answers a question
+no tab answers yet; a second view of a figure another tab already shows is how there were seven.
+
+**The Activity Log leaves out migration archives.** `[1.111.0]` A migration that drops data writes
+what it held into `audit_log` first (`result.measurements_archived`, `clinic.signatory_archived`,
+`result.critical_flag_retired`: `ARCHIVE_ACTIONS` in `auditRepository`). Those are records, not
+activity, and one removal wrote 33 of them over a morning's refunds and corrections. The feed hides
+them unless "Show archived records" is ticked (`GET /admin/activity?archives=true`); they are never
+deleted, because on the clinic's database they are the only remaining copy. A new archive action
+belongs in that list.
 
 **Polling revalidates rather than refetching.** Four screens poll to stay live, and a measured
 idle reception terminal made 240 requests and pulled ~1.5 MB an hour — roughly 500,000 requests

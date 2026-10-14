@@ -127,6 +127,10 @@ function summaryCsv(report, startDate, endDate) {
     { title: 'Service Volume by Department', rows: report.serviceVolume, columns: SERVICE_VOLUME },
     { title: 'Visits by Status', rows: report.visitStatusBreakdown, columns: VISIT_STATUS },
     { title: 'Collections by Payment Method', rows: report.paymentMethodBreakdown, columns: PAYMENT_METHOD },
+    // [1.111.0] On Trends now, so in its file too: an export holds what the screen shows.
+    ...(report.hourlyArrivals
+      ? [{ title: 'Arrivals by Hour of Day', rows: report.hourlyArrivals, columns: HOURLY_ARRIVALS }]
+      : []),
   ], rangeMeta('Clinic Summary', startDate, endDate));
 }
 

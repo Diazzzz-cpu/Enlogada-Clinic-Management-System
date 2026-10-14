@@ -400,24 +400,7 @@ class ResultRepository {
              p.first_name, p.last_name, p.birthdate, p.sex,
              pt.name AS patient_type_name,
              pv.created_at AS visit_date, pv.referring_physician, pv.referring_physician_prc,
-             t.name AS test_name, tc.name AS category_name,
-             -- The discipline heading the form prints above its panel, e.g. CLINICAL MICROSCOPY.
-             fs.discipline,
-             -- Which disclaimer this FORM prints, and how it captions the technologist.
-             -- [1.64.0] Per-form facts: the clinic's workbook uses two footers and two
-             -- captions, and the wrong disclaimer tells a patient to fetch a seal the
-             -- clinic never meant to apply.
-             fs.signature_mode, fs.technologist_caption,
-             -- Whether the FORM carries reference ranges — not whether these particular values
-             -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
-             -- hand, but the viewer and the patient's copy do not, so they fell back to it and the
-             -- same released result printed four columns on one screen and three on another.
-             -- NULL (not FALSE) when the test has no field set, so the caller's own fallback still
-             -- decides that case rather than this column silently answering "no".
-             CASE WHEN fs.id IS NULL THEN NULL ELSE EXISTS (
-               SELECT 1 FROM result_fields rf
-               WHERE rf.field_set_id = fs.id AND rf.reference_note IS NOT NULL
-             ) END AS field_set_has_reference
+             t.name AS test_name, tc.name AS category_name
       FROM test_results tr
       LEFT JOIN users u ON tr.released_by = u.id
       JOIN visit_tests vt        ON vt.id = tr.visit_test_id
@@ -426,9 +409,6 @@ class ResultRepository {
       JOIN patient_visits pv     ON pv.id = vt.patient_visit_id
       JOIN patients p            ON p.id = pv.patient_id
       LEFT JOIN patient_types pt ON pt.id = p.patient_type_id
-      -- A test with no field set has no discipline; LEFT so the row survives either way.
-      LEFT JOIN result_field_set_tests fst ON fst.test_id = vt.test_id
-      LEFT JOIN result_field_sets fs       ON fs.id = fst.field_set_id AND fs.is_active = TRUE
       -- The live version. Callers here mean "the result", not "some past draft of it";
       -- findVersionHistoryByVisitTestId is the way to reach superseded versions.
       WHERE tr.visit_test_id = $1 AND tr.is_current
@@ -467,30 +447,13 @@ class ResultRepository {
              -- same document by requirement, and this query fed the patient's — so without these
              -- their copy printed Birthday, Sex and Patient Type blank and carried no title at all,
              -- while the clinic's showed all four.
-             p.birthdate, p.sex, ptp.name AS patient_type_name, fs.discipline,
-             -- See findResultByVisitTestId: the footer belongs to the form, and the
-             -- patient's copy is the same document as the clinic's by requirement.
-             fs.signature_mode, fs.technologist_caption,
-             -- Whether the FORM carries reference ranges — not whether these particular values
-             -- happen to. [1.53.0] fixed that heuristic where the entry dialog has the field set in
-             -- hand, but the viewer and the patient's copy do not, so they fell back to it and the
-             -- same released result printed four columns on one screen and three on another.
-             -- NULL (not FALSE) when the test has no field set, so the caller's own fallback still
-             -- decides that case rather than this column silently answering "no".
-             CASE WHEN fs.id IS NULL THEN NULL ELSE EXISTS (
-               SELECT 1 FROM result_fields rf
-               WHERE rf.field_set_id = fs.id AND rf.reference_note IS NOT NULL
-             ) END AS field_set_has_reference
+             p.birthdate, p.sex, ptp.name AS patient_type_name
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON p.id = pv.patient_id
       LEFT JOIN patient_types ptp ON ptp.id = p.patient_type_id
-      -- 1:1 by uq_fst_test, so neither join can multiply a row. is_active matches
-      -- findFieldSetForVisitTest: a deactivated set must stop printing its heading too.
-      LEFT JOIN result_field_set_tests fst ON fst.test_id = vt.test_id
-      LEFT JOIN result_field_sets fs ON fs.id = fst.field_set_id AND fs.is_active = TRUE
       -- is_current: a test can now carry several versions, and joining them all would repeat
       -- the row once per amendment and show superseded findings alongside the live ones.
       LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current

@@ -36,6 +36,7 @@
  *   node src/scripts/seedDemoScenario.js
  */
 const db = require('../config/database');
+const { LAB_FIELD_SETS, SIGNATORIES } = require('../constants/labResultForms');
 // The vocabulary, not a copy of it: a seeder that invents a method the CHECK constraint
 // rejects fails halfway through, leaving a half-built demo. [1.33.0]
 const { COUNTER_METHODS, CASH_METHOD } = require('../constants/paymentMethods');
@@ -123,10 +124,12 @@ const REFERRERS = [
   ['Dr. Rogelio P. Abellanosa', '0121904'],
 ];
 
-// ── What a result form says ──────────────────────────────────────────────────────────────────
-// Normal adult values, inside the clinic's own printed ranges (result_fields.reference_note).
-// Anything not listed here is placed inside its printed range instead. Text results are written
-// the way the clinic's sheets print them.
+// ── What a laboratory report says ────────────────────────────────────────────────────────────
+// Normal adult values, inside the clinic's own printed ranges (the `note` on each line of
+// constants/labResultForms.js). Anything not listed here is placed inside its printed range
+// instead. Text results are written the way the clinic's sheets print them. [1.109.0] They are
+// printed INTO the sample report PDF, which is where a real result's values live: the system no
+// longer stores typed values.
 const NUMBERS = {
   // Complete blood count. The differential adds up to 100.
   wbc: 7.2, rbc: { Male: 5.02, Female: 4.46 }, hemoglobin: { Male: 14.8, Female: 12.9 },
@@ -135,18 +138,6 @@ const NUMBERS = {
   // Lipids, consistent with each other: LDL = cholesterol - HDL - triglycerides / 5.
   cholesterol: 186, triglycerides: 132, hdl: 48, ldl: 111.6, vldl: 26.4, chol_hdl_ratio: 3.9,
   fbs: 88, first_hour: 152, second_hour: 118,
-  // Ultrasound, in cm (the bladder in cc).
-  right_liver_lobe: 13.4, left_liver_lobe: 6.9, spleen: 8.8, right_kidney_ct: 1.5, left_kidney_ct: 1.6,
-  isthmus: 0.3, endometrial_thickness: 0.8, right_epididymal_head: 0.9, left_epididymal_head: 0.8,
-  ub_prevoid_volume: 285, ub_postvoid_volume: 18,
-  // A biophysical profile scores each component 0 or 2; the server totals them.
-  fetal_tone: 2, fetal_movement: 2, fetal_breathing: 2, amniotic_fluid: 2, non_stress_test: 2,
-};
-const DIMENSIONS = {
-  gallbladder: [6.8, 2.6, 2.4], right_kidney: [10.4, 4.6, 4.2], left_kidney: [10.8, 4.9, 4.4],
-  prostate_gland: [3.6, 3.1, 2.9], uterus: [7.6, 4.3, 3.8], cervix: [3.1, 2.6, 2.4],
-  right_ovary: [3.0, 2.1, 1.8], left_ovary: [2.8, 1.9, 1.7], right_thyroid_lobe: [4.6, 1.6, 1.5],
-  left_thyroid_lobe: [4.4, 1.5, 1.4], right_testis: [4.2, 2.7, 2.3], left_testis: [4.1, 2.6, 2.2],
 };
 const TEXT = {
   specimen: 'RANDOM', color: 'YELLOW', appearance: 'CLEAR', glucose: 'NEGATIVE', protein: 'NEGATIVE',
@@ -164,7 +155,6 @@ const BLOOD_TYPES = ['O RH POSITIVE', 'A RH POSITIVE', 'B RH POSITIVE', 'O RH PO
 const EXACT = new Set([
   'neutrophils', 'lymphocytes', 'monocytes', 'eosinophils', 'basophils',
   'cholesterol', 'triglycerides', 'hdl', 'ldl', 'vldl', 'chol_hdl_ratio',
-  'fetal_tone', 'fetal_movement', 'fetal_breathing', 'amniotic_fluid', 'non_stress_test',
 ]);
 
 const decimalsOf = (n) => (String(n).split('.')[1] || '').length;
@@ -185,43 +175,57 @@ function withinRange(note, sex, position) {
   return null;
 }
 
+/** The clinic's laboratory form for a service, by its catalogue name, or null. */
+const labFormFor = (testName) => LAB_FIELD_SETS.find((f) => f.tests.includes(testName)) || null;
+
+/** A value the caller fixed, in either the plain or the old `{ value_1 }` shape. */
+const plain = (v) => (v && typeof v === 'object' ? v.value_1 ?? v.value_text : v);
+
 /**
- * The measurements for one form, keyed by field code as POST /results expects.
- * Skips a derived field (the server works it out) and a field for the other sex (it refuses one).
+ * The lines of a laboratory report, as its sheet prints them: `Hemoglobin  14.8 g/dL  (13.5-17.5)`,
+ * with each section heading printed once above the lines it groups. `overrides` fixes a value,
+ * which is how an abnormal result is written.
  */
-function fillForm(form, sex, seed, overrides = {}) {
+function labReportLines(form, sex, seed, overrides = {}) {
   const nudge = 1 + (((seed * 37) % 7) - 3) / 100;   // within ±3%, so no two reports match exactly
   const position = 0.35 + ((seed * 13) % 31) / 100;  // somewhere in the middle of a printed range
-  const out = {};
+  const lines = [form.discipline || form.name.toUpperCase()];
+  let section = null;
   for (const f of form.fields) {
-    if (f.derivation) continue;
-    if (f.applies_to_sex && f.applies_to_sex !== sex) continue;
     const code = f.code;
-    if (f.value_kind === 'linear3') {
-      const base = overrides[code] || DIMENSIONS[code];
-      if (!base) continue;
-      const [a, b, c] = base.map((n) => (n * nudge).toFixed(1));
-      out[code] = { value_1: a, value_2: b, value_3: c };
-    } else if (f.value_kind === 'text') {
-      const value = overrides[code]
-        ?? (form.name === 'Fecalysis' ? FECALYSIS[code] : undefined)
+    let value = plain(overrides[code]);
+    if (value === undefined && f.kind === 'text') {
+      value = (form.name === 'Fecalysis' ? FECALYSIS[code] : undefined)
         ?? TEXT[code]
         ?? (code === 'blood_type' ? BLOOD_TYPES[seed % BLOOD_TYPES.length] : undefined);
-      if (value) out[code] = { value_text: value };
-    } else if (f.value_kind === 'number') {
-      let value = overrides[code];
-      if (value === undefined) {
-        const known = NUMBERS[code];
-        const base = known && typeof known === 'object' ? known[sex] : known;
-        value = base === undefined
-          ? withinRange(f.reference_note, sex, position)
-          : (EXACT.has(code) ? base : (base * nudge).toFixed(decimalsOf(base)));
-      }
-      if (value !== null && value !== undefined) out[code] = { value_1: String(value) };
     }
+    if (value === undefined) {
+      const known = NUMBERS[code];
+      const base = known && typeof known === 'object' ? known[sex] : known;
+      value = base === undefined
+        ? withinRange(f.note, sex, position)
+        : (EXACT.has(code) ? base : (base * nudge).toFixed(decimalsOf(base)));
+    }
+    if (value === null || value === undefined) continue;
+    if (f.section && f.section !== section) lines.push(f.section);
+    section = f.section || null;
+    lines.push(`${f.section ? '    ' : ''}${f.label}   ${value}${f.unit ? ` ${f.unit}` : ''}${f.note ? `   (${f.note})` : ''}`);
   }
-  return out;
+  return lines;
 }
+
+/** The names under a sample report: the clinic's own signatories for that department. */
+const signatureLines = (category) => SIGNATORIES
+  .filter((sig) => sig.category === category)
+  .map((sig) => `${sig.name} - ${sig.caption}${sig.prc ? `, PRC ${sig.prc}` : ''}`);
+
+// Which written report an ultrasound service gets. These were the names of its typed form.
+const ULTRASOUND_REPORT = {
+  'HBT': 'Hepatobiliary Tree', 'Liver / Biliary Tree': 'Liver', 'Upper Abdomen': 'Upper Abdomen',
+  'Whole Abdomen': 'Whole Abdomen', 'Lower Abdomen': 'Lower Abdomen', 'KUB / Prostate': 'KUB and Prostate',
+  'Thyroid': 'Thyroid and Neck', 'Trans-vaginal (TVS)': 'Transvaginal', 'Pelvic Ultrasound': 'Pelvic',
+  'Scrotum': 'Scrotum', 'BPS': 'Biophysical Profile', 'BPS w/ NST': 'Biophysical Profile with NST',
+};
 
 // Written reports for imaging, ending in the impression the way the clinic's reports do.
 const para = (...parts) => parts.filter(Boolean).join('\n\n');
@@ -231,8 +235,8 @@ const GALLBLADDER = 'The gallbladder is adequately distended with a thin wall an
 const KIDNEYS = 'Both kidneys are normal in size and echopattern, with good corticomedullary differentiation. No calculi or hydronephrosis.';
 const BLADDER = 'The urinary bladder is adequately filled with smooth walls and no intraluminal echoes.';
 
-function imagingReport(form, test, sex, variant) {
-  const name = form?.name || '';
+function imagingReport(test, sex, variant) {
+  const name = ULTRASOUND_REPORT[test.name] || '';
   const liver = variant === 'fatty' ? LIVER_FATTY : LIVER_NORMAL;
   const abdomenImpression = variant === 'fatty' ? 'MILD FATTY INFILTRATION OF THE LIVER.' : null;
   switch (name) {
@@ -444,24 +448,6 @@ async function main() {
 
   const modalityToken = { Laboratory: tok.lab, Xray: tok.xray, Ultrasound: tok.ultrasound, ECG: tok.admin };
 
-  // The result form a service uses, read from the same tables the result entry screen reads.
-  const formCache = new Map();
-  const formFor = async (testId) => {
-    if (!formCache.has(testId)) {
-      const { rows } = await db.query(
-        `SELECT fs.name AS set_name, f.code, f.value_kind, f.applies_to_sex, f.reference_note, f.derivation
-           FROM result_field_set_tests fst
-           JOIN result_field_sets fs ON fs.id = fst.field_set_id AND fs.is_active
-           JOIN result_fields f ON f.field_set_id = fs.id AND f.is_active
-          WHERE fst.test_id = $1
-          ORDER BY f.display_order`,
-        [testId]
-      );
-      formCache.set(testId, rows.length ? { name: rows[0].set_name, fields: rows } : null);
-    }
-    return formCache.get(testId);
-  };
-
   // One record per person. A second visit reuses it, as the front desk would.
   let personCount = 0;
   const records = new Map();
@@ -558,8 +544,7 @@ async function main() {
     const lines = [
       'BT /F1 15 Tf 60 770 Td (' + esc('ENLOGADA ULTRASOUND & DIAGNOSTIC CLINIC') + ') Tj ET',
       'BT /F1 11 Tf 60 750 Td (' + esc(title) + ') Tj ET',
-      ...String(body)
-        .match(/.{1,88}(\s|$)/g)
+      ...(String(body).match(/.{1,88}(\s|$)/g) || [])
         .map((line, i) => 'BT /F1 10 Tf 60 ' + (715 - i * 15) + ' Td (' + esc(line.trim()) + ') Tj ET'),
       'BT /F1 8 Tf 60 60 Td (' + esc('Sample document generated by seedDemoScenario.js - not a real clinical report.') + ') Tj ET',
     ];
@@ -595,26 +580,39 @@ async function main() {
   };
 
   /**
-   * Records a result the way the department would: the form filled in, and for imaging a written
-   * report with the document attached. `values` overrides individual fields, `variant` picks an
+   * What the sample report PDF says: a laboratory sheet's lines, the written text, and the names
+   * that sign for the department. [1.109.0] The values are IN the document, which is where a real
+   * result keeps them; nothing typed is sent to the API any more.
+   */
+  const reportBody = (v, text, values) => {
+    const form = v.category === 'Laboratory' ? labFormFor(v.test.name) : null;
+    return [
+      ...(form ? labReportLines(form, v.sex, v.seed, values) : []),
+      text,
+      ...signatureLines(v.category),
+    ].filter(Boolean).join('\n');
+  };
+
+  /**
+   * Records a result the way the department would: the report document attached, and for imaging
+   * the written report as its findings. `values` fixes laboratory values, `variant` picks an
    * abnormal imaging report, and `findings` replaces the written text entirely.
    */
   const recordFindings = async (v, { findings, values, variant, remarks } = {}) => {
-    const form = await formFor(v.test.id);
     const imaging = v.category === 'Ultrasound' || v.category === 'Xray';
-    const text = findings ?? (imaging ? imagingReport(form, v.test, v.sex, variant) : (form ? '' : 'Within normal limits.'));
+    const hasForm = v.category === 'Laboratory' && labFormFor(v.test.name);
+    const text = findings ?? (imaging ? imagingReport(v.test, v.sex, variant) : (hasForm ? '' : 'Within normal limits.'));
 
     const body = new FormData();
     if (text) body.append('findings', text);
     if (remarks) body.append('remarks', remarks);
-    if (form) body.append('measurements', JSON.stringify(fillForm(form, v.sex, v.seed, values)));
     // Every result carries its report, not only the imaging ones. [1.94.0]
     //
     // This attached a PDF for Ultrasound and X-ray and left Laboratory with findings text alone,
     // which was right while findings WERE the report. A release now requires the document, so the
     // old shape would have stopped the seeder dead on the first laboratory visit — and, worse for
     // a demo, shown the clinic a system where half the results have nothing to open.
-    const pdf = makeSamplePdf(`${v.test.name} - ${v.patient.first_name} ${v.patient.last_name}`, text);
+    const pdf = makeSamplePdf(`${v.test.name} - ${v.patient.first_name} ${v.patient.last_name}`, reportBody(v, text, values));
     body.append(
       'file',
       new Blob([pdf], { type: 'application/pdf' }),
@@ -629,14 +627,13 @@ async function main() {
     if (findings) body.append('findings', findings);
     if (remarks) body.append('remarks', remarks);
     body.append('amendmentReason', reason);
-    if (values) body.append('measurements', JSON.stringify(values));
     // A corrected result carries a CORRECTED document. [1.94.0] Without this the amendment would
     // inherit the original file and the demo would show an "amendment" whose report is identical
     // to the one it replaced — which is exactly the empty-amendment problem the clinic should not
     // be shown, and which the real workflow avoids by attaching the new report.
     const pdf = makeSamplePdf(
       `${v.test.name} (corrected) - ${v.patient.first_name} ${v.patient.last_name}`,
-      findings || reason
+      reportBody(v, findings || reason, values)
     );
     body.append(
       'file',
@@ -704,7 +701,7 @@ async function main() {
     await recordFindings(v, { values: { cholesterol: 286 }, findings: 'Elevated total cholesterol.' });
     await amend(v, {
       findings: 'Total cholesterol within the desirable level.',
-      values: { cholesterol: { value_1: '186' } },
+      values: { cholesterol: 186 },
       reason: 'Cholesterol transcribed as 286; corrected to 186 against the analyser printout',
     });
     await release(v);

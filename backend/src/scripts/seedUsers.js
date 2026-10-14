@@ -7,8 +7,8 @@ const logger = require('../config/logger');
  *
  * Named like the people who would hold them, because a demo that says "Released by Doc Lab" reads
  * as a placeholder on every report, audit line and sidebar. Every name and number is invented;
- * none belongs to the clinic's staff. The report's signatories are a separate table and are the
- * clinic's real ones.
+ * none belongs to the clinic's staff. The clinic's real report signatories are in
+ * constants/labResultForms.js, and only the demo's sample report PDFs print them.
  *
  * `placeholder` is the name each account was first seeded with. An account that still carries it
  * is renamed; one somebody has renamed since (the Admin account reads "Jessie Uba") is left alone.

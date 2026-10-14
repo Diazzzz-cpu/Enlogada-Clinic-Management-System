@@ -89,24 +89,19 @@ node src/scripts/migrateSlotHold.js            # [1.35.0] an unpaid online booki
 node src/scripts/migratePaymentMethods.js     # [1.33.0] narrow chk_payment_method to what the clinic settles; refuses if a row would violate it (--rollback reverses it)
 node src/scripts/migrateTestPackages.js        # [1.45.0] the clinic's package deals (--rollback reverses it)
 node src/scripts/migratePaymentSubmissions.js  # [1.48.0] clinic payment channels + manual proof of payment (--rollback reverses it)
-node src/scripts/migrateResultFieldSets.js     # [1.50.0] structured result entry, Ultrasound only (--rollback REFUSES while measurements exist; add --force)
-node src/scripts/migrateBiophysicalScore.js     # [1.51.0] lets a biophysical score total itself (--rollback reverses it)
-node src/scripts/migrateLabResultForms.js       # [1.52.0] section headings + who signs a report (--rollback reverses it)
-node src/scripts/migrateResultPrecision.js      # [1.53.0] a suppressed TSH no longer stores as zero (--rollback reverses it)
-# Loads the ten Ultrasound field sets the migration above makes room for. Dry-run by default.
-# Every field is transcribed from the clinic's own 1,113-report archive; nothing is invented.
-node src/scripts/seedResultFieldSets.js            # report only
-node src/scripts/seedResultFieldSets.js --confirm  # apply
 node src/scripts/migratePatientArchive.js      # [1.56.0] archive a patient record without deleting a clinical history (--rollback reverses it)
 node src/scripts/migrateScheduleOverrides.js   # [1.57.0] close a DATE, or change its hours/capacity, without touching the weekly pattern (--rollback reverses it)
 node src/scripts/migrateResultDelivery.js      # [1.59.0] record that a released report actually reached the patient (--rollback reverses it)
 node src/scripts/migratePatientEmail.js        # [1.60.0] an address on the patient record, so a walk-in can be sent their result (--rollback reverses it)
 node src/scripts/migrateRemove2dEcho.js       # [1.50.0] remove the 2D Echo category and its tests; REFUSES if any visit_tests still reference them (--rollback restores)
-node src/scripts/migrateResultSignatureMode.js # [1.64.0] which disclaimer a lab form prints, and how it captions the technologist (--rollback reverses it)
 node src/scripts/migrateAuthCodes.js           # [1.73.0] emailed codes for sign-up and password reset; one account per address (--rollback reverses it)
 node src/scripts/migrateRemoveCriticalValues.js # [1.98.0] withdraw the critical-value workflow; copies each flag into audit_log first (--rollback restores the columns, empty)
 node src/scripts/migrateRescheduleReason.js     # [1.105.0] a reschedule records why; dates earlier moves from audit_log (--rollback reverses it)
 node src/scripts/migrateDoctorRequest.js        # [1.106.0] a patient's booking carries the doctor's signed request; drops the withdrawn hmo_requests draft (--rollback reverses it)
+node src/scripts/migrateRemoveResultForms.js  # [1.109.0] drop the five typed result-form tables; copies every typed value and signatory into audit_log first,
+                                              #   and REFUSES if a current result has typed values and no file (--force drops anyway; --rollback restores the tables and signatories)
+# The [1.50.0]-[1.64.0] form migrations (ResultFieldSets, BiophysicalScore, LabResultForms, ResultPrecision,
+# ResultSignatureMode) and seedResultFieldSets.js were deleted with it: they only built what [1.109.0] removes.
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -1036,26 +1031,6 @@ Services Catalogue.
   (`lib/abnormalValues.js`) — marking a figure outside its printed range is a reading aid, not a
   judgement. Do not reintroduce a callback workflow.
 
-- **A result is a form, not a paragraph — for Ultrasound.** `[1.50.0]` `test_results.findings`
-  still holds the narrative and the impression; the MEASUREMENT block is structured
-  (`result_field_sets` / `result_fields` / `result_measurements`). Three rules follow. Measurements
-  attach to the result **version**, never the visit test — `createResult` inserts a new row per
-  save and copies nothing, so hanging them off the visit test would let an amendment rewrite the
-  superseded version's numbers in place. They are **never joined** into a list query: a child table
-  repeats the parent row once per field, eleven times for a whole abdomen, and no `is_current`
-  filter helps. And an **omitted field is not an instruction to erase** — the client sends a key
-  for every field it rendered, so absent means "carry the previous version's value forward" and
-  null means "the user cleared it". `ultrasound-measurements.spec.js` guards all three.
-- **A result form is the clinic's document, not a generic report.** `[1.52.0]` Laboratory prints
-  `TEST | RESULT | UNIT | REFERENCE RANGE` with section headings (`Macroscopic:`, `Chemical:`,
-  `Microscopic:`, `Differential Count`) under a discipline heading, a COMMENT box, a disclaimer and
-  a TWO-signatory footer with PRC licence numbers. Ultrasound is a different document — Measurements
-  block, prose, ALL-CAPS impression, one radiologist, no licence number. `ResultReport.jsx` renders
-  both from the data. **`section` is a column, never a "carry it forward until the next heading"
-  rule** — the clinic's CBC prints `RDW-CV` after the Differential Count block and it does not
-  belong to it.
-- **A laboratory RESULT is text.** `YELLOW`, `NEGATIVE`, `FEW`, `0-2` and `1.010` share one column,
-  often on one sheet. Only analytes numeric on every observed sheet get `value_kind: 'number'`.
 - **There is no critical-result callback.** `[1.95.0]` The clinic reports clinical results and
   does not diagnose, so the flag, the callback queue, the acknowledge flow, the "contact the
   clinic" email and `results:acknowledge_critical` are all gone. The `is_critical` columns and
@@ -1069,40 +1044,33 @@ Services Catalogue.
   structured measurement while 84 of 90 already had a file. The file is required to RELEASE and
   not to save, so a ticket still parks in 'Waiting for Release' while the report is produced.
   `RESULTS_REQUIRE_FILE=false` restores the old behaviour without a deploy.
+- **The typed result forms are gone, tables and all.** `[1.109.0]` `result_field_sets`,
+  `result_fields`, `result_field_set_tests`, `result_measurements` and `clinic_signatories` were
+  dropped by `migrateRemoveResultForms.js`, which writes every typed value
+  (`result.measurements_archived`) and every signatory (`clinic.signatory_archived`) into
+  `audit_log` first. `POST /results` answers a `measurements` key with a 400 rather than ignoring
+  it, and `GET /results/field-set/:id` is gone. The clinic's form layouts and signatories survive in
+  `constants/labResultForms.js`, which only the demo seed reads, to print realistic sample reports.
 - **A report may be PDF, JPEG, PNG, Word or a spreadsheet.** `[1.96.0]` The list is
   `backend/src/constants/reportFileTypes.js`, mirrored in `frontend/src/lib/reportFileTypes.js`;
   change both together. Office types are judged by extension, label AND contents, because their
   browser labels are unreliable — never go back to trusting the label alone. Macro-enabled files
   (DOCM, XLSM) stay refused. PDFs and images are served inline, everything else as a download.
-- **The measurement write path is unreachable but alive.** `[1.94.0]` `mergeMeasurements`, the
-  derivation pass and `GET /results/field-set/:visitTestId` no longer have a caller in the
-  product. They stay because deleting the field-set lookup also deletes the "this test does not
-  record structured measurements" 400 — without which a `measurements` key would be silently
-  ignored — and because four historical results still render through the read half.
-- **`reference_note` mirrors the clinic's own printed form; it never imports literature.**
-  `[1.51.0]` `N.V. = 5.0 - 25.0 gms` is on the prostate because it is printed on their sheet.
-  Endometrial thickness gets NONE, despite a well-known 4mm cut-off, because that threshold is
-  conditional on a population `result_fields` does not hold — postmenopausal *and* bleeding. A note
-  that is wrong for most patients is worse than no note.
-
-- **`components/ResultReport.jsx` is now the LEGACY rendering.** `[1.94.0]` The generated
-  certificate was dropped: the clinic's attached document is the report, and wrapping a letterhead
-  and signature block around an empty findings box said less than the file itself. It still renders
-  results that carry measurements or no file — the 90 recorded before the change — and the rule
-  below still holds for those. The clinic's copy and the patient's copy are the same document by
-  requirement, so a second rendering can only agree with the first by coincidence. Print through `lib/printReport.js`, never a bare `window.print()`:
-  two mounted `.print-area` elements print stacked on top of each other, and the diagnostic
-  dashboard can hold three at once. Every list a report opens from must carry what it prints
-  beyond its row: `resultService.withReportParts` attaches the measurements and signatories to the
-  patient's history and a department's History `[1.90.0]`, and the query selects
-  `patient_type_name`. History used to open a CBC with no values at all; a new list that opens a
-  report goes through the same method.
+- **`components/ResultReport.jsx` is the letterhead around a report.** `[1.94.0]` `[1.109.0]` The
+  clinic's attached document is the report; this wraps it in the letterhead, the patient's header,
+  the attachment row and, for a result typed before files were attached, its findings. The typed
+  grids and the signature footer went with their tables. The clinic's copy and the patient's copy
+  are the same document by requirement, so a second rendering can only agree with the first by
+  coincidence. Print through `lib/printReport.js`, never a bare `window.print()`: two mounted
+  `.print-area` elements print stacked on top of each other, and the diagnostic dashboard can hold
+  three at once. Every list a report opens from must carry what its header prints: the queries
+  select `patient_type_name`, birthdate and sex.
 - **Never add a second `<input type="file">` to the result entry dialog.** `[1.94.0]` This rule
   used to be about `<textarea>`, because `laboratory.spec.js` drove the findings box with a bare
   `page.locator('textarea')`. The textarea is gone and that spec now attaches the report with a
   bare `page.locator('input[type="file"]')`, so the hazard moved rather than disappeared: a second
   file input breaks two of its tests with a strict-mode violation from a file that never mentions
-  the component that added it. `ultrasound-measurements.spec.js` guards the count.
+  the component that added it. `result-entry.spec.js` guards the count.
 
 **Don't couple a test to a class name.** `payment.spec.js` used to scope itself with
   `ancestor::div[contains(@class,"rounded-2xl")]`, so changing a corner radius failed a payment

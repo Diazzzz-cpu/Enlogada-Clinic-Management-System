@@ -1,6 +1,11 @@
 /**
  * The clinic's LABORATORY result forms, transcribed from their own workbook. [1.52.0]
  *
+ * [1.109.0] Nothing in the running system reads this any more. A result is its attached report
+ * file, and the tables these forms were loaded into are gone (migrateRemoveResultForms.js). It is
+ * kept as the one faithful copy of what the clinic's sheets print, and seedDemoScenario.js uses it
+ * to write the lines of a sample laboratory report, so the demo's documents read like theirs.
+ *
  * Every label, unit, section and reference range below is what the clinic's `RESULT FORM` workbook
  * prints. Nothing is invented, and where the workbook contradicts itself the conflict is recorded
  * in a comment rather than silently resolved — see the block at the end of this file for the ones

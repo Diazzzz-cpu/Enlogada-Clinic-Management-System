@@ -1,5 +1,47 @@
 # Database Migration & Schema History
 
+## [1.109.0] - 2026-10-14 (The typed result forms are removed, tables and all: 36 tables become 31)
+
+Run on an existing database:
+
+```bash
+node src/scripts/migrateRemoveResultForms.js            # refuses if a current result has typed values and no file
+node src/scripts/migrateRemoveResultForms.js --force    # drop anyway (the values are archived either way)
+node src/scripts/migrateRemoveResultForms.js --rollback # the tables back, with the signatories; not the values
+```
+
+Since [1.94.0] a result is its attached report file, and nothing in the product wrote to the typed
+forms any more. Five tables go:
+
+| Table | What it held |
+|---|---|
+| `result_field_sets` | the form for a test (CBC, Urinalysis, Whole Abdomen…) |
+| `result_fields` | each line on a form, its unit and printed range |
+| `result_field_set_tests` | which test used which form |
+| `result_measurements` | the values typed into them |
+| `clinic_signatories` | the names printed under a typed report |
+
+**Nothing is lost, it is moved.** Before the drop, every result's typed values are written to
+`audit_log` as one readable entry (`result.measurements_archived`, e.g. "Hemoglobin = 14.8 g/dl
+(13.7-16.7)"), and each signatory as one entry (`clinic.signatory_archived`). `--rollback`
+re-creates the tables and puts the signatories back from those entries; the forms and values stay
+in `audit_log`.
+
+**It refuses before it would empty a report.** A current result with typed values and no file
+shows those values and nothing else, so the script counts them first and stops, naming each, unless
+`--force` is given — the 2D Echo removal's rule, because a count taken on one database says nothing
+about another. On the development database all 16 were the old demo seed's; the next
+`npm run demo` replaces them with results that carry a report.
+
+Code removed with the tables: `resultMeasurementRepository`, `constants/ultrasound.js`,
+`mergeMeasurements` and its derivations, `GET /results/field-set/:id`, the typed grids and signature
+footer in `ResultReport.jsx`, `seedResultFieldSets.js`, the five [1.50.0]-[1.64.0] form migrations,
+and `ultrasound-measurements.spec.js` (its one surviving guard, a single file input in the entry
+dialog, moved to `result-entry.spec.js`). `POST /results` now answers a `measurements` key with
+400 rather than ignoring it. `constants/labResultForms.js` stays as the faithful copy of the
+clinic's sheets: the demo seed prints its lines and the clinic's signatories into each sample PDF,
+so the demo's documents read like the clinic's.
+
 ## [1.108.0] - 2026-10-14 (Patient Records is the final record, by permission; prints are logged)
 
 No schema change; nothing to run.

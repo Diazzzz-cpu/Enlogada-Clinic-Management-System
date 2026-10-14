@@ -112,41 +112,6 @@ async function purgeOrphanedUploads(since, dryRun) {
  * so it is safe to run unconditionally and never depends on `since`.
  */
 async function purgeNameScopedFixtures() {
-    // Result-format fixtures, and the reason they go BEFORE the catalogue tests below. [1.93.0]
-    //
-    // `result_field_set_tests.test_id` references `tests(id)` with no ON DELETE, so a field set
-    // still bound to an `E2E %` service turns the catalogue DELETE below into a foreign-key
-    // violation. That is not a contained failure: main() is a flat sequence of awaits with no
-    // transaction, and its .catch logs one "purge failed (non-fatal)" line and exits 0 — so the
-    // throw abandons everything after it. Packages, payment channels, notification_events, the
-    // audit log and the orphaned-upload sweep would all stop running, silently, behind a green
-    // suite. notification_events is the table that once reached a quarter of a million rows.
-    //
-    // This is the same shape as the payment_submissions-before-payments ordering above, and it is
-    // written down here for the same reason: the order is the fix.
-    //
-    // `LIKE 'e2e\_%'` is written with TWO backslashes on purpose. `_` is a single-character
-    // wildcard in SQL LIKE, so it has to reach Postgres escaped — and `\_` is not a valid escape
-    // in a JS template literal, which drops the backslash and hands over a wildcard again. The
-    // doubled form is what actually arrives as `\_`. Without it the pattern also matches `e2eX...`.
-    await db.query(
-      `DELETE FROM result_field_set_tests
-        WHERE field_set_id IN (SELECT id FROM result_field_sets WHERE code LIKE 'e2e\\_%')
-           OR test_id IN (SELECT id FROM tests WHERE name LIKE 'E2E %')`
-    );
-    // Only fields nothing recorded against: `result_measurements.field_id` has no ON DELETE either,
-    // and a surviving measurement means a surviving result that still prints this label.
-    await db.query(
-      `DELETE FROM result_fields f
-        WHERE f.field_set_id IN (SELECT id FROM result_field_sets WHERE code LIKE 'e2e\\_%')
-          AND NOT EXISTS (SELECT 1 FROM result_measurements rm WHERE rm.field_id = f.id)`
-    );
-    await db.query(
-      `DELETE FROM result_field_sets fs
-        WHERE fs.code LIKE 'e2e\\_%'
-          AND NOT EXISTS (SELECT 1 FROM result_fields f WHERE f.field_set_id = fs.id)`
-    );
-
     // Catalogue fixtures the run created. `catalogue-partial-update.spec.js` mints a throwaway test
     // to prove a status toggle does not wipe its preparation text, and DEACTIVATES it rather than
     // deleting — so one row was left behind on every single run, forever.
@@ -162,10 +127,7 @@ async function purgeNameScopedFixtures() {
       `DELETE FROM tests t
         WHERE t.name LIKE 'E2E %'
           AND NOT EXISTS (SELECT 1 FROM visit_tests vt WHERE vt.test_id = t.id)
-          AND NOT EXISTS (SELECT 1 FROM test_package_items pi WHERE pi.test_id = t.id)
-          -- Defence in depth beside the unbind above: this FK is the one with no cascade, so a
-          -- binding that escaped it must leave the service standing rather than abort the purge.
-          AND NOT EXISTS (SELECT 1 FROM result_field_set_tests m WHERE m.test_id = t.id)`
+          AND NOT EXISTS (SELECT 1 FROM test_package_items pi WHERE pi.test_id = t.id)`
     );
 
     // Package fixtures, for the same reason and with the same rule: only ones nothing references.

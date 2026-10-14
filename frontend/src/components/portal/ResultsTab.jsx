@@ -146,8 +146,6 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                           <ResultReport
                             result={item}
                             patientName={patientName}
-                            measurements={item.measurements || []}
-                            signatories={item.signatories || []}
                             variant="patient"
                           >
                               {(item.file_path || item.file_url) && (

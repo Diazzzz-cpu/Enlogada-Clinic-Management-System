@@ -53,14 +53,6 @@ router.get('/history/:patientId', verifyToken, authorizeRoles('SuperAdmin', 'Adm
 // included because reviewing what a report used to say is oversight, not clinical authorship.
 router.get('/:visitTestId/versions', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getVersionHistory);
 
-// Fetch the recorded result for one visit_test, so staff can edit findings already saved
-// against a 'Waiting for Release' ticket. Registered last: a bare '/:visitTestId' would
-// otherwise shadow nothing here (every route above has two segments), but keeping catch-all
-// shapes at the bottom is the convention this codebase already follows in visitRoutes.
-// The shape a result should be recorded in. Two path segments, so it cannot be swallowed by
-// the single-segment '/:visitTestId' below whatever order they are declared in.
-router.get('/field-set/:visitTestId', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getFieldSet);
-
 router.get('/:visitTestId', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.getResult);
 
 module.exports = router;

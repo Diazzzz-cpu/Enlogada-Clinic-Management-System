@@ -300,9 +300,20 @@ class VisitRepository {
     return result.rows[0];
   }
 
+  // A patient's visits, newest first: what Patient Records' file shows the front desk. [1.116.0]
+  // Each carries the names of its tests (never a result) and whether it is in today's queue, by the
+  // queue's own rule, so the file can say "already here" instead of offering a second visit.
   async findVisitsByPatientId(patientId) {
     const queryText = `
-      SELECT pv.*, p.first_name, p.last_name
+      SELECT pv.*, p.first_name, p.last_name,
+             ARRAY(
+               SELECT t.name
+               FROM visit_tests vt
+               JOIN tests t ON t.id = vt.test_id
+               WHERE vt.patient_visit_id = pv.id
+               ORDER BY vt.id
+             ) AS test_names,
+             (${inTodaysQueue('pv')}) AS in_todays_queue
       FROM patient_visits pv
       JOIN patients p ON pv.patient_id = p.id
       WHERE pv.patient_id = $1

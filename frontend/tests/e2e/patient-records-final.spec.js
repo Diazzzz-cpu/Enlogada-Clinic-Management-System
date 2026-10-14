@@ -191,12 +191,47 @@ test.describe('Patient Records: final results only', () => {
     await expect(page.getByText(/Pending|Waiting for Release/)).toHaveCount(0);
   });
 
-  test('the front desk gets the roster without a Results column or a dropdown', async ({ page }) => {
+  test('the front desk opens a name to the patient\'s file, never their results', async ({ page }) => {
     await signIn(page, 'receptionist@enlogada.com');
     await page.getByRole('button', { name: 'Patient Records' }).first().click();
     await expect(page.getByTestId('patient-row').first()).toBeVisible({ timeout: 20000 });
     await expect(page.getByRole('columnheader', { name: 'Visits' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Results' })).toHaveCount(0);
-    await expect(page.getByTestId('patient-records-toggle')).toHaveCount(0);
+
+    // [1.116.0] The name opens the patient's file: the visit and what it was for, no result.
+    await page.getByRole('searchbox', { name: 'Search patient records' }).fill(patient.last_name);
+    await page.getByRole('button', { name: 'Apply' }).click();
+    const row = page.locator(`[data-testid="patient-row"][data-patient-id="${patient.id}"]`);
+    await expect(row).toBeVisible({ timeout: 20000 });
+    await row.getByTestId('patient-records-toggle').click();
+
+    const file = page.getByTestId('patient-file');
+    await expect(file).toBeVisible({ timeout: 15000 });
+    await expect(file.getByTestId('patient-file-visit')).toHaveCount(1);
+    await expect(file.getByTestId('patient-file-visit')).toContainText(released.test_name);
+    await expect(file).toContainText('Emergency contact');
+    await expect(page.getByTestId('patient-results')).toHaveCount(0);
+    await expect(file.getByRole('button', { name: /View|Print/ })).toHaveCount(0);
+
+    // Paid and released to the lab today, so they are in today's queue: the Desk finds them there
+    // rather than offering a second visit.
+    const toDesk = file.getByTestId('patient-file-desk');
+    await expect(toDesk).toHaveText(/Find at the Desk/);
+    await toDesk.click();
+    await expect(page.getByRole('heading', { name: 'Desk', level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('searchbox', { name: "Who's here?" }))
+      .toHaveValue(`${patient.first_name} ${patient.last_name}`);
+  });
+
+  test('the till opens the same file, with no way to start a visit', async ({ page }) => {
+    await signIn(page, 'cashier@enlogada.com');
+    await page.getByRole('button', { name: 'Patient Records' }).first().click();
+    await page.getByRole('searchbox', { name: 'Search patient records' }).fill(patient.last_name);
+    await page.getByRole('button', { name: 'Apply' }).click();
+    const row = page.locator(`[data-testid="patient-row"][data-patient-id="${patient.id}"]`);
+    await expect(row).toBeVisible({ timeout: 20000 });
+    await row.getByTestId('patient-records-toggle').click();
+    await expect(page.getByTestId('patient-file')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('patient-file-desk'), 'a cashier does not hold visits:create').toHaveCount(0);
   });
 });

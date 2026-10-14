@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import api from '../../config/api';
 import ResultDocument from '../../components/ResultDocument';
 import PatientEditDialog from '../../components/patients/PatientEditDialog';
+import PatientFile from '../../components/patients/PatientFile';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Users, AlertCircle, Printer, FolderSearch, FileX2, Eye, Building2, Pencil, Archive,
@@ -39,7 +40,10 @@ const PAGE_SIZE = 15;
  *   the same set.
  * - The front desk and the till see who the patient is — contact, birthdate, type, how often and
  *   when they were last here — which is what recognising a returning patient takes. No result
- *   column and no dropdown, and the server does not send them the counts either.
+ *   column, and the server does not send them the counts either. [1.116.0] Their name opens the
+ *   patient's FILE instead (components/patients/PatientFile.jsx): what else is on file, the visits
+ *   and what each was for, and, for whoever can start one, the way to the Desk with the patient
+ *   already found, so a returning patient is never typed in again.
  *
  * It replaced a dialog that listed every test ever ordered, "Pending" ones included, behind an
  * "Open records" button that a receptionist could press and get a 403 from.
@@ -47,7 +51,7 @@ const PAGE_SIZE = 15;
  * Opening a patient's records, opening a report, printing it and downloading it each write a
  * line in the Activity Log.
  */
-const PatientRecordsOversight = () => {
+const PatientRecordsOversight = ({ onSelectNav }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -68,6 +72,7 @@ const PatientRecordsOversight = () => {
   const { hasPermission } = useAuth();
   const canReadResults = hasPermission('results:read');
   const canEditPatients = hasPermission('patients:update');
+  const canStartVisit = hasPermission('visits:create') && Boolean(onSelectNav);
   const [editingPatient, setEditingPatient] = useState(null);
   const [patientTypes, setPatientTypes] = useState([]);
 
@@ -91,9 +96,26 @@ const PatientRecordsOversight = () => {
     setResults((prev) => (prev || []).map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
   };
 
+  // What a name opens: the released results for whoever may read them, the patient's file for
+  // everyone else. Opening the file reads the record, which the server logs as a PHI read.
   const loadRecords = useCallback(async (patientId) => {
     setRecords((prev) => ({ ...prev, [patientId]: { status: 'loading', rows: [], error: '' } }));
     try {
+      if (!canReadResults) {
+        const [record, history] = await Promise.all([
+          api.get(`/patients/${patientId}`),
+          api.get(`/visits/patient/${patientId}`),
+        ]);
+        setRecords((prev) => ({
+          ...prev,
+          [patientId]: {
+            status: 'ready', rows: [], error: '',
+            patient: record.data.data.patient,
+            visits: history.data.data.visits || [],
+          },
+        }));
+        return;
+      }
       const res = await api.get(`/results/history/${patientId}`, { params: { released: 'true' } });
       setRecords((prev) => ({ ...prev, [patientId]: { status: 'ready', rows: res.data.data.results || [], error: '' } }));
     } catch (err) {
@@ -106,7 +128,7 @@ const PatientRecordsOversight = () => {
         },
       }));
     }
-  }, []);
+  }, [canReadResults]);
 
   const toggleRecords = (patient) => {
     if (expandedId === patient.id) {
@@ -195,7 +217,9 @@ const PatientRecordsOversight = () => {
         title="Patient Records"
         description={canReadResults
           ? "Search a patient, then open their name to see their released results. Opening, printing and downloading a report are recorded in the Activity Log."
-          : 'Search the roster to see whether a patient has been here before, and when.'}
+          : canStartVisit
+            ? 'Search a patient, then open their name to see their file and start their next visit without typing them in again.'
+            : 'Search a patient, then open their name to see their file and their past visits.'}
         actions={<RefreshButton onRefresh={refresh} loading={searching} updatedAt={updatedAt} />}
       />
 
@@ -272,8 +296,8 @@ const PatientRecordsOversight = () => {
             title="Patients"
             description={
               query || from || to
-                ? `Matching your filters.${canReadResults ? ' Open a name to see their released results.' : ''}`
-                : `Most recently seen first.${canReadResults ? ' Open a name to see their released results.' : ''}`
+                ? `Matching your filters. ${canReadResults ? 'Open a name to see their released results.' : 'Open a name to see their file.'}`
+                : `Most recently seen first. ${canReadResults ? 'Open a name to see their released results.' : 'Open a name to see their file.'}`
             }
             icon={Users}
           />
@@ -316,32 +340,27 @@ const PatientRecordsOversight = () => {
                           className={open ? 'bg-brand-50/40 hover:bg-brand-50/60' : 'transition-colors hover:bg-slate-50/70'}
                         >
                           <TableCell label="Patient" className="py-3.5">
-                            {canReadResults ? (
-                              <button
-                                type="button"
-                                onClick={() => toggleRecords(patient)}
-                                aria-expanded={open}
-                                aria-controls={`patient-results-${patient.id}`}
-                                data-testid="patient-records-toggle"
-                                className="flex items-start gap-1.5 border-0 bg-transparent p-0 text-left cursor-pointer"
-                              >
-                                <ChevronRight
-                                  aria-hidden="true"
-                                  className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90 text-brand-600' : ''}`}
-                                />
-                                <span>
-                                  <span className="block text-xs font-bold text-slate-900 underline-offset-2 hover:underline">
-                                    {fullName(patient)}
-                                  </span>
-                                  <span className="block font-mono text-meta font-normal text-gray-400">PT-{patient.id}</span>
+                            {/* The name opens the patient: results for a results reader, the file
+                                for everyone else. [1.116.0] */}
+                            <button
+                              type="button"
+                              onClick={() => toggleRecords(patient)}
+                              aria-expanded={open}
+                              aria-controls={`${canReadResults ? 'patient-results' : 'patient-file'}-${patient.id}`}
+                              data-testid="patient-records-toggle"
+                              className="flex items-start gap-1.5 border-0 bg-transparent p-0 text-left cursor-pointer"
+                            >
+                              <ChevronRight
+                                aria-hidden="true"
+                                className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90 text-brand-600' : ''}`}
+                              />
+                              <span>
+                                <span className="block text-xs font-bold text-slate-900 underline-offset-2 hover:underline">
+                                  {fullName(patient)}
                                 </span>
-                              </button>
-                            ) : (
-                              <>
-                                <span className="block text-xs font-bold text-slate-900">{fullName(patient)}</span>
                                 <span className="block font-mono text-meta font-normal text-gray-400">PT-{patient.id}</span>
-                              </>
-                            )}
+                              </span>
+                            </button>
                             {patient.archived_at && (
                               <Badge variant="outline" className="mt-1">Archived</Badge>
                             )}
@@ -408,14 +427,28 @@ const PatientRecordsOversight = () => {
                         {open && (
                           <TableRow className="hover:bg-transparent">
                             <TableCell colSpan={columnCount} className="bg-slate-50/60 p-0">
-                              <PatientResults
-                                id={`patient-results-${patient.id}`}
-                                entry={records[patient.id]}
-                                scoped={Boolean(departmentScope)}
-                                onRetry={() => loadRecords(patient.id)}
-                                onView={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: false })}
-                                onPrint={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: true })}
-                              />
+                              {canReadResults ? (
+                                <PatientResults
+                                  id={`patient-results-${patient.id}`}
+                                  entry={records[patient.id]}
+                                  scoped={Boolean(departmentScope)}
+                                  onRetry={() => loadRecords(patient.id)}
+                                  onView={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: false })}
+                                  onPrint={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: true })}
+                                />
+                              ) : (
+                                <PatientFile
+                                  id={`patient-file-${patient.id}`}
+                                  entry={records[patient.id]}
+                                  patientName={fullName(patient)}
+                                  archived={Boolean(patient.archived_at)}
+                                  canStartVisit={canStartVisit}
+                                  // The Desk's own lookup, with the name typed in for them: it lists
+                                  // the record with Start visit, or the queue row if already here.
+                                  onStartVisit={() => onSelectNav('reception-queue', { find: fullName(patient) })}
+                                  onRetry={() => loadRecords(patient.id)}
+                                />
+                              )}
                             </TableCell>
                           </TableRow>
                         )}

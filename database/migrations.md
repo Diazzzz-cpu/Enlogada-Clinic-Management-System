@@ -1,5 +1,30 @@
 # Database Migration & Schema History
 
+## [1.116.0] - 2026-10-15 (The front desk opens a patient's file from Patient Records)
+
+No schema change; nothing to run.
+
+**A name on Patient Records opens the patient for everyone now.** [1.108.0] gave the front desk and
+the till the roster with no dropdown, so a receptionist could see that a patient had been here and
+nothing more, and had to go to the Desk and type the name again to start their next visit. Whoever
+cannot read results now opens the patient's FILE (`components/patients/PatientFile.jsx`):
+
+- **Also on file**: address, email, emergency contact, and whether they have a portal account. Only
+  what the row does not already show; the row has sex, birthdate, contact and type.
+- **Visits**, newest first: date, ticket, walk-in or appointment, the tests it was for, and its
+  status. Never a result: results stay with `results:read`.
+- **Start a visit** (`visits:create`): opens the Desk with the patient's name in "Who's here?", where
+  their record waits with Start visit. Not a visit created here, because the Desk is where a second
+  visit for someone already in today's queue is refused. Someone already in it gets **Find at the
+  Desk** and their ticket instead. A cashier sees the file without the button.
+
+`GET /visits/patient/:id` (no other caller) now carries `test_names` and `in_todays_queue`, the
+latter by the queue's own rule (`constants/queueMembership.js`). Opening the file reads
+`GET /patients/:id`, which logs the PHI read as it always has.
+
+`patient-records-final.spec.js` holds both: the front desk opens a file with no results and reaches
+the Desk with the name found, and the till opens the same file with no way to start a visit.
+
 ## [1.115.0] - 2026-10-15 (One worklist row per patient; a patient views but does not print)
 
 No schema change; nothing to run.

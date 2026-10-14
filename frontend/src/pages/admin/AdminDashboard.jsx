@@ -38,7 +38,7 @@ const AdminDashboard = ({ activeNav = 'staff', onSelectNav }) => {
       case 'appointments-list':
         return <AppointmentsOversight />;
       case 'patient-records':
-        return <PatientRecordsOversight />;
+        return <PatientRecordsOversight onSelectNav={onSelectNav} />;
       case 'clinic-schedule':
         return <ClinicSchedule />;
       case 'reports':

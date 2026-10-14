@@ -502,7 +502,11 @@ holder of `results:read` opens a patient's name and gets their authorised result
 first, each with View and Print (`GET /results/history/:id?released=true`; a department sees its
 own). The front desk and the till see who the patient is and when they were here; the roster sends
 them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
-shows no Results column and no dropdown. A permission, not a role list, so granting `results:read`
+shows no Results column. `[1.116.0]` Their name opens the patient's FILE instead
+(`components/patients/PatientFile.jsx`): what else is on file, the visits and the tests each was for,
+and "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather
+than creating a visit, because the Desk refuses a second visit to someone already in today's queue
+("Find at the Desk" for them). A permission, not a role list, so granting `results:read`
 to a cashier shows them results with no code change. **Printing and saving a report are logged**:
 they happen in the browser on a copy already fetched, so `ResultDocument` reports each to
 `POST /results/:visitTestId/copies` (`kind: print | download`) for staff, best-effort, before it

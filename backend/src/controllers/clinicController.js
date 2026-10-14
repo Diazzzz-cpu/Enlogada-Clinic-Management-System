@@ -45,6 +45,11 @@ class ClinicController {
             // A sole proprietorship's receipts name the proprietor; the clinic's own invoice
             // booklet prints "JESIE B. ENLOGADA - Prop." beneath the trade name.
             proprietor: env('CLINIC_PROPRIETOR'),
+            // Who signs "Noted by" on a printed report, and their title. [1.118.0] Separate from
+            // the proprietor above, which prints on every receipt: the person who notes the
+            // clinic's reports can change without the receipts changing.
+            reportNotedBy: env('CLINIC_REPORT_NOTED_BY'),
+            reportNotedByTitle: env('CLINIC_REPORT_NOTED_BY_TITLE'),
 
             // Whether the clinic is VAT-registered, as a string so it travels through the same
             // "use it if non-empty" merge as every other field. It belongs on the receipt for

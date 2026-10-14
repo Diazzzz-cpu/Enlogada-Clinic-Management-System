@@ -50,6 +50,10 @@ export const CLINIC_DEFAULTS = Object.freeze({
   // through httpsUrl() below, never as a raw href.
   facebook: 'https://www.facebook.com/enlogadaclinic',
   proprietor: '',
+  // Who signs "Noted by" on a printed report. [1.118.0] The clinic's proprietor, as its own invoice
+  // booklet names her ("JESIE B. ENLOGADA - Prop."). CLINIC_REPORT_NOTED_BY / _TITLE override.
+  reportNotedBy: 'Jesie B. Enlogada',
+  reportNotedByTitle: 'Proprietor',
 
   // A string, not a boolean, so it merges through the same "use it if non-empty" rule as every
   // other field. Defaults to VAT-registered because that is the stricter, safer assumption: it

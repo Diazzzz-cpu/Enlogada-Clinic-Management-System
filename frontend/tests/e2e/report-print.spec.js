@@ -28,6 +28,8 @@ async function printAndRead(page) {
       window.__printed = {
         text: doc?.textContent || '',
         a4: document.body.classList.contains('printing-document'),
+        // The foot of every page, written into @page while it prints. [1.118.0]
+        footer: document.getElementById('report-page-footer')?.textContent || '',
         visible: Boolean(title) && getComputedStyle(title).visibility === 'visible' && getComputedStyle(doc).display !== 'none',
         height: doc ? doc.getBoundingClientRect().height : 0,
         // Everything else in <body> must be gone from the sheet, not merely invisible.
@@ -47,6 +49,7 @@ async function printAndRead(page) {
   expect(printed, 'Print reached the print dialog').toBeTruthy();
   // And the app came back: an abandoned print must never leave the interface hidden.
   expect(await page.evaluate(() => document.body.classList.contains('printing-document'))).toBe(false);
+  expect(await page.evaluate(() => Boolean(document.getElementById('report-page-footer'))), 'the footer rule is removed').toBe(false);
   return printed;
 }
 
@@ -60,6 +63,13 @@ function expectADocument(printed, title, sections) {
   expect(printed.text).toMatch(/Period.*\d{4}/);
   expect(printed.text).toContain('Prepared by');
   expect(printed.text).toContain('Noted by');
+  // The clinic's proprietor notes every report. [1.118.0]
+  expect(printed.text).toContain('Jesie B. Enlogada');
+  expect(printed.text).toContain('Proprietor');
+  // Every page names the clinic, the report and that it is confidential, beside its page number.
+  expect(printed.footer).toContain('Enlogada Ultrasound & Diagnostic Clinic');
+  expect(printed.footer).toContain(title);
+  expect(printed.footer).toContain('Confidential');
   for (const section of sections) expect(printed.text, section).toContain(section);
 }
 

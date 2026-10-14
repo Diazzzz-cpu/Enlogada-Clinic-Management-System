@@ -1030,15 +1030,17 @@ body.printing-report {
 @page document {
   size: A4;
   margin: 14mm 14mm 16mm;
+  /* The fallback. While a report prints, lib/reportPrint.js replaces it with the clinic, the
+     report's name, its period and "Confidential", so every sheet says what it belongs to. */
   @bottom-left {
-    content: "For clinic use. Figures as recorded in the clinic system.";
+    content: "Enlogada Ultrasound & Diagnostic Clinic  ·  Confidential";
     font-size: 7.5pt;
-    color: #555;
+    color: #444;
   }
   @bottom-right {
     content: "Page " counter(page) " of " counter(pages);
     font-size: 7.5pt;
-    color: #555;
+    color: #444;
   }
 }
 @media print {
@@ -1130,21 +1132,30 @@ body.printing-report {
   /* The rule above that keeps a whole TABLE together is for a result report's measurement grid; a
      report table is allowed to run on, or it leaves most of a sheet blank. */
   .report-doc table.report-doc__table { break-inside: auto; }
+  /* Prepared by / Noted by: the label, room to sign, a line, then the printed name and title. */
   .report-doc__sign {
     display: flex;
     justify-content: space-between;
-    gap: 36pt;
-    margin-top: 28pt;
+    gap: 48pt;
+    margin-top: 24pt;
     break-inside: avoid;
   }
-  .report-doc__sign > div { flex: 1; text-align: center; }
+  .report-doc__signatory { flex: 1; }
+  .report-doc__sign-label { font-size: 9pt; }
   .report-doc__line {
     display: block;
-    min-height: 14pt;
+    height: 30pt;
     border-bottom: 0.75pt solid #000;
-    font-weight: 700;
   }
-  .report-doc__caption { display: block; padding-top: 2pt; font-size: 7.5pt; color: #333; }
+  .report-doc__sign-name {
+    padding-top: 2pt;
+    text-align: center;
+    font-size: 9.5pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .report-doc__sign-title { text-align: center; font-size: 8.5pt; color: #222; }
 }
 
 /* ── A table that becomes a list of cards on a phone ─────────────────────────────────────────

@@ -1,5 +1,27 @@
 # Database Migration & Schema History
 
+## [1.118.0] - 2026-10-15 (A printed report is noted by Jesie B. Enlogada; the final page footer)
+
+No schema change; nothing to run.
+
+**Noted by: JESIE B. ENLOGADA, Proprietor.** Steven named her. The title is the clinic's own: its
+invoice booklet prints "JESIE B. ENLOGADA - Prop." under the trade name. The name and title are
+clinic identity fields, `reportNotedBy` / `reportNotedByTitle` in `lib/clinic.js`, overridable with
+`CLINIC_REPORT_NOTED_BY` / `CLINIC_REPORT_NOTED_BY_TITLE`. Deliberately not `CLINIC_PROPRIETOR`,
+which prints on every receipt: who notes the reports can change without the receipts changing.
+
+The signature block is now the usual form: "Prepared by:" and "Noted by:", room to sign, a line,
+then the printed name in capitals and the title under it (the preparer's role, the proprietor's).
+
+**The foot of every page, final:** on the left the clinic, the report, its period and
+"Confidential" ("Enlogada Ultrasound & Diagnostic Clinic · HMO Claims Report · Sep 16 to Oct 15,
+2026 · Confidential"); on the right "Page 1 of 2". Every sheet names its report, so a page separated
+from the rest still says what it is. CSS cannot read that from the document (Chrome has no
+`string-set`), so `printReport` writes it into `@page document` for the length of the print and
+removes it after, cancelled or not; index.css keeps "clinic · Confidential" as the fallback. The
+wording and the quote-escaping are unit-tested (`tests/unit/reportPrint.test.js`), and
+`report-print.spec.js` checks the name, the title and the footer on all five reports.
+
 ## [1.117.0] - 2026-10-15 (Every report prints as a finished A4 document)
 
 No schema change; nothing to run.

@@ -1,7 +1,7 @@
 import React, { forwardRef } from 'react';
 import { useClinic } from '../../lib/clinic';
 import { useAuth } from '../../contexts/AuthContext';
-import { dayLabel } from '../../lib/reportPrint';
+import { dayLabel, pageFooter } from '../../lib/reportPrint';
 
 /**
  * The printed form of a report. [1.117.0]
@@ -19,9 +19,11 @@ import { dayLabel } from '../../lib/reportPrint';
  *   - numbered sections of plain bordered tables, with a total row where the column adds up;
  *   - figures as TABLES, not charts. A clinic printer is usually black and white, and the charts'
  *     two series are told apart by colour, which a grey printout throws away;
- *   - a signature block, "Prepared by" with the printed name and "Noted by" left blank, because a
- *     printed report is usually handed to someone to sign;
- *   - page numbers in the page margin (`@page document` in index.css).
+ *   - a signature block: "Prepared by", the person who printed it, and "Noted by", the clinic's
+ *     proprietor (`reportNotedBy`, Jesie B. Enlogada unless CLINIC_REPORT_NOTED_BY says otherwise),
+ *     each a line to sign on over the printed name and title [1.118.0];
+ *   - at the foot of every page the clinic, the report, its period and "Confidential", with
+ *     "Page N of M" opposite (`pageFooter`, written into `@page document` while it prints).
  *
  * Hidden on screen (`hidden print:block`) and printed through `printReport` (lib/reportPrint.js), which isolates it
  * with lib/printArea.js and selects the A4 page. Styled by `.report-doc` in index.css in points,
@@ -34,12 +36,13 @@ export const ReportDocument = forwardRef(function ReportDocument({ title, startD
   const { user } = useAuth();
   const preparedBy = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
   const role = (user?.roles || []).join(', ');
-  const generated = new Date().toLocaleString(undefined, {
+  const generated = new Date().toLocaleString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
+  const footer = pageFooter({ clinicName: clinic.name, title, startDate, endDate });
 
   return (
-    <div ref={ref} className="report-doc print-area hidden print:block" data-testid="report-document">
+    <div ref={ref} className="report-doc print-area hidden print:block" data-testid="report-document" data-footer={footer}>
       <header className="report-doc__letterhead">
         <p className="report-doc__clinic">{clinic.name}</p>
         {clinic.services && <p className="report-doc__services">{clinic.services}</p>}
@@ -70,18 +73,22 @@ export const ReportDocument = forwardRef(function ReportDocument({ title, startD
       {children}
 
       <footer className="report-doc__sign">
-        <div>
-          <span className="report-doc__line">{preparedBy}</span>
-          <span className="report-doc__caption">Prepared by (signature over printed name)</span>
-        </div>
-        <div>
-          <span className="report-doc__line" />
-          <span className="report-doc__caption">Noted by (signature over printed name)</span>
-        </div>
+        <Signatory label="Prepared by" name={preparedBy} title={role} />
+        <Signatory label="Noted by" name={clinic.reportNotedBy} title={clinic.reportNotedByTitle} />
       </footer>
     </div>
   );
 });
+
+/** One signature: what it is, a line to sign on, and the printed name and title beneath it. */
+const Signatory = ({ label, name, title }) => (
+  <div className="report-doc__signatory" data-signatory>
+    <p className="report-doc__sign-label">{label}:</p>
+    <span className="report-doc__line" aria-hidden="true" />
+    <p className="report-doc__sign-name">{name}</p>
+    {title && <p className="report-doc__sign-title">{title}</p>}
+  </div>
+);
 
 /** A numbered section: "1. Takings", with an optional line saying what it counts. */
 export const ReportSection = ({ number, title, note, children }) => (

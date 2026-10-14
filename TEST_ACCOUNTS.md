@@ -6,7 +6,7 @@ Seeded by `backend/src/scripts/seedUsers.js` — one account per role, for local
 
 | Role | Name | Email |
 |---|---|---|
-| SuperAdmin | Carlo Pacana | admin@enlogada.com |
+| SuperAdmin | Jesie Enlogada | admin@enlogada.com |
 | Admin | Liza Emano | clinicadmin@enlogada.com |
 | Receptionist | Maria Santos | receptionist@enlogada.com |
 | Cashier | Joel Cabahug | cashier@enlogada.com |

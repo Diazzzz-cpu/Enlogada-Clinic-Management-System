@@ -6,15 +6,18 @@ const logger = require('../config/logger');
  * The demo accounts, one per role. [1.89.0]
  *
  * Named like the people who would hold them, because a demo that says "Released by Doc Lab" reads
- * as a placeholder on every report, audit line and sidebar. Every name and number is invented;
- * none belongs to the clinic's staff. The clinic's real report signatories are in
+ * as a placeholder on every report, audit line and sidebar. Every name and number is invented and
+ * belongs to none of the clinic's staff, except the SuperAdmin's name, which the clinic chose. The
+ * clinic's real report signatories are in
  * constants/labResultForms.js, and only the demo's sample report PDFs print them.
  *
  * `placeholder` is the name each account was first seeded with. An account that still carries it
  * is renamed; one somebody has renamed since (the Admin account reads "Jessie Uba") is left alone.
  */
 const usersToSeed = [
-  { firstName: 'Carlo', lastName: 'Pacana', email: 'admin@enlogada.com', role: 'SuperAdmin', contact: '09173104826', placeholder: 'Super Admin' },
+  // The clinic's own SuperAdmin, by name, at the clinic's request (2026-10-14) — the one account here
+  // that is not invented.
+  { firstName: 'Jesie', lastName: 'Enlogada', email: 'admin@enlogada.com', role: 'SuperAdmin', contact: '09173104826', placeholder: 'Super Admin' },
   { firstName: 'Liza', lastName: 'Emano', email: 'clinicadmin@enlogada.com', role: 'Admin', contact: '09189273641', placeholder: 'Clinic Manager' },
   { firstName: 'Maria', lastName: 'Santos', email: 'receptionist@enlogada.com', role: 'Receptionist', contact: '09264518237', placeholder: 'Maria Santos' },
   { firstName: 'Joel', lastName: 'Cabahug', email: 'cashier@enlogada.com', role: 'Cashier', contact: '09352716480', placeholder: 'Juan Cashier' },

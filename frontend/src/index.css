@@ -1020,6 +1020,133 @@ body.printing-report {
   page: report;
 }
 
+/* ── A printed report: components/reports/ReportDocument.jsx [1.117.0] ──────────────────────
+ *
+ * Sized in POINTS, not rem, deliberately and only here: paper does not follow the reader's text
+ * size setting, and the same report should come out the same size whoever presses Print. Black on
+ * white, hairline rules, no fills a printer would drop: the one tint (the table header) is forced
+ * with print-color-adjust, and nothing reads by colour alone. Tables may run across sheets, with
+ * the header repeated; a ROW never splits, and a section heading never ends a page. */
+@page document {
+  size: A4;
+  margin: 14mm 14mm 16mm;
+  @bottom-left {
+    content: "For clinic use. Figures as recorded in the clinic system.";
+    font-size: 7.5pt;
+    color: #555;
+  }
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-size: 7.5pt;
+    color: #555;
+  }
+}
+@media print {
+  body.printing-document {
+    page: document;
+    background: #fff !important;
+  }
+  .report-doc {
+    color: #000;
+    font-size: 9.5pt;
+    line-height: 1.35;
+    width: 100%;
+  }
+  .report-doc p { margin: 0; }
+  .report-doc__letterhead {
+    text-align: center;
+    border-bottom: 1.5pt solid #000;
+    padding-bottom: 6pt;
+  }
+  .report-doc__clinic {
+    font-size: 14pt;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .report-doc__services {
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+  }
+  .report-doc__contact { font-size: 8pt; color: #333; }
+  .report-doc__title {
+    margin: 10pt 0 6pt;
+    text-align: center;
+    font-size: 13pt;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .report-doc__meta,
+  .report-doc__figures,
+  .report-doc__table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+  }
+  .report-doc__meta { margin-bottom: 4pt; font-size: 8.5pt; }
+  .report-doc__meta th,
+  .report-doc__meta td { padding: 1.5pt 4pt; text-align: left; vertical-align: top; }
+  .report-doc__meta th { width: 14%; font-weight: 700; white-space: nowrap; }
+  .report-doc__section { margin-top: 12pt; }
+  .report-doc__section h2 {
+    margin: 0 0 4pt;
+    padding-bottom: 2pt;
+    border-bottom: 0.75pt solid #000;
+    font-size: 10.5pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    break-after: avoid;
+  }
+  .report-doc__note { margin: 0 0 4pt; font-size: 8pt; color: #333; break-after: avoid; }
+  .report-doc__empty { font-style: italic; color: #333; }
+  .report-doc__figures th,
+  .report-doc__figures td { border: 0.5pt solid #888; padding: 3pt 5pt; }
+  .report-doc__figures th { width: 22%; text-align: left; font-weight: 600; }
+  .report-doc__figures td { width: 28%; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .report-doc__table th,
+  .report-doc__table td {
+    border: 0.5pt solid #888;
+    padding: 2.5pt 5pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  .report-doc__table thead { display: table-header-group; }
+  .report-doc__table thead th {
+    background: #e9ecef;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .report-doc__table tfoot td { border-top: 1.25pt solid #000; font-weight: 800; }
+  .report-doc .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .report-doc__table tr,
+  .report-doc__figures tr { break-inside: avoid; }
+  /* The rule above that keeps a whole TABLE together is for a result report's measurement grid; a
+     report table is allowed to run on, or it leaves most of a sheet blank. */
+  .report-doc table.report-doc__table { break-inside: auto; }
+  .report-doc__sign {
+    display: flex;
+    justify-content: space-between;
+    gap: 36pt;
+    margin-top: 28pt;
+    break-inside: avoid;
+  }
+  .report-doc__sign > div { flex: 1; text-align: center; }
+  .report-doc__line {
+    display: block;
+    min-height: 14pt;
+    border-bottom: 0.75pt solid #000;
+    font-weight: 700;
+  }
+  .report-doc__caption { display: block; padding-top: 2pt; font-size: 7.5pt; color: #333; }
+}
+
 /* ── A table that becomes a list of cards on a phone ─────────────────────────────────────────
  *
  * Opt in with <Table stack> and give each <TableCell> a `label`. Below `sm` the header is hidden,

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { printElement } from '../../lib/printArea';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { printReport } from '../../lib/reportPrint';
+import { TrendsPrint } from './ReportPrints';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import Toolbar, { ToolbarField, ToolbarSpacer } from '../ui/toolbar';
 import EmptyState from '../ui/empty-state';
@@ -33,6 +34,10 @@ const DateRangeReports = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // The range the figures on screen are FOR, which is not the date boxes until Apply is pressed.
+  // The printed period comes from here. [1.117.0]
+  const [period, setPeriod] = useState({ startDate, endDate });
+  const printRef = useRef(null);
 
   const fetchReport = useCallback(async (from, to) => {
     setLoading(true);
@@ -40,6 +45,7 @@ const DateRangeReports = () => {
     try {
       const res = await api.get('/reports/summary', { params: { startDate: from, endDate: to } });
       setReport(res.data.data.report);
+      setPeriod({ startDate: from, endDate: to });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load report data.');
     } finally {
@@ -68,8 +74,8 @@ const DateRangeReports = () => {
           the same duplicate-title problem the breadcrumb change fixed on the console shells. The
           tab label says which view this is; the one line worth keeping is the print hint. */}
       <p className="m-0 text-fine leading-relaxed text-slate-500">
-        Revenue, service volume and operational metrics for a chosen period. Print produces a clean
-        report without the app chrome.
+        Revenue, service volume and operational metrics for a chosen period. Print gives the same
+        figures as tables on A4.
       </p>
 
       <Toolbar>
@@ -95,9 +101,9 @@ const DateRangeReports = () => {
             params={{ startDate, endDate }}
             fallbackName={`clinic-summary-${startDate}_to_${endDate}.csv`}
           />
-          <Button variant="outline" onClick={() => printElement()}>
+          <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)}>
             <Printer className="h-3.5 w-3.5" />
-            Print Reports
+            Print
           </Button>
         </div>
       </Toolbar>
@@ -109,11 +115,7 @@ const DateRangeReports = () => {
         </div>
       )}
 
-      <div className="print-area space-y-6">
-      <div className="hidden print:block text-center border-b border-line pb-3 mb-3">
-        <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide m-0">Enlogada Ultrasound &amp; Diagnostic Clinic</h3>
-        <p className="text-xs text-gray-500 m-0">Clinic Report — {startDate} to {endDate}</p>
-      </div>
+      <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Card className="border-line rounded-xl bg-surface overflow-hidden">
           <CardHeader className="space-y-0.5 border-b border-line px-5 py-3.5">
@@ -222,6 +224,8 @@ const DateRangeReports = () => {
         </CardContent>
       </Card>
       </div>
+
+      <TrendsPrint ref={printRef} report={report} startDate={period.startDate} endDate={period.endDate} />
     </div>
   );
 };

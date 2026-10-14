@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { printReport } from '../../lib/reportPrint';
+import { HmoClaimsPrint } from './ReportPrints';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import EmptyState from '../ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -11,7 +13,7 @@ import { formatCurrency } from '../../lib/currency';
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
 // second place for the toISOString bug to come back — see the dates note in CLAUDE.md.
 import { todayStr, daysAgoStr } from '../../lib/date';
-import { Info, RefreshCw, ShieldCheck, DollarSign, Clock, AlertTriangle } from 'lucide-react';
+import { Info, RefreshCw, ShieldCheck, DollarSign, Clock, AlertTriangle, Printer } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
 // --- HMO claim value, per provider. -----------------------------------------------------------
@@ -30,6 +32,9 @@ const HmoClaimsReport = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // The range the figures are FOR, for the printed period. [1.117.0]
+  const [period, setPeriod] = useState({ startDate, endDate });
+  const printRef = useRef(null);
 
   const fetchClaims = useCallback(async (from, to) => {
     setLoading(true);
@@ -37,6 +42,7 @@ const HmoClaimsReport = () => {
     try {
       const res = await api.get('/reports/hmo-claims', { params: { startDate: from, endDate: to } });
       setReport(res.data.data.report);
+      setPeriod({ startDate: from, endDate: to });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load HMO claim figures.');
     } finally {
@@ -79,6 +85,10 @@ const HmoClaimsReport = () => {
             fallbackName={`hmo-claims-${startDate}_to_${endDate}.csv`}
             className="text-xs font-semibold"
           />
+          <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)} className="text-xs font-semibold">
+            <Printer className="h-3.5 w-3.5" />
+            Print
+          </Button>
         </div>
       </div>
 
@@ -183,6 +193,8 @@ const HmoClaimsReport = () => {
           </Card>
         </>
       )}
+
+      <HmoClaimsPrint ref={printRef} report={report} startDate={period.startDate} endDate={period.endDate} />
     </div>
   );
 };

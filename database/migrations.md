@@ -1,5 +1,33 @@
 # Database Migration & Schema History
 
+## [1.117.0] - 2026-10-15 (Every report prints as a finished A4 document)
+
+No schema change; nothing to run.
+
+**Reports printed their screen, and Patient Feedback printed nothing.** Measured by rendering each
+print to PDF: Departments had no title, letterhead or period; its tables carried
+`break-inside: avoid`, so the long Sales by service table jumped to the next sheet and left most of
+the first one blank; the right-hand columns ran off the paper; the app's date pickers and coloured
+panels went to the printer. Trends printed charts whose two series are told apart only by colour.
+HMO Claims and Staff Workload had no Print at all. Patient Feedback's Print handed `printElement` an
+element that was not a `.print-area`, and the print stylesheet hides everything else: a blank sheet.
+
+**One format, `components/reports/ReportDocument.jsx`, for all five.** The clinic's letterhead
+(`useClinic`), the report's title, its period, when it was generated and by whom (`useAuth`), then
+numbered sections of plain bordered tables with total rows, and a signature block ("Prepared by"
+with the printed name, "Noted by" blank). Page numbers in the margin (`@page document`). Figures are
+TABLES on paper, never charts: a clinic printer is usually black and white. Each tab's print is in
+`components/reports/ReportPrints.jsx`, built from the figures the tab already fetched, and states
+the period those figures are FOR (the last applied range, not the date boxes). Hidden on screen,
+printed through `lib/reportPrint.js` `printReport` on A4, styled by `.report-doc` in index.css in
+points, because paper does not follow the reader's text size. A report table may run across sheets
+with its header repeated; a row never splits.
+
+`printElement` now marks its copy `.print-area` whatever it is handed, so no caller can print a
+blank sheet that way again. `report-print.spec.js` presses Print on all five under print media and
+reads the sheet: visible, the only thing on the page, on A4, titled, dated, signed. Put the
+Feedback bug back and it fails.
+
 ## [1.116.0] - 2026-10-15 (The front desk opens a patient's file from Patient Records)
 
 No schema change; nothing to run.

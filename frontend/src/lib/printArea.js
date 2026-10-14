@@ -64,7 +64,12 @@ export function printElement(node = null, pageClass = null) {
 
   const host = document.createElement('div');
   host.id = HOST_ID;
-  host.appendChild(target.cloneNode(true));
+  // The copy is always a print area, whatever it was handed. [1.117.0] The print stylesheet hides
+  // every element in <body> except a `.print-area` and its contents, so an element passed in
+  // without that class printed as a blank sheet. Patient Feedback's Print did exactly that.
+  const copy = target.cloneNode(true);
+  copy.classList.add('print-area');
+  host.appendChild(copy);
   document.body.appendChild(host);
 
   document.body.classList.add(ISOLATED);

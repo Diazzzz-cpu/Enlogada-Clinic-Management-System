@@ -836,6 +836,14 @@ with a link to the printable document.
   `no-print`. Second, `lib/clinic.js` leaves `tin` / `businessPermit` blank unless configured
   (`VITE_CLINIC_TIN`), and the receipt then says it is *not* a BIR-registered Official Receipt.
   Do not invent those numbers to make it look official — a patient may file it for reimbursement.
+- **A report prints as a document, not as its screen.** `[1.117.0]` Every Reports tab and Patient
+  Feedback print `components/reports/ReportDocument.jsx`: letterhead, title, period, generated
+  at/by, numbered sections of plain tables with totals, a Prepared by / Noted by block, page
+  numbers. One print component per report in `ReportPrints.jsx`, fed the figures the tab already
+  holds and the range they were fetched FOR. Tables, not charts, on paper (printers are often black
+  and white). Print with `lib/reportPrint.js` `printReport`, which selects `@page document` (A4);
+  `.report-doc` styles are in points, the one place a size is not rem. A new report gets a print
+  component here, never a print of its screen. `report-print.spec.js` checks each under print media.
 - **A counter that could not load reads "—", never 0.** `[1.74.0]` Every landing screen opens
   with a strip of counts whose state starts at zero, and a failed fetch left them there: the till
   said "Collected Today ₱0.00", a worklist "Awaiting Exam 0" over a full bench. A figure is

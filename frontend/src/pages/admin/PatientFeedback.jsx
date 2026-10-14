@@ -13,9 +13,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import api from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { useClinic } from '../../lib/clinic';
 import { todayStr, daysAgoStr, formatDate } from '../../lib/date';
-import { printElement } from '../../lib/printArea';
+import { printReport } from '../../lib/reportPrint';
+import { FeedbackPrint } from '../../components/reports/ReportPrints';
 import { toastSuccess, toastError } from '../../lib/toast';
 import { RATINGS, ratingLabel } from '../../lib/feedback';
 
@@ -81,7 +81,8 @@ function QuestionBar({ q }) {
 }
 
 function FeedbackOverview() {
-  const clinic = useClinic();
+  // The printed form [1.117.0], in the same format as every report. It used to print the screen
+  // through an element that was not a print area, and the print stylesheet hid all of it.
   const printRef = useRef(null);
   const [startDate, setStartDate] = useState(daysAgoStr(29));
   const [endDate, setEndDate] = useState(todayStr());
@@ -89,6 +90,8 @@ function FeedbackOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [onlyPoor, setOnlyPoor] = useState(false);
+  // The range the figures are FOR, for the printed period.
+  const [period, setPeriod] = useState({ startDate, endDate });
 
   const load = useCallback(async (from, to) => {
     setLoading(true);
@@ -96,6 +99,7 @@ function FeedbackOverview() {
     try {
       const res = await api.get('/feedback/overview', { params: { startDate: from, endDate: to } });
       setReport(res.data.data.report);
+      setPeriod({ startDate: from, endDate: to });
     } catch (err) {
       setError(err.response?.data?.message || 'The feedback overview could not be loaded.');
       setReport(null);
@@ -125,7 +129,7 @@ function FeedbackOverview() {
           Apply
         </Button>
         <ToolbarSpacer />
-        <Button variant="outline" disabled={!report} onClick={() => printElement(printRef.current)}>
+        <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)}>
           <Printer className="h-3.5 w-3.5" />
           Print
         </Button>
@@ -137,12 +141,7 @@ function FeedbackOverview() {
       ) : loading && !report ? (
         <SkeletonList rows={4} />
       ) : report && (
-        <div ref={printRef} className="space-y-4" data-testid="feedback-overview">
-          {/* The printed sheet's letterhead; on screen the page header already says this. */}
-          <div className="hidden border-b border-slate-300 pb-2 text-center print:block">
-            <p className="m-0 text-base font-extrabold uppercase tracking-[0.15em]">{clinic.name}</p>
-            <p className="m-0 text-fine">Patient Feedback · {formatDate(report.startDate)} to {formatDate(report.endDate)}</p>
-          </div>
+        <div className="space-y-4" data-testid="feedback-overview">
 
           <div className="grid gap-3 sm:grid-cols-3">
             <Figure label="Forms received" value={report.responses}
@@ -221,6 +220,18 @@ function FeedbackOverview() {
             </PanelBody>
           </Panel>
         </div>
+      )}
+
+      {report && (
+        <FeedbackPrint
+          ref={printRef}
+          report={report}
+          forms={forms}
+          ratings={RATINGS}
+          ratingLabel={ratingLabel}
+          startDate={period.startDate}
+          endDate={period.endDate}
+        />
       )}
     </div>
   );

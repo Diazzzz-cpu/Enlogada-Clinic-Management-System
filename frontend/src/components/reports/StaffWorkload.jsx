@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { printReport } from '../../lib/reportPrint';
+import { WorkloadPrint } from './ReportPrints';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import EmptyState from '../ui/empty-state';
 import { Button } from '../ui/button';
@@ -8,7 +10,7 @@ import api from '../../config/api';
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
 // second place for the toISOString bug to come back — see the dates note in CLAUDE.md.
 import { todayStr, daysAgoStr } from '../../lib/date';
-import { ClipboardList, RefreshCw, Users, FlaskConical } from 'lucide-react';
+import { ClipboardList, RefreshCw, Users, FlaskConical, Printer } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
 const StaffWorkload = () => {
@@ -18,6 +20,9 @@ const StaffWorkload = () => {
   const [diagnosticWorkload, setDiagnosticWorkload] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // The range the figures are FOR, for the printed period. [1.117.0]
+  const [period, setPeriod] = useState(null);
+  const printRef = useRef(null);
 
   const fetchWorkload = useCallback(async (from, to) => {
     setLoading(true);
@@ -26,6 +31,7 @@ const StaffWorkload = () => {
       const res = await api.get('/reports/staff-workload', { params: { startDate: from, endDate: to } });
       setReceptionWorkload(res.data.data.workload?.receptionWorkload || []);
       setDiagnosticWorkload(res.data.data.workload?.diagnosticWorkload || []);
+      setPeriod({ startDate: from, endDate: to });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load staff workload.');
     } finally {
@@ -73,6 +79,10 @@ const StaffWorkload = () => {
             fallbackName={`staff-workload-${startDate}_to_${endDate}.csv`}
             className="text-xs font-semibold"
           />
+          <Button variant="outline" disabled={!period || loading} onClick={() => printReport(printRef.current)} className="text-xs font-semibold">
+            <Printer className="h-3.5 w-3.5" />
+            Print
+          </Button>
         </div>
       </div>
 
@@ -149,6 +159,16 @@ const StaffWorkload = () => {
           </CardContent>
         </Card>
       </div>
+
+      {period && (
+        <WorkloadPrint
+          ref={printRef}
+          reception={receptionWorkload}
+          diagnostic={diagnosticRows}
+          startDate={period.startDate}
+          endDate={period.endDate}
+        />
+      )}
     </div>
   );
 };

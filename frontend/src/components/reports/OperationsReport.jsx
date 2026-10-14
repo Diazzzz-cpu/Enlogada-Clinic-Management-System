@@ -1,5 +1,7 @@
-import { printElement } from '../../lib/printArea';
+import { useRef } from 'react';
 import useOperationsReport from '../../hooks/useOperationsReport';
+import { printReport } from '../../lib/reportPrint';
+import { OperationsPrint } from './ReportPrints';
 import { BillingTotalsPanel, SalesByServicePanel, ReceptionThroughputPanel, TurnaroundPanel } from './OperationsPanels';
 import Toolbar, { ToolbarField, ToolbarSpacer } from '../ui/toolbar';
 import EmptyState from '../ui/empty-state';
@@ -13,6 +15,8 @@ import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
 const OperationsReport = () => {
   const { report, loading, error, range, setRange, refresh } = useOperationsReport({ days: 7 });
+  // The printed form [1.117.0]. The range refetches as it changes, so the dates are the figures'.
+  const printRef = useRef(null);
 
   if (error === 'forbidden') {
     return (
@@ -59,7 +63,7 @@ const OperationsReport = () => {
           params={{ startDate: range.startDate, endDate: range.endDate }}
           fallbackName={`operations-${range.startDate}_to_${range.endDate}.csv`}
         />
-        <Button variant="outline" onClick={() => printElement()}>
+        <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)}>
           <Printer className="h-3.5 w-3.5" />
           Print
         </Button>
@@ -72,7 +76,7 @@ const OperationsReport = () => {
         </div>
       )}
 
-      <div className="print-area space-y-4">
+      <div className="space-y-4">
         {report?.billing && (
           <>
             <BillingTotalsPanel billing={report.billing} loading={loading} />
@@ -82,6 +86,8 @@ const OperationsReport = () => {
         {report?.reception && <ReceptionThroughputPanel reception={report.reception} loading={loading} />}
         {report?.diagnostics && <TurnaroundPanel diagnostics={report.diagnostics} loading={loading} />}
       </div>
+
+      <OperationsPrint ref={printRef} report={report} startDate={range.startDate} endDate={range.endDate} />
     </div>
   );
 };

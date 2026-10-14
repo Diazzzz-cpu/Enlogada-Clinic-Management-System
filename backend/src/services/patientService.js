@@ -86,6 +86,10 @@ function normaliseEmail(value) {
   return trimmed;
 }
 
+/** Whether the caller may read results — the permission, with SuperAdmin's bypass. [1.108.0] */
+const mayReadResults = (user) =>
+  (user?.roles || []).includes('SuperAdmin') || (user?.permissions || []).includes('results:read');
+
 class PatientService {
   async addPatientProfile(userId, patientData) {
     return await patientRepository.createPatient({
@@ -180,7 +184,7 @@ class PatientService {
    * down to review them wants. Two characters is still the floor when a query IS given, because a
    * single letter matches most of a roster and is a scan wearing a search box.
    */
-  async searchPatients(query, requestingUser, { from, to, includeArchived, recordStatus, page, limit } = {}) {
+  async searchPatients(query, requestingUser, { from, to, includeArchived, page, limit } = {}) {
     const trimmed = (query || '').trim();
     if (trimmed && trimmed.length < 2) {
       const error = new Error('Search for at least 2 characters, or clear the box to browse.');
@@ -204,10 +208,10 @@ class PatientService {
       departments: departmentScopeFor(requestingUser),
       from: from || null,
       to: to || null,
-      // Allow-listed. An unrecognised value must not reach SQL as a filter that matches nothing
-      // — an empty roster reads as "this clinic has no patients", which is a claim, not a result.
-      recordStatus: ['complete', 'open'].includes(recordStatus) ? recordStatus : null,
       includeArchived: Boolean(includeArchived),
+      // [1.108.0] The front desk and the till see who a patient is, not what their reports say:
+      // the result columns are sent only to someone who may read results.
+      includeResults: mayReadResults(requestingUser),
       limit: limitNum,
       offset: (pageNum - 1) * limitNum,
     });

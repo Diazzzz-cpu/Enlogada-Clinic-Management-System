@@ -143,7 +143,9 @@ class ResultController {
   async downloadResultFile(req, res, next) {
     try {
       const { visitTestId } = req.params;
-      const { absolutePath, originalName, mimeType, patientId } = await resultService.getResultFile(visitTestId, req.user);
+      const { absolutePath, originalName, mimeType, patientId, testName, patientName } = await resultService.getResultFile(
+        visitTestId, req.user, { authorisedOnly: req.query.version === 'authorised' }
+      );
 
       // Downloading the report itself is the most concrete PHI access there is — the file leaves
       // the building. Logged before the stream starts, so a failed send still leaves a record of
@@ -153,7 +155,9 @@ class ResultController {
           actorId: req.user.userId,
           patientId,
           resource: 'result_file',
-          description: `Downloaded the report file for visit test #${visitTestId}`,
+          // "Opened": this fetch is what viewing does. Printing and saving the copy are logged
+          // separately, by recordReportCopy. [1.108.0]
+          description: `Opened the ${testName} report of ${patientName} (PT-${patientId})`,
         });
       }
 
@@ -244,6 +248,27 @@ class ResultController {
     }
   }
 
+  /**
+   * POST /results/:visitTestId/copies — a report was printed or saved. [1.108.0]
+   * See resultService.describeReportCopy for why the browser has to say so.
+   */
+  async recordReportCopy(req, res, next) {
+    try {
+      const { visitTestId } = req.params;
+      const kind = req.body?.kind;
+      const { patientId, testName, patientName } = await resultService.describeReportCopy(visitTestId, kind, req.user);
+      await auditService.logPhiRead({
+        actorId: req.user.userId,
+        patientId,
+        resource: kind === 'print' ? 'result_print' : 'result_download',
+        description: `${kind === 'print' ? 'Printed' : 'Downloaded'} the ${testName} report of ${patientName} (PT-${patientId})`,
+      });
+      return res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getPatientHistory(req, res, next) {
     try {
       const { patientId } = req.params;
@@ -272,8 +297,10 @@ class ResultController {
       }
 
       // requestingUser drives the department scoping in the service — a diagnostic role sees only
-      // its own categories here, matching every other result route.
-      const results = await resultService.getPatientHistory(patientId, req.user);
+      // its own categories here, matching every other result route. `released=true` is Patient
+      // Records asking for the final record only. [1.108.0]
+      const releasedOnly = req.query.released === 'true';
+      const results = await resultService.getPatientHistory(patientId, req.user, { releasedOnly });
 
       // Clinical findings are the most sensitive thing this system holds, so a staff member
       // pulling one patient's whole diagnostic history is exactly the access a breach
@@ -283,7 +310,9 @@ class ResultController {
           actorId: req.user.userId,
           patientId,
           resource: 'result_history',
-          description: `Viewed the diagnostic history of patient PT-${patientId} (${results.length} result(s))`,
+          description: releasedOnly
+            ? `Opened the records of patient PT-${patientId} (${results.length} released result(s))`
+            : `Viewed the diagnostic history of patient PT-${patientId} (${results.length} result(s))`,
         });
       }
       return res.status(200).json({

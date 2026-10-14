@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { printElement } from '../../lib/printArea';
+import React, { Fragment, useCallback, useEffect, useState } from 'react';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/panel';
 import PageHeader from '../../components/ui/page-header';
 import RefreshButton from '../../components/ui/refresh-button';
@@ -8,80 +7,78 @@ import EmptyState from '../../components/ui/empty-state';
 import { SearchInput } from '../../components/ui/search-input';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog';
-import { StatusBadge } from '../../components/ui/status-badge';
-import { SkeletonList } from '../../components/ui/skeleton';
+import { SkeletonList, SkeletonRows } from '../../components/ui/skeleton';
 import Pagination from '../../components/ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import Toolbar, { SegmentedFilter } from '../../components/ui/toolbar';
-import { SkeletonRows } from '../../components/ui/skeleton';
 import api from '../../config/api';
-import { formatCurrency } from '../../lib/currency';
 import ResultDocument from '../../components/ResultDocument';
 import PatientEditDialog from '../../components/patients/PatientEditDialog';
 import { useAuth } from '../../contexts/AuthContext';
-import { Users, AlertCircle, Printer, FolderSearch, FileX2, Eye, Paperclip, Building2, Pencil, Archive, ArchiveRestore, FolderOpen, CircleCheck, CircleDot } from 'lucide-react';
+import {
+  Users, AlertCircle, Printer, FolderSearch, FileX2, Eye, Building2, Pencil, Archive,
+  ArchiveRestore, ChevronRight, FileText,
+} from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
 import { formatDate } from '../../lib/date';
+import { previewKindFor } from '../../lib/preview';
 import { toastSuccess, toastError } from '../../lib/toast';
-import FindingsText from '../../components/diagnostic/FindingsText';
 
 // UI/UX Modernization Phase 4: search results come back in one shot with no server-side
 // pagination, so a client-side page size is proportionate (VISUAL_IDENTITY.md §3a #11).
 const PAGE_SIZE = 15;
 
-// Module 12: patient-records oversight — search-first, reusing GET /patients/search (already
-// Admin/SuperAdmin-authorized, built for Module 7's receptionist lookup). Read-only; editing a
-// patient's own profile is Module 4's (client) or Module 7's (receptionist walk-in) domain.
+/**
+ * Patient Records: the roster, and each patient's FINAL record under their name. [1.108.0]
+ *
+ * Two audiences, one screen, decided by permission rather than by role:
+ *
+ * - Whoever holds `results:read` (Admin, SuperAdmin, the departments) can open a patient: their
+ *   released results drop down under the name, newest visit first, each with View and Print.
+ *   Only AUTHORISED reports — a test still being worked on is the worklist's business, not a
+ *   record. A department sees its own department's results, and the count beside the name is of
+ *   the same set.
+ * - The front desk and the till see who the patient is — contact, birthdate, type, how often and
+ *   when they were last here — which is what recognising a returning patient takes. No result
+ *   column and no dropdown, and the server does not send them the counts either.
+ *
+ * It replaced a dialog that listed every test ever ordered, "Pending" ones included, behind an
+ * "Open records" button that a receptionist could press and get a 403 from.
+ *
+ * Opening a patient's records, opening a report, printing it and downloading it each write a
+ * line in the Activity Log.
+ */
 const PatientRecordsOversight = () => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-
-  // UI/UX Modernization Phase 11: GET /results/history/:patientId was already
-  // Admin/SuperAdmin-authorized, but nothing on this page ever called it — a search result was a
-  // dead end with no way to see what tests/results that patient actually has on file.
-  const [selectedPatient, setSelectedPatient] = useState(null);
-  const [patientHistory, setPatientHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState('');
-  const [previewDoc, setPreviewDoc] = useState(null);
   // Which departments the last search was confined to, straight from the server. Shown, because
-  // a scoped result set and an empty clinic look identical otherwise — and a lab tech who finds
-  // four patients where the receptionist finds twenty should be told why, not left to wonder
-  // whether the search is broken.
+  // a scoped result set and an empty clinic look identical otherwise.
   const [departmentScope, setDepartmentScope] = useState(null);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const updatedAt = useFreshness(searching, error);
-  /**
-   * Whether the record is FINISHED — every test seen through and every bill settled.
-   *
-   * A filter rather than the default. This roster is also how the desk finds a patient to correct
-   * a misspelt surname, how a record gets archived, and how a technician checks whose result they
-   * are holding — all of which have to reach the patient who is in the building right now,
-   * mid-visit, unpaid. Defaulting to complete-only would make the screen unable to find exactly
-   * the people the clinic is currently treating.
-   */
-  const [recordStatus, setRecordStatus] = useState('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [canArchive, setCanArchive] = useState(false);
   const [archiving, setArchiving] = useState(null);
 
-  // Correcting a record. PUT /patients/:id has existed since the beginning with nothing on any
-  // staff screen calling it, so a misspelt name or a wrong birthdate could only be fixed in the
-  // database — and birthdate and sex are what diagnostic reference ranges are banded by.
   const { hasPermission } = useAuth();
+  const canReadResults = hasPermission('results:read');
   const canEditPatients = hasPermission('patients:update');
   const [editingPatient, setEditingPatient] = useState(null);
   const [patientTypes, setPatientTypes] = useState([]);
 
-  // Fetched once, and only for accounts that can actually edit — the dialog needs the type list
-  // and there is no reason to ask for it on behalf of a read-only account.
+  // One patient open at a time, and each patient's records fetched once per opening of the
+  // screen: closing and reopening the same row does not ask (and log) again. Refresh forgets them.
+  const [expandedId, setExpandedId] = useState(null);
+  const [records, setRecords] = useState({});
+  // The report being viewed or printed. `autoPrint` is the row's Print button.
+  const [doc, setDoc] = useState(null);
+
+  // Fetched once, and only for accounts that can actually edit.
   useEffect(() => {
     if (!canEditPatients) return;
     api.get('/patients/types')
@@ -92,51 +89,48 @@ const PatientRecordsOversight = () => {
   /** Reflect a saved correction in the list without making the user search again. */
   const applyEdit = (updated) => {
     setResults((prev) => (prev || []).map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
-    setSelectedPatient((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
   };
 
-  const handleViewHistory = async (patient) => {
-    setSelectedPatient(patient);
-    setHistoryError('');
-    setHistoryLoading(true);
+  const loadRecords = useCallback(async (patientId) => {
+    setRecords((prev) => ({ ...prev, [patientId]: { status: 'loading', rows: [], error: '' } }));
     try {
-      const res = await api.get(`/results/history/${patient.id}`);
-      setPatientHistory(res.data.data.results || []);
+      const res = await api.get(`/results/history/${patientId}`, { params: { released: 'true' } });
+      setRecords((prev) => ({ ...prev, [patientId]: { status: 'ready', rows: res.data.data.results || [], error: '' } }));
     } catch (err) {
-      setHistoryError(err.response?.data?.message || 'Failed to load this patient\'s test history.');
-    } finally {
-      setHistoryLoading(false);
+      setRecords((prev) => ({
+        ...prev,
+        [patientId]: {
+          status: 'error',
+          rows: [],
+          error: err.response?.data?.message || "This patient's records could not be loaded.",
+        },
+      }));
     }
+  }, []);
+
+  const toggleRecords = (patient) => {
+    if (expandedId === patient.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(patient.id);
+    if (!records[patient.id] || records[patient.id].status === 'error') loadRecords(patient.id);
   };
 
   /**
-   * Load the roster. [1.56.0]
-   *
-   * This screen used to open on "search for a patient to begin" and could show at most 20 rows,
-   * un-paged — so the 21st match was unreachable by any means, and there was no way to simply
-   * LOOK at the records, which is what somebody sitting down to review them wants.
-   *
-   * Paged, filtered and counted at the SERVER. Doing any of it here would mean fetching a roster
-   * that only grows to slice twenty rows out of it.
+   * Load the roster. [1.56.0] Paged, filtered and counted at the SERVER.
    */
   const load = useCallback(async (opts = {}) => {
-    const {
-      q = query, p = 1, dateFrom = from, dateTo = to, archived = showArchived,
-      status = recordStatus,
-    } = opts;
+    const { q = query, p = 1, dateFrom = from, dateTo = to, archived = showArchived } = opts;
     setError('');
     setSearching(true);
     try {
       const res = await api.get('/patients/search', {
         params: {
-          // Omitted rather than sent empty: a blank q is "browse", and the server's own
-          // two-character floor should never be argued with by an empty string.
+          // Omitted rather than sent empty: a blank q is "browse".
           ...(q.trim() ? { q: q.trim() } : {}),
           ...(dateFrom && dateTo ? { from: dateFrom, to: dateTo } : {}),
           ...(archived ? { includeArchived: 'true' } : {}),
-          // Filtered at the SERVER, so the count beside the list is the count of what matches
-          // rather than the count of the page in hand.
-          ...(status !== 'all' ? { recordStatus: status } : {}),
           page: p,
           limit: PAGE_SIZE,
         },
@@ -155,10 +149,9 @@ const PatientRecordsOversight = () => {
       setSearching(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, from, to, showArchived, recordStatus]);
+  }, [query, from, to, showArchived]);
 
-  // Open on the roster rather than on a prompt. Recent first, which is what a live clinic's
-  // records screen is for.
+  // Open on the roster, most recently seen first.
   useEffect(() => {
     load({ p: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,21 +159,23 @@ const PatientRecordsOversight = () => {
 
   const handleSearch = (e) => {
     e.preventDefault();
+    setExpandedId(null);
     load({ p: 1 });
   };
 
-  /**
-   * Archive a record, or put it back.
-   *
-   * Nothing is deleted — the visits, bills and results stay exactly as they were. The list is
-   * re-read afterwards rather than spliced, because archiving REMOVES the row from the default
-   * view and the totals have to move with it.
-   */
+  // Re-runs what is on screen, keeping the page, and re-reads the open patient's records.
+  const refresh = () => {
+    setRecords({});
+    load({ p: page });
+    if (expandedId) loadRecords(expandedId);
+  };
+
+  /** Archive a record, or put it back. Nothing is deleted. */
   const toggleArchive = async (patient) => {
-    const archiving = !patient.archived_at;
+    const archivingNow = !patient.archived_at;
     setArchiving(patient.id);
     try {
-      const res = await api.patch(`/patients/${patient.id}/archive`, { archived: archiving });
+      const res = await api.patch(`/patients/${patient.id}/archive`, { archived: archivingNow });
       toastSuccess(res.data.message);
       await load({ p: page });
     } catch (err) {
@@ -190,18 +185,18 @@ const PatientRecordsOversight = () => {
     }
   };
 
+  const columnCount = canReadResults ? 5 : 4;
+  const fullName = (p) => `${p.first_name || ''} ${p.last_name || ''}`.trim();
+
   return (
     <div className="space-y-5">
       <PageHeader
         icon={FolderSearch}
         title="Patient Records"
-        description="Search the clinic-wide roster, across client-owned and walk-in profiles. Opening a record is audited."
-        actions={
-          // Re-runs what is on screen, keeping the page. `load()` bare defaults to p = 1, which
-          // would throw a reader on page 3 back to the start — a refresh that loses your place
-          // is a navigation, not a refresh.
-          <RefreshButton onRefresh={() => load({ p: page })} loading={searching} updatedAt={updatedAt} />
-        }
+        description={canReadResults
+          ? "Search a patient, then open their name to see their released results. Opening, printing and downloading a report are recorded in the Activity Log."
+          : 'Search the roster to see whether a patient has been here before, and when.'}
+        actions={<RefreshButton onRefresh={refresh} loading={searching} updatedAt={updatedAt} />}
       />
 
       <Panel>
@@ -214,9 +209,8 @@ const PatientRecordsOversight = () => {
               onChange={e => setQuery(e.target.value)}
               aria-label="Search patient records"
             />
-            {/* Filters on WHEN THEY WERE LAST HERE, not when the record was typed. "Show me this
-                month's patients" means their visits. Both dates or neither — a half-open range
-                the reader did not intend is worse than no filter. */}
+            {/* Filters on WHEN THEY WERE LAST HERE, not when the record was typed. Both dates or
+                neither — a half-open range the reader did not intend is worse than no filter. */}
             <DateField
               presets={RANGE_PRESETS.start}
               value={from}
@@ -237,20 +231,18 @@ const PatientRecordsOversight = () => {
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => { setQuery(''); setFrom(''); setTo(''); load({ q: '', dateFrom: '', dateTo: '', p: 1 }); }}
+                onClick={() => { setQuery(''); setFrom(''); setTo(''); setExpandedId(null); load({ q: '', dateFrom: '', dateTo: '', p: 1 }); }}
               >
                 Clear
               </Button>
             )}
-            {/* Only for whoever can put a record back. Reading the archive is reading records
-                deliberately taken out of circulation, and someone who cannot restore one has no
-                reason to be shown it — the API refuses them either way. */}
+            {/* Only for whoever can put a record back; the API refuses everyone else either way. */}
             {canArchive && (
               <label className="flex cursor-pointer items-center gap-1.5 pb-1.5 text-fine font-medium text-slate-600">
                 <input
                   type="checkbox"
                   checked={showArchived}
-                  onChange={(e) => { setShowArchived(e.target.checked); load({ archived: e.target.checked, p: 1 }); }}
+                  onChange={(e) => { setShowArchived(e.target.checked); setExpandedId(null); load({ archived: e.target.checked, p: 1 }); }}
                   className="rounded text-brand-600 focus:ring-brand-500"
                 />
                 Show archived
@@ -275,92 +267,81 @@ const PatientRecordsOversight = () => {
       </Panel>
 
       {results && (
-        <div>
-          {/* Whether the record is FINISHED, which is what somebody sitting down to REVIEW records
-              means — as opposed to looking a patient up, which is the other half of what this
-              screen is for and needs the whole roster. Filtered at the server, so the count in
-              the panel header below is the count of what matches. [1.59.0] */}
-          <Toolbar attached>
-            <SegmentedFilter
-              ariaLabel="Filter records by whether they are complete"
-              options={[
-                { value: 'all', label: 'All records' },
-                { value: 'complete', label: 'Complete' },
-                { value: 'open', label: 'Still open' },
-              ]}
-              value={recordStatus}
-              onChange={(next) => { setRecordStatus(next); load({ status: next, p: 1 }); }}
-            />
-            <span className="text-fine text-slate-500">
-              {recordStatus === 'complete'
-                ? 'Every test seen through and every bill settled.'
-                : recordStatus === 'open'
-                  ? 'Work still outstanding, or a bill not yet settled.'
-                  : 'Everyone on the roster, patients mid-visit included.'}
-            </span>
-          </Toolbar>
-
-          <Panel className="overflow-hidden rounded-t-none">
-            <PanelHeader
-              title={`${total} record${total === 1 ? '' : 's'}`}
-              description={
-                query || from || to
-                  ? 'Matching your filters. Select a patient to open their test history.'
-                  : 'Most recently seen first. Select a patient to open their test history.'
-              }
-              icon={Users}
-            />
-            <PanelBody flush>
-              <Table stack>
-                <TableHeader sticky>
-                  <TableRow>
-                    <TableHead>Patient</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead>Diagnostic work</TableHead>
-                    <TableHead>Last seen</TableHead>
-                    <TableHead>Last report</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+        <Panel className="overflow-hidden">
+          <PanelHeader
+            title="Patients"
+            description={
+              query || from || to
+                ? `Matching your filters.${canReadResults ? ' Open a name to see their released results.' : ''}`
+                : `Most recently seen first.${canReadResults ? ' Open a name to see their released results.' : ''}`
+            }
+            icon={Users}
+          />
+          <PanelBody flush>
+            <Table stack>
+              <TableHeader sticky>
+                <TableRow>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>Details</TableHead>
+                  <TableHead>Visits</TableHead>
+                  {canReadResults && <TableHead>Results</TableHead>}
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {searching ? (
+                  <SkeletonRows rows={6} columns={columnCount} />
+                ) : results.length === 0 ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={columnCount} className="p-0">
+                      <EmptyState
+                        icon={FileX2}
+                        title={query || from || to ? 'No records match those filters' : 'No patient records yet'}
+                        description={query || from || to
+                          ? 'Check the spelling, widen the dates, or clear the filters to browse everyone.'
+                          : 'Records appear here as patients are registered.'}
+                      />
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {searching ? (
-                    <SkeletonRows rows={6} columns={6} />
-                  ) : results.length === 0 ? (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={6} className="p-0">
-                        <EmptyState
-                          icon={FileX2}
-                          title={query || from || to || recordStatus !== 'all'
-                            ? 'No records match those filters'
-                            : 'No patient records yet'}
-                          description={query || from || to || recordStatus !== 'all'
-                            ? 'Check the spelling, widen the dates, or clear the filters to browse everyone.'
-                            : 'Records appear here as patients are registered.'}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    results.map(patient => {
-                      // "Complete" restated only to label the row. The SERVER decides membership
-                      // of the filter; this decides which pip to draw beside the count.
-                      const testCount = Number(patient.test_count) || 0;
-                      const releasedCount = Number(patient.released_count) || 0;
-                      const complete = testCount > 0 && releasedCount === testCount;
-
-                      return (
+                ) : (
+                  results.map((patient) => {
+                    const open = expandedId === patient.id;
+                    const released = Number(patient.released_count) || 0;
+                    const visits = Number(patient.visit_count) || 0;
+                    return (
+                      <Fragment key={patient.id}>
                         <TableRow
-                          key={patient.id}
                           data-testid="patient-row"
                           data-patient-id={patient.id}
-                          className="transition-colors hover:bg-slate-50/70"
+                          className={open ? 'bg-brand-50/40 hover:bg-brand-50/60' : 'transition-colors hover:bg-slate-50/70'}
                         >
                           <TableCell label="Patient" className="py-3.5">
-                            <span className="block text-xs font-bold text-slate-900">
-                              {patient.first_name} {patient.last_name}
-                            </span>
-                            <span className="block font-mono text-meta font-normal text-gray-400">
-                              PT-{patient.id}
-                            </span>
+                            {canReadResults ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleRecords(patient)}
+                                aria-expanded={open}
+                                aria-controls={`patient-results-${patient.id}`}
+                                data-testid="patient-records-toggle"
+                                className="flex items-start gap-1.5 border-0 bg-transparent p-0 text-left cursor-pointer"
+                              >
+                                <ChevronRight
+                                  aria-hidden="true"
+                                  className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90 text-brand-600' : ''}`}
+                                />
+                                <span>
+                                  <span className="block text-xs font-bold text-slate-900 underline-offset-2 hover:underline">
+                                    {fullName(patient)}
+                                  </span>
+                                  <span className="block font-mono text-meta font-normal text-gray-400">PT-{patient.id}</span>
+                                </span>
+                              </button>
+                            ) : (
+                              <>
+                                <span className="block text-xs font-bold text-slate-900">{fullName(patient)}</span>
+                                <span className="block font-mono text-meta font-normal text-gray-400">PT-{patient.id}</span>
+                              </>
+                            )}
                             {patient.archived_at && (
                               <Badge variant="outline" className="mt-1">Archived</Badge>
                             )}
@@ -370,69 +351,41 @@ const PatientRecordsOversight = () => {
                             {patient.sex} &middot; {formatDate(patient.birthdate)}
                             <span className="block text-meta text-gray-400">
                               {patient.contact_number || 'No contact on file'}
-                              {patient.patient_type_name ? ` \u00b7 ${patient.patient_type_name}` : ''}
+                              {patient.patient_type_name ? ` · ${patient.patient_type_name}` : ''}
                             </span>
                           </TableCell>
 
-                          {/* What the record CONTAINS. A visit count says they came; a released
-                              count says there is something to read. Deliberately no billing
-                              state — whether a bill is settled is the Billing Queue's question,
-                              and a clinical records roster that answers it reads as a debtors
-                              list. [1.59.0] */}
-                          <TableCell label="Diagnostic work" className="py-3.5 text-xs">
-                            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
-                              {complete ? (
-                                <CircleCheck className="h-3.5 w-3.5 flex-shrink-0 text-brand-600" aria-hidden="true" />
-                              ) : (
-                                <CircleDot className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" aria-hidden="true" />
+                          {/* How often and when: what tells the desk this is a returning patient. */}
+                          <TableCell label="Visits" className="py-3.5 text-xs">
+                            <span className="font-semibold tabular-nums text-slate-700">
+                              {visits} visit{visits === 1 ? '' : 's'}
+                            </span>
+                            <span className="block text-meta text-gray-400">
+                              {patient.last_visit_at ? `Last seen ${formatDate(patient.last_visit_at)}` : 'Not seen yet'}
+                            </span>
+                          </TableCell>
+
+                          {canReadResults && (
+                            <TableCell label="Results" className="py-3.5 text-xs">
+                              <span className="font-semibold tabular-nums text-slate-700">
+                                {released > 0 ? `${released} released` : 'None released yet'}
+                              </span>
+                              {patient.last_released_at && (
+                                <span className="block text-meta text-gray-400">Last {formatDate(patient.last_released_at)}</span>
                               )}
-                              <span className="tabular-nums">{releasedCount}/{testCount} released</span>
-                            </span>
-                            <span className="block text-meta tabular-nums text-gray-400">
-                              {patient.visit_count} visit{Number(patient.visit_count) === 1 ? '' : 's'}
-                            </span>
-                          </TableCell>
-
-                          <TableCell label="Last seen" className="py-3.5 text-xs text-gray-500">
-                            {patient.last_visit_at ? formatDate(patient.last_visit_at) : '\u2014'}
-                          </TableCell>
-
-                          <TableCell label="Last report" className="py-3.5 text-xs text-gray-500">
-                            {patient.last_released_at ? formatDate(patient.last_released_at) : '\u2014'}
-                          </TableCell>
+                            </TableCell>
+                          )}
 
                           <TableCell className="py-3.5 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="xs"
-                                onClick={() => handleViewHistory(patient)}
-                              >
-                                <FolderOpen className="h-3 w-3" />
-                                <span>Open records</span>
-                              </Button>
-
-                              {/* Only for accounts holding patients:update. Diagnostic roles hold
-                                  patients:read and not the write — they may read whose result they
-                                  are looking at, and must not be able to change a birthdate that
-                                  decides how it is interpreted. The API enforces the same thing;
-                                  this keeps the screen from offering a control it would refuse. */}
+                              {/* Only for accounts holding patients:update; the API enforces the same. */}
                               {canEditPatients && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="xs"
-                                  onClick={() => setEditingPatient(patient)}
-                                >
+                                <Button type="button" variant="outline" size="xs" onClick={() => setEditingPatient(patient)}>
                                   <Pencil className="h-3 w-3" />
                                   <span>Correct</span>
                                 </Button>
                               )}
-
-                              {/* Archive is not delete, and the tooltip says so. Nothing is
-                                  removed — the visits, bills and results stay; the record simply
-                                  leaves the roster the front desk searches all day. */}
+                              {/* Archive is not delete: the record leaves the roster, nothing is removed. */}
                               {canArchive && (
                                 <Button
                                   type="button"
@@ -444,133 +397,57 @@ const PatientRecordsOversight = () => {
                                     ? 'Put this record back in the active roster'
                                     : 'Take this record out of the roster. Nothing is deleted.'}
                                 >
-                                  {patient.archived_at
-                                    ? <ArchiveRestore className="h-3 w-3" />
-                                    : <Archive className="h-3 w-3" />}
+                                  {patient.archived_at ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
                                   <span>{patient.archived_at ? 'Restore' : 'Archive'}</span>
                                 </Button>
                               )}
                             </div>
                           </TableCell>
                         </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </PanelBody>
-            {total > 0 && (
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                onPageChange={(next) => load({ p: next })}
-                total={total}
-                pageSize={PAGE_SIZE}
-                totalLabel="records"
-              />
-            )}
-          </Panel>
-        </div>
+
+                        {open && (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={columnCount} className="bg-slate-50/60 p-0">
+                              <PatientResults
+                                id={`patient-results-${patient.id}`}
+                                entry={records[patient.id]}
+                                scoped={Boolean(departmentScope)}
+                                onRetry={() => loadRecords(patient.id)}
+                                onView={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: false })}
+                                onPrint={(row) => setDoc({ row, patientName: fullName(patient), autoPrint: true })}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </PanelBody>
+          {total > 0 && (
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={(next) => { setExpandedId(null); load({ p: next }); }}
+              total={total}
+              pageSize={PAGE_SIZE}
+              totalLabel="records"
+            />
+          )}
+        </Panel>
       )}
 
-      <Dialog open={!!selectedPatient} onOpenChange={(open) => { if (!open) setSelectedPatient(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedPatient?.first_name} {selectedPatient?.last_name}'s Test Records
-            </DialogTitle>
-            <DialogDescription>
-              PT-{selectedPatient?.id} &bull; {selectedPatient?.patient_type_name}
-            </DialogDescription>
-          </DialogHeader>
-
-          {historyError && (
-            <div role="alert" className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-fine font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{historyError}</span>
-            </div>
-          )}
-
-          {historyLoading ? (
-            <SkeletonList rows={3} />
-          ) : patientHistory.length === 0 ? (
-            <EmptyState
-              compact
-              icon={FileX2}
-              title="No tests on file"
-              description="This patient has a record but has not been through a diagnostic visit yet."
-            />
-          ) : (
-            <>
-              <div className="print-area max-h-96 space-y-2 overflow-y-auto pr-1">
-                <div className="mb-3 hidden border-b border-slate-200 pb-3 text-center print:block">
-                  <h3 className="m-0 text-sm font-extrabold uppercase tracking-wide text-slate-900">Enlogada Ultrasound &amp; Diagnostic Clinic</h3>
-                  <p className="m-0 text-fine text-slate-500">Patient Test Records — {selectedPatient?.first_name} {selectedPatient?.last_name} (PT-{selectedPatient?.id})</p>
-                </div>
-                {patientHistory.map(item => (
-                  <div key={item.visit_test_id} className="rounded-lg border border-line p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-note font-semibold text-slate-900">
-                        {item.test_name} <span className="text-fine font-normal text-slate-400">({item.category_name})</span>
-                      </span>
-                      <StatusBadge status={item.test_status} />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-fine text-slate-500">
-                      <span>{new Date(item.visit_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} &bull; {formatCurrency(item.price_at_time)}</span>
-                      {item.released_at && <span>Released {new Date(item.released_at).toLocaleDateString()}</span>}
-                    </div>
-                    {item.findings && (
-                      <div className="mt-2 border-t border-line-soft pt-2 text-fine leading-relaxed text-slate-600">
-                        <FindingsText findings={item.findings} />
-                      </div>
-                    )}
-                    {/* The attachment was never surfaced on this screen at all — the query has
-                        returned file_path since [1.7.0] and nothing rendered it, so the one
-                        person most likely to be asked "what does the report actually say" could
-                        read the findings text but not open the document itself. */}
-                    {item.file_path && (
-                      <div className="mt-2 flex items-center justify-between gap-2 border-t border-line-soft pt-2">
-                        <span className="flex min-w-0 items-center gap-1.5 text-fine text-slate-500">
-                          <Paperclip className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{item.file_original_name || 'Attached report'}</span>
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          onClick={() => setPreviewDoc({
-                            visitTestId: item.visit_test_id,
-                            testName: item.test_name,
-                            patientName: `${selectedPatient?.first_name || ''} ${selectedPatient?.last_name || ''}`.trim(),
-                            fileName: item.file_original_name,
-                          })}
-                        >
-                          <Eye className="h-3 w-3" />
-                          View Report
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end border-t border-line pt-3">
-                <Button type="button" variant="outline" onClick={() => printElement()}>
-                  <Printer className="h-3.5 w-3.5" />
-                  Print Patient Test Records
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
       <ResultDocument
-        open={Boolean(previewDoc)}
-        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
-        visitTestId={previewDoc?.visitTestId}
-        testName={previewDoc?.testName}
-        patientName={previewDoc?.patientName}
-        fileName={previewDoc?.fileName}
+        open={Boolean(doc)}
+        onOpenChange={(o) => { if (!o) setDoc(null); }}
+        visitTestId={doc?.row.visit_test_id}
+        testName={doc?.row.test_name}
+        patientName={doc?.patientName}
+        fileName={doc?.row.file_original_name}
+        authorisedOnly
+        autoPrint={Boolean(doc?.autoPrint)}
       />
 
       <PatientEditDialog
@@ -583,5 +460,95 @@ const PatientRecordsOversight = () => {
     </div>
   );
 };
+
+/**
+ * The released results under a patient's name, newest visit first.
+ *
+ * A report that is a PDF or an image can be printed from here; a Word document or a spreadsheet
+ * cannot be printed by a browser, so it offers View, which opens it to download.
+ */
+function PatientResults({ id, entry, scoped, onRetry, onView, onPrint }) {
+  if (!entry || entry.status === 'loading') {
+    return <div id={id} className="p-4"><SkeletonList rows={2} /></div>;
+  }
+  if (entry.status === 'error') {
+    return (
+      <div id={id}>
+        <EmptyState
+          compact
+          tone="error"
+          icon={AlertCircle}
+          title="Couldn't load this patient's records"
+          description={entry.error}
+          action={<Button size="sm" variant="outline" onClick={onRetry}>Try again</Button>}
+        />
+      </div>
+    );
+  }
+  if (entry.rows.length === 0) {
+    return (
+      <div id={id}>
+        <EmptyState
+          compact
+          icon={FileX2}
+          title="No released results yet"
+          description={scoped
+            ? 'Nothing from your department has been released for this patient.'
+            : 'A result appears here once its report has been released.'}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ul id={id} data-testid="patient-results" className="m-0 list-none divide-y divide-line p-0">
+      {entry.rows.map((row) => {
+        const printable = Boolean(previewKindFor(row.file_mime_type));
+        const releasedBy = [row.released_by_first_name, row.released_by_last_name].filter(Boolean).join(' ');
+        return (
+          <li
+            key={row.visit_test_id}
+            data-testid="patient-result"
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:pl-10"
+          >
+            <div className="min-w-0">
+              <p className="m-0 flex flex-wrap items-center gap-1.5 text-note font-semibold text-slate-900">
+                {row.test_name}
+                <Badge variant="outline">{row.category_name}</Badge>
+                {Number(row.version) > 1 && <Badge variant="outline">Amended</Badge>}
+              </p>
+              <p className="m-0 text-fine text-slate-500">
+                Visit {formatDate(row.visit_date)} · Released {formatDate(row.authorised_at)}
+                {releasedBy ? ` by ${releasedBy}` : ''}
+              </p>
+              {row.has_file && row.file_original_name && (
+                <p className="m-0 flex items-center gap-1 text-meta text-slate-400">
+                  <FileText className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                  <span className="truncate">{row.file_original_name}</span>
+                </p>
+              )}
+            </div>
+            {row.has_file ? (
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <Button type="button" variant="outline" size="xs" onClick={() => onView(row)}>
+                  <Eye className="h-3 w-3" />
+                  View
+                </Button>
+                {printable && (
+                  <Button type="button" variant="outline" size="xs" onClick={() => onPrint(row)}>
+                    <Printer className="h-3 w-3" />
+                    Print
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <span className="text-fine text-slate-400">No report file attached</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 export default PatientRecordsOversight;

@@ -1,5 +1,36 @@
 const db = require('../config/database');
 
+/**
+ * What a patient's record holds that is FINAL: tests with an authorised report. [1.108.0]
+ *
+ * `authorised_at`, never `released_at`: released_at defaults to CURRENT_TIMESTAMP when a result is
+ * SAVED, so `released_at IS NOT NULL` counted every draft as released. An amendment still being
+ * written leaves its earlier authorised version standing, so it keeps counting. Confined to the
+ * caller's departments when they are scoped, so the count matches the list it opens.
+ */
+function releasedColumns(deptRef) {
+  const inDept = deptRef
+    ? `JOIN tests t ON t.id = vt.test_id
+          JOIN test_categories tc ON tc.id = t.category_id
+          WHERE pv.patient_id = p.id AND tc.name = ANY(${deptRef}::text[])`
+    : 'WHERE pv.patient_id = p.id';
+  return `(
+          SELECT COUNT(*) FROM visit_tests vt
+          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+          ${inDept}
+            AND EXISTS (SELECT 1 FROM test_results tr
+                         WHERE tr.visit_test_id = vt.id AND tr.authorised_at IS NOT NULL)
+        ) as released_count,
+        -- When the last report was authorised: a different day from the last visit, and the one
+        -- that answers "have they had their results yet".
+        (
+          SELECT MAX(tr.authorised_at) FROM test_results tr
+          JOIN visit_tests vt    ON vt.id = tr.visit_test_id
+          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+          ${inDept}
+        ) as last_released_at`;
+}
+
 class PatientRepository {
   async createPatient({ userId, patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact, email = null }) {
     const queryText = `
@@ -108,6 +139,11 @@ class PatientRepository {
    *
    * `archived_at IS NULL` unless asked otherwise. Archiving exists to take a record out of the
    * roster the front desk searches all day; a filter that ignored it would defeat the feature.
+   *
+   * `includeResults` is false for a caller who may not read results [1.108.0] — the front desk and
+   * the till recognise a returning patient by who they are and when they were last here, and are
+   * not sent even a count of what their reports say. The columns are left out of the SELECT rather
+   * than nulled, so a screen cannot mistake "not yours to see" for "none".
    */
   async findPatients({
     query = null,
@@ -115,7 +151,7 @@ class PatientRepository {
     from = null,
     to = null,
     includeArchived = false,
-    recordStatus = null,
+    includeResults = true,
     limit = 20,
     offset = 0,
   } = {}) {
@@ -134,8 +170,12 @@ class PatientRepository {
       )`);
     }
 
+    // The department filter's placeholder, reused by the result counts below so a technician's
+    // count is of THEIR department's reports — the same set their records list opens. [1.108.0]
+    let deptRef = null;
     if (scoped) {
       params.push(departments);
+      deptRef = `$${params.length}`;
       where.push(`EXISTS (
               SELECT 1
                 FROM patient_visits pv
@@ -158,58 +198,6 @@ class PatientRepository {
                WHERE pv.patient_id = p.id
                  AND pv.created_at >= $${a}::date AND pv.created_at < ($${a + 1}::date + 1)
             )`);
-    }
-
-    /**
-     * Whether the patient's record is FINISHED. [1.59.0]
-     *
-     * "Complete" means all three at once: they have been in, every test on every visit has been
-     * seen through, and nothing is left unsettled. That is what somebody means when they sit down
-     * to review records rather than to look a patient up.
-     *
-     * A filter and not the default, deliberately. This roster is also how the front desk finds a
-     * patient to correct a misspelt surname, how a record gets archived, and how a technician
-     * checks whose result they are holding — and every one of those has to reach the patient who
-     * is in the building right now, mid-visit, with an unpaid bill. Defaulting to complete-only
-     * would make the screen unable to find exactly the people the clinic is currently treating.
-     *
-     * Applied to the COUNT as well as the list, so the total describes what is being shown.
-     */
-    if (recordStatus === 'complete') {
-      where.push(`(
-              EXISTS (SELECT 1 FROM patient_visits pv
-                        JOIN visit_tests vt ON vt.patient_visit_id = pv.id
-                       WHERE pv.patient_id = p.id)
-          AND NOT EXISTS (SELECT 1 FROM patient_visits pv
-                            JOIN visit_tests vt ON vt.patient_visit_id = pv.id
-                           WHERE pv.patient_id = p.id
-                             AND vt.status NOT IN ('Completed', 'Cancelled'))
-          AND NOT EXISTS (SELECT 1 FROM patient_visits pv
-                           WHERE pv.patient_id = p.id
-                             AND pv.status <> 'Cancelled'
-                             AND NOT EXISTS (SELECT 1 FROM payments pay
-                                              WHERE pay.patient_visit_id = pv.id
-                                                AND pay.payment_status = 'Paid'))
-      )`);
-    } else if (recordStatus === 'open') {
-      // The complement, exactly — anything still owing work or money, plus a patient who has been
-      // registered and not yet seen. Written as the negation of the clause above rather than as a
-      // second set of conditions, so the two can never drift into overlapping or leaving a gap.
-      where.push(`NOT (
-              EXISTS (SELECT 1 FROM patient_visits pv
-                        JOIN visit_tests vt ON vt.patient_visit_id = pv.id
-                       WHERE pv.patient_id = p.id)
-          AND NOT EXISTS (SELECT 1 FROM patient_visits pv
-                            JOIN visit_tests vt ON vt.patient_visit_id = pv.id
-                           WHERE pv.patient_id = p.id
-                             AND vt.status NOT IN ('Completed', 'Cancelled'))
-          AND NOT EXISTS (SELECT 1 FROM patient_visits pv
-                           WHERE pv.patient_id = p.id
-                             AND pv.status <> 'Cancelled'
-                             AND NOT EXISTS (SELECT 1 FROM payments pay
-                                              WHERE pay.patient_visit_id = pv.id
-                                                AND pay.payment_status = 'Paid'))
-      )`);
     }
 
     if (!includeArchived) where.push('p.archived_at IS NULL');
@@ -236,28 +224,12 @@ class PatientRepository {
               WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
             )
         ) as unpaid_visit_count,
-        -- What their record actually CONTAINS, which is the question a records screen is opened
-        -- to answer. A visit count says they came; a released count says there is something to
-        -- read. is_current so an amended report counts once rather than once per version.
         (
           SELECT COUNT(*) FROM visit_tests vt
           JOIN patient_visits pv ON pv.id = vt.patient_visit_id
           WHERE pv.patient_id = p.id
-        ) as test_count,
-        (
-          SELECT COUNT(*) FROM test_results tr
-          JOIN visit_tests vt    ON vt.id = tr.visit_test_id
-          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
-          WHERE pv.patient_id = p.id AND tr.is_current AND tr.released_at IS NOT NULL
-        ) as released_count,
-        -- The date of the last report RELEASED, which is a different day from the last visit and
-        -- the one that answers "have they had their results yet".
-        (
-          SELECT MAX(tr.released_at) FROM test_results tr
-          JOIN visit_tests vt    ON vt.id = tr.visit_test_id
-          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
-          WHERE pv.patient_id = p.id AND tr.is_current
-        ) as last_released_at
+        ) as test_count${includeResults ? `,
+        ${releasedColumns(deptRef)}` : ''}
       FROM patients p
       JOIN patient_types pt ON p.patient_type_id = pt.id
       LEFT JOIN users archiver ON archiver.id = p.archived_by

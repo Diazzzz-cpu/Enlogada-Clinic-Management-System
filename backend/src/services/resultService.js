@@ -501,7 +501,7 @@ class ResultService {
    * path cannot be steered by a request value. The original name is carried separately, for the
    * download header only.
    */
-  async getResultFile(visitTestId, requestingUser) {
+  async getResultFile(visitTestId, requestingUser, { authorisedOnly = false } = {}) {
     const ownership = await resultRepository.findOwnershipInfoByVisitTestId(visitTestId);
     if (!ownership) {
       const error = new Error('Visit test not found.');
@@ -539,7 +539,10 @@ class ResultService {
     //
     // Gated on authorised_at and never released_at: released_at defaults to CURRENT_TIMESTAMP at
     // insert, so it is never null and would gate nothing.
-    const result = isClient
+    //
+    // Staff may ask for the same copy with `authorisedOnly` [1.108.0]: Patient Records opens the
+    // record, and the record is the report that went out, not an amendment still being written.
+    const result = isClient || authorisedOnly
       ? await resultRepository.findLatestAuthorisedByVisitTestId(visitTestId)
       : await resultRepository.findResultByVisitTestId(visitTestId);
 
@@ -561,8 +564,41 @@ class ResultService {
       originalName: result.file_original_name || 'result',
       mimeType: result.file_mime_type || 'application/octet-stream',
       // Returned so the controller can audit the access against the patient rather than only
-      // against the visit_test row.
-      patientId: ownership.patient_id
+      // against the visit_test row, in a sentence naming the test and the patient.
+      patientId: ownership.patient_id,
+      testName: ownership.test_name,
+      patientName: `${ownership.patient_first_name} ${ownership.patient_last_name}`,
+    };
+  }
+
+  /**
+   * What a staff member is about to print or download, for the audit entry. [1.108.0]
+   *
+   * Viewing a report fetches the file, and that fetch was always logged. Printing it or saving it
+   * happens in the browser on the copy already fetched, so the server never heard of either: a
+   * report could leave the building on paper with nothing to say who sent it. The browser reports
+   * it here first. It cannot prove the page came out of the printer — a cancelled print dialog
+   * still counts — which is the honest limit of logging something a browser does.
+   *
+   * Same department check as opening the file: nobody may log a copy of a report they may not read.
+   */
+  async describeReportCopy(visitTestId, kind, requestingUser) {
+    if (!['print', 'download'].includes(kind)) {
+      const error = new Error("kind must be 'print' or 'download'.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const ownership = await resultRepository.findOwnershipInfoByVisitTestId(visitTestId);
+    if (!ownership) {
+      const error = new Error('Visit test not found.');
+      error.statusCode = 404;
+      throw error;
+    }
+    assertStaffAllowedCategory(requestingUser, ownership.category_name);
+    return {
+      patientId: ownership.patient_id,
+      testName: ownership.test_name,
+      patientName: `${ownership.patient_first_name} ${ownership.patient_last_name}`,
     };
   }
 
@@ -881,7 +917,12 @@ class ResultService {
    * The filter is applied in SQL rather than after the fetch, so rows the caller may not see are
    * never loaded and never cross the wire.
    */
-  async getPatientHistory(patientId, requestingUser) {
+  async getPatientHistory(patientId, requestingUser, { releasedOnly = false } = {}) {
+    // [1.108.0] Patient Records asks for the final record only: authorised reports, no pending
+    // work. The portal keeps the whole list, because a patient follows their booking's progress.
+    if (releasedOnly) {
+      return resultRepository.findReleasedResultsByPatientId(patientId, visibleCategoriesFor(requestingUser));
+    }
     const rows = await resultRepository.findResultsByPatientId(
       patientId,
       visibleCategoriesFor(requestingUser)

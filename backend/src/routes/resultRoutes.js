@@ -30,6 +30,11 @@ router.post('/:visitTestId', verifyToken, authorizeStaff, authorizePermissions('
 // department match or Client-owns-this-patient), never a public static path (PHI).
 router.get('/:visitTestId/file', verifyToken, resultController.downloadResultFile);
 
+// [1.108.0] Printing or saving a report happens in the browser, so the browser reports it here for
+// the audit log. Staff only: a patient's own copies are not logged, as with every other read of
+// their own record.
+router.post('/:visitTestId/copies', verifyToken, authorizeStaff, authorizePermissions('results:read'), resultController.recordReportCopy);
+
 // Department staff releases result and triggers email notification
 router.post('/:visitTestId/release', verifyToken, authorizeStaff, authorizePermissions('results:release'), resultController.releaseResult);
 

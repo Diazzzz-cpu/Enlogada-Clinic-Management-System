@@ -1,5 +1,24 @@
 # Database Migration & Schema History
 
+## [1.108.0] - 2026-10-14 (Patient Records is the final record, by permission; prints are logged)
+
+No schema change; nothing to run.
+
+- **Final results only.** Opening a patient lists their AUTHORISED reports, newest visit first, with
+  View and Print. It used to list every test ordered, "Pending" ones included, in a dialog.
+- **The roster's "released" count was counting drafts.** It read `released_at IS NOT NULL`, and
+  `released_at` is stamped when a result is saved. It now counts tests with an authorised version,
+  confined to the caller's departments so the count matches the list it opens.
+- **The front desk and the till see who a patient is, not their results.** Their roster rows carry no
+  `released_count` / `last_released_at`, `GET /results/history` stays closed to them, and the screen
+  hides the Results column and the dropdown. "Open records" used to be offered to them and returned
+  403.
+- **Printing and saving a report are in the Activity Log** (`phi.read.result_print`,
+  `phi.read.result_download`, via `POST /results/:visitTestId/copies`), beside opening it
+  (`phi.read.result_file`, now worded "Opened the <test> report of <patient>").
+- **The Complete / Still open filter is gone,** with its `recordStatus` parameter: a record is its
+  released results, and work still outstanding is the worklists' and the Desk's business.
+
 ## [1.107.0] - 2026-10-14 (The doctor's request is required for an HMO booking, optional for self-pay)
 
 No schema change; nothing to run.

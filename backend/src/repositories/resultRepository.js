@@ -270,11 +270,62 @@ class ResultRepository {
     return result.rows;
   }
 
+  /**
+   * A patient's FINAL results: each test's latest authorised report, newest visit first. [1.108.0]
+   *
+   * Patient Records reads this. The other history query lists every test ordered, pending ones
+   * included, because the patient's portal shows a booking's progress; a records screen showing
+   * "Pending" beside a name is showing work, not a record.
+   *
+   * The latest AUTHORISED version, not the current one: an amendment being written is current and
+   * unreleased, and the record keeps the report that went out until its replacement is authorised.
+   * LATERAL with LIMIT 1, so a test amended three times is still one row.
+   *
+   * @param {number|string} patientId
+   * @param {string[]|null} allowedCategories - the caller's departments; null = all.
+   */
+  async findReleasedResultsByPatientId(patientId, allowedCategories = null) {
+    const params = [patientId];
+    let categoryFilter = '';
+    if (allowedCategories) {
+      params.push(allowedCategories);
+      categoryFilter = `AND tc.name = ANY($${params.length}::text[])`;
+    }
+    const { rows } = await db.query(
+      `SELECT vt.id AS visit_test_id, t.name AS test_name, tc.name AS category_name,
+              pv.id AS visit_id, pv.created_at AS visit_date,
+              fin.id AS result_id, fin.version, fin.authorised_at,
+              (fin.file_path IS NOT NULL) AS has_file,
+              fin.file_original_name, fin.file_mime_type,
+              u.first_name AS released_by_first_name, u.last_name AS released_by_last_name
+         FROM visit_tests vt
+         JOIN tests t            ON t.id = vt.test_id
+         JOIN test_categories tc ON tc.id = t.category_id
+         JOIN patient_visits pv  ON pv.id = vt.patient_visit_id
+         JOIN LATERAL (
+              SELECT tr.id, tr.version, tr.authorised_at, tr.released_by,
+                     tr.file_path, tr.file_original_name, tr.file_mime_type
+                FROM test_results tr
+               WHERE tr.visit_test_id = vt.id AND tr.authorised_at IS NOT NULL
+               ORDER BY tr.version DESC
+               LIMIT 1
+         ) fin ON TRUE
+         LEFT JOIN users u ON u.id = fin.released_by
+        WHERE pv.patient_id = $1
+        ${categoryFilter}
+        ORDER BY pv.created_at DESC, fin.authorised_at DESC`,
+      params
+    );
+    return rows;
+  }
+
   async findOwnershipInfoByVisitTestId(visitTestId) {
     const queryText = `
       -- patient id as well as user_id: the PHI read audit keys on the patient, since
-      -- "who accessed this patient's data?" is the question an incident asks.
-      SELECT tc.name as category_name, p.user_id as patient_user_id, p.id as patient_id
+      -- "who accessed this patient's data?" is the question an incident asks. The names are for
+      -- the audit entry's sentence, so it reads as what happened. [1.108.0]
+      SELECT tc.name as category_name, p.user_id as patient_user_id, p.id as patient_id,
+             t.name AS test_name, p.first_name AS patient_first_name, p.last_name AS patient_last_name
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id

@@ -206,7 +206,7 @@ class PatientController {
 
   async search(req, res, next) {
     try {
-      const { q, from, to, page, limit, includeArchived, recordStatus } = req.query;
+      const { q, from, to, page, limit, includeArchived } = req.query;
 
       // Only someone who can archive may look at what has been archived. Reading the archive is
       // reading records deliberately taken out of circulation, and the person who cannot put one
@@ -214,7 +214,7 @@ class PatientController {
       const maySeeArchived = (req.user?.roles || []).some((r) => r === 'SuperAdmin' || r === 'Admin');
 
       const result = await patientService.searchPatients(q, req.user, {
-        from, to, page, limit, recordStatus,
+        from, to, page, limit,
         includeArchived: maySeeArchived && String(includeArchived) === 'true',
       });
 

@@ -471,6 +471,26 @@ portal screen is where they look it up afterwards, not how they find out.
 
 **PHI reads are audited; keep the scope narrow.** `auditService.logPhiRead` records reads of an *identified patient's* records (demographics, result history, report file). Do not add it to searches, worklists or queues — staff refresh those constantly, and the entries that matter would drown in traffic that is just people doing their job. That is the fan-out mistake that took `notification_reads` to 255,540 rows.
 
+**A released result is `authorised_at IS NOT NULL`, never `released_at`.** `[1.108.0]`
+`released_at` defaults to `CURRENT_TIMESTAMP` when a result is SAVED, so `released_at IS NOT NULL`
+is true of every draft. Patient Records' roster counted drafts as "released" that way for months.
+The final record of a test is its latest AUTHORISED version (`findLatestAuthorisedByVisitTestId`,
+`findReleasedResultsByPatientId`), which also keeps the report that went out readable while an
+amendment is being written.
+
+**Patient Records shows the final record, and only to whoever may read results.** `[1.108.0]` Any
+holder of `results:read` opens a patient's name and gets their authorised results, newest visit
+first, each with View and Print (`GET /results/history/:id?released=true`; a department sees its
+own). The front desk and the till see who the patient is and when they were here; the roster sends
+them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
+shows no Results column and no dropdown. A permission, not a role list, so granting `results:read`
+to a cashier shows them results with no code change. **Printing and saving a report are logged**:
+they happen in the browser on a copy already fetched, so `ResultDocument` reports each to
+`POST /results/:visitTestId/copies` (`kind: print | download`) for staff, best-effort, before it
+happens. With the file fetch ("Opened…"), the Activity Log says who opened, printed or saved which
+report of which patient. A cancelled print dialog still counts; a browser cannot prove the page
+came out.
+
 **`test_results` is versioned — always filter on `is_current`.** A test carries one row per version of its report (an amendment supersedes rather than overwrites; see [1.15.0]). A `LEFT JOIN test_results` without `AND tr.is_current` repeats the parent row once per amendment and shows superseded findings beside live ones, and an `UPDATE … WHERE visit_test_id = $1` without it rewrites the history. `findVersionHistoryByVisitTestId` is the only intentional reader of superseded rows.
 
 **Never filter on `column::date`.** A B-tree index cannot serve a predicate on an expression, so `WHERE created_at::date = CURRENT_DATE` silently forces a sequential scan no matter what is indexed — `idx_patient_visits_created` existed for a year and was never used. Write half-open ranges on the raw column instead: `col >= $1::date AND col < ($2::date + 1)`. Measured at 219k rows: 50.7ms seq scan vs 0.84ms index scan. Casting in `SELECT`/`GROUP BY` is fine; only the filter matters.

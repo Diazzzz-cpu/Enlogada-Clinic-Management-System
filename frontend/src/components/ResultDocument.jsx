@@ -4,6 +4,8 @@ import { Button } from './ui/button';
 import EmptyState from './ui/empty-state';
 import { Skeleton } from './ui/skeleton';
 import api from '../config/api';
+import { useAuth } from '../contexts/AuthContext';
+import { printElement } from '../lib/printArea';
 import { canRenderPdfInline, previewKindFor } from '../lib/preview';
 import { FileText, Download, Printer, AlertCircle, ExternalLink } from 'lucide-react';
 
@@ -30,14 +32,31 @@ import { FileText, Download, Printer, AlertCircle, ExternalLink } from 'lucide-r
  * allowlist is pdf/jpeg/png (backend/src/config/upload.js), so "anything else" is only reachable
  * through a legacy `file_url` typed in before uploads existed — but a viewer that renders a blank
  * grey box for an unknown type is worse than one that admits it cannot show it.
+ *
+ * ── Every copy is logged [1.108.0] ─────────────────────────────────────────────────────────────
+ * Opening the report fetches it, and the server logs that fetch. Printing it and saving it happen
+ * here, on the copy already fetched, so for staff they are reported to POST /results/:id/copies
+ * before they happen. Best-effort: a failed log never stops the print, because the report is
+ * already on the screen in front of them and refusing to print it would protect nothing.
+ *
+ * `authorisedOnly` asks for the report that went out rather than an amendment still being
+ * written — what Patient Records shows. `autoPrint` prints as soon as the report has loaded, for
+ * a Print button on a list.
  */
 
-const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName, fileName }) => {
+const ResultDocument = ({
+  open, onOpenChange, visitTestId, testName, patientName, fileName,
+  authorisedOnly = false, autoPrint = false,
+}) => {
+  const { hasRole } = useAuth();
   const [state, setState] = useState({ status: 'idle', url: null, kind: null, error: '' });
   // Held in a ref as well as state so the cleanup effect can revoke the *current* URL without
   // taking `state` as a dependency, which would re-run cleanup on every render and revoke a URL
   // the iframe is still displaying.
   const urlRef = useRef(null);
+  const imageRef = useRef(null);
+  // One automatic print per opening, however many times the frame reports that it loaded.
+  const autoPrintedRef = useRef(false);
 
   const revoke = useCallback(() => {
     if (urlRef.current) {
@@ -50,10 +69,14 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
     if (!open || !visitTestId) return undefined;
     let cancelled = false;
     setState({ status: 'loading', url: null, kind: null, error: '' });
+    autoPrintedRef.current = false;
 
     (async () => {
       try {
-        const res = await api.get(`/results/${visitTestId}/file`, { responseType: 'blob' });
+        const res = await api.get(`/results/${visitTestId}/file`, {
+          responseType: 'blob',
+          params: authorisedOnly ? { version: 'authorised' } : undefined,
+        });
         if (cancelled) return;
         const kind = previewKindFor(res.data?.type);
         const url = window.URL.createObjectURL(res.data);
@@ -81,10 +104,18 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
       cancelled = true;
       revoke();
     };
-  }, [open, visitTestId, revoke]);
+  }, [open, visitTestId, authorisedOnly, revoke]);
+
+  // A patient's copies of their own report are not logged, as with every other read of their own
+  // record; the route is staff-only and would refuse them anyway.
+  const logCopy = (kind) => {
+    if (hasRole('Client') || !visitTestId) return;
+    api.post(`/results/${visitTestId}/copies`, { kind }).catch(() => {});
+  };
 
   const download = () => {
     if (!state.url) return;
+    logCopy('download');
     const link = document.createElement('a');
     link.href = state.url;
     link.download = fileName || `${testName || 'result'}.pdf`;
@@ -93,12 +124,29 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
     link.remove();
   };
 
-  // Printing an <iframe> means printing its document, not the page around it — so this deliberately
-  // does not use the .print-area trick the rest of the app uses for printing a DOM subtree.
+  // Printing an <iframe> means printing its document, not the page around it — so a PDF does not
+  // use the .print-area trick the rest of the app uses for printing a DOM subtree. An image does:
+  // printElement prints that one <img> on a page of its own. [1.108.0]
   const printDocument = () => {
+    logCopy('print');
+    if (state.kind === 'image' && imageRef.current) {
+      printElement(imageRef.current);
+      return;
+    }
     const frame = document.getElementById('result-document-frame');
     if (frame?.contentWindow) frame.contentWindow.print();
     else window.open(state.url, '_blank', 'noopener');
+  };
+
+  const canPrint = state.status === 'ready'
+    && (state.kind === 'image' || (state.kind === 'pdf' && canRenderPdfInline()));
+
+  // Called from the frame's or the image's onLoad: printing before the document has drawn prints
+  // a blank page. The short wait is for the PDF viewer, which reports load before it has painted.
+  const printIfAsked = () => {
+    if (!autoPrint || autoPrintedRef.current) return;
+    autoPrintedRef.current = true;
+    setTimeout(printDocument, 300);
   };
 
   return (
@@ -130,6 +178,7 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
                 id="result-document-frame"
                 title={`${testName || 'Diagnostic report'} preview`}
                 src={state.url}
+                onLoad={printIfAsked}
                 className="h-[60vh] w-full border-0 bg-white"
               />
             ) : (
@@ -155,7 +204,13 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
 
           {state.status === 'ready' && state.kind === 'image' && (
             <div className="flex h-[60vh] items-center justify-center overflow-auto bg-white p-4">
-              <img src={state.url} alt={`${testName || 'Diagnostic report'} preview`} className="max-h-full max-w-full object-contain" />
+              <img
+                ref={imageRef}
+                src={state.url}
+                alt={`${testName || 'Diagnostic report'} preview`}
+                onLoad={printIfAsked}
+                className="max-h-full max-w-full object-contain"
+              />
             </div>
           )}
 
@@ -176,7 +231,7 @@ const ResultDocument = ({ open, onOpenChange, visitTestId, testName, patientName
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open in new tab
               </Button>
-              {state.kind === 'pdf' && canRenderPdfInline() && (
+              {canPrint && (
                 <Button variant="outline" onClick={printDocument}>
                   <Printer className="h-3.5 w-3.5" />
                   Print

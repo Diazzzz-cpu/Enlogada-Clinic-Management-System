@@ -241,40 +241,8 @@ test.describe('Patient Records is a clinical roster', () => {
     await expect(page.getByTestId('patient-row').first()).not.toContainText(/unpaid/i);
   });
 
-  test('the roster can be narrowed to finished records', async ({ page }) => {
-    await signIn(page, 'admin@enlogada.com');
-    await page.getByRole('button', { name: 'Patient Records' }).first().click();
-    await expect(page.locator('[data-testid="patient-row"]').first()).toBeVisible({ timeout: 20000 });
-
-    await expect(page.getByRole('tab', { name: 'Complete' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Still open' })).toBeVisible();
-
-    await page.getByRole('tab', { name: 'Complete' }).click();
-    await expect(page.getByRole('tab', { name: 'Complete' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByText(/Every test seen through/i)).toBeVisible();
-  });
-
-  test('complete and open partition the roster exactly', async () => {
-    const ctx = await request.newContext();
-    const sup = await login(ctx, 'admin@enlogada.com');
-    const count = async (params) =>
-      (await (await ctx.get(`${API}/patients/search`, {
-        headers: { Authorization: `Bearer ${sup}` }, params: { limit: 100, ...params },
-      })).json()).data.total;
-
-    const all = await count({});
-    const complete = await count({ recordStatus: 'complete' });
-    const open = await count({ recordStatus: 'open' });
-
-    // Written as a clause and its exact negation in SQL, so they cannot overlap or leave a gap.
-    expect(complete + open, 'every record is one or the other').toBe(all);
-
-    // An unrecognised value is dropped, never applied as a filter that matches nothing — an
-    // empty roster reads as "this clinic has no patients", which is a claim, not a result.
-    expect(await count({ recordStatus: 'nonsense' })).toBe(all);
-
-    await ctx.dispose();
-  });
+  // [1.108.0] The Complete / Still open filter is gone: a record is its released results only, and
+  // patient-records-final.spec.js holds that.
 });
 
 /**

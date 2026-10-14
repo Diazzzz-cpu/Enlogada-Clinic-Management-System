@@ -3,12 +3,11 @@ import api from '../config/api';
 import { toastSuccess, toastError, toastInfo } from '../lib/toast';
 
 /**
- * Sending a released report to the patient again. [1.59.0]
+ * Emailing a released report to the patient, from History. [1.59.0] [1.113.0]
  *
- * Releasing already emails the patient, once, automatically — and that was the whole of it. The
- * toast said whether it went and then the toast faded, so a technician asked "did she ever get
- * her result?" a week later had nowhere to look, and a patient who says "it never arrived" could
- * only be helped by re-releasing a report that was already out.
+ * Releasing does not email; a report is sent when the patient asks for it, here or from the panel
+ * shown right after release, and as often as needed. The column beside the button says whether
+ * and where it went, so "did she ever get her result?" has an answer a week later.
  *
  * Deliberately NOT part of `useResultEntry`. Recording findings and authorising a release are
  * clinical acts against a specific version of a report; delivery is a postal problem that can

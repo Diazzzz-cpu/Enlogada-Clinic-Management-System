@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, CheckCircle2, FileText, Paperclip, Send } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, Mail, MailCheck, Paperclip, Send } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
@@ -12,8 +12,9 @@ import { REPORT_FILE_ACCEPT, REPORT_FILE_HINT } from '../../lib/reportFileTypes'
  * Lifted out of DiagnosticDashboard, which rendered both worklist modes and four dialogs
  * from one 847-line file. The props are the hooks this piece reads.
  * 
- * The release confirmation travels with it: authorising is irreversible from this screen
- * and emails the patient, so the question and the form asking it belong together.
+ * The release confirmation travels with it: authorising is irreversible from this screen, so the
+ * question and the form asking it belong together. Releasing does NOT email the patient [1.113.0]:
+ * the panel after it offers the email, for a patient who wants it sent.
  *
  * ── The report is a document, not typing ────────────────────────────────────────────────────
  *
@@ -46,14 +47,42 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
                   file the clinic attached, so a second rendering of it here would be a letterhead
                   wrapped around an empty box. The report is read and printed from the result, where
                   the patient reads it too. */}
-              <div className="rounded-xl border border-line bg-slate-50/70 p-3 space-y-1">
-                <p className="m-0 text-fine font-semibold text-slate-700">
-                  {entry.justReleased.file_original_name || 'The attached report'} was sent to the patient.
+              <div className="rounded-xl border border-line bg-slate-50/70 p-3">
+                <p className="m-0 text-fine text-slate-600">
+                  <span className="font-semibold text-slate-700">{entry.justReleased.file_original_name || 'The attached report'}</span>{' '}
+                  is on this patient&apos;s record and in their portal, where it can be read and
+                  printed. It has not been emailed.
                 </p>
-                <p className="m-0 text-fine text-gray-500">
-                  It is on this patient&apos;s record, and in their portal, where it can be read,
-                  downloaded and printed.
-                </p>
+              </div>
+
+              {/* Emailing is the patient's choice, so it is offered, never done for them. [1.113.0]
+                  History's Email button sends it later just the same. */}
+              <div data-testid="release-email" className="rounded-xl border border-line p-3">
+                {entry.emailState.status === 'sent' ? (
+                  <p className="m-0 flex items-center gap-1.5 text-fine font-semibold text-brand-700">
+                    <MailCheck className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    {entry.emailState.message}
+                  </p>
+                ) : entry.justReleased.patient_email ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="m-0 text-fine text-slate-600">
+                      Does the patient want it by email? It would go to <strong>{entry.justReleased.patient_email}</strong>.
+                    </p>
+                    <Button type="button" variant="outline" size="sm" onClick={entry.emailReleased}
+                      loading={entry.emailState.status === 'sending'}>
+                      <Mail className="h-3.5 w-3.5" />
+                      Email to patient
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="m-0 text-fine text-slate-500">
+                    No email address on file. If the patient wants it emailed, add one in Patient
+                    Records, then send it from History.
+                  </p>
+                )}
+                {entry.emailState.status === 'failed' && (
+                  <p role="alert" className="m-0 mt-2 text-fine text-rose-700">{entry.emailState.message}</p>
+                )}
               </div>
 
               <div className="flex justify-end">
@@ -74,7 +103,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
             </DialogTitle>
             <DialogDescription>
               Patient: <strong>{entry.activeTest?.first_name} {entry.activeTest?.last_name}</strong> &bull; Examination: <strong>{entry.activeTest?.test_name}</strong>
-              {entry.isEditing && ' — re-submitting will notify the patient again by email.'}
+              {entry.isEditing && " — the corrected report replaces the old one in the patient's portal."}
             </DialogDescription>
           </DialogHeader>
 
@@ -181,7 +210,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
                 className="font-bold text-xs px-5 py-2 rounded-xl flex items-center space-x-1.5"
               >
                 <Send className="w-4 h-4" />
-                <span>{entry.isEditing ? 'Save Correction & Re-notify' : 'Authorize & Release Result'}</span>
+                <span>{entry.isEditing ? 'Save Correction & Re-release' : 'Authorize & Release Result'}</span>
               </Button>
             </div>
           </form>
@@ -197,7 +226,7 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
         title={entry.isEditing ? 'Save Correction' : 'Authorize & Release Result'}
         description={entry.activeTest ? (
           entry.isEditing
-            ? `Save the corrected ${entry.activeTest.test_name} findings for ${entry.activeTest.first_name} ${entry.activeTest.last_name}? The patient will receive a new "results ready" email.`
+            ? `Save the corrected ${entry.activeTest.test_name} report for ${entry.activeTest.first_name} ${entry.activeTest.last_name}? It replaces the old one in their portal. It is not emailed unless you send it.`
             : `Release ${entry.activeTest.test_name} findings for ${entry.activeTest.first_name} ${entry.activeTest.last_name}? This finalizes the result and cannot be undone from this screen.`
         ) : ''}
         confirmLabel={entry.isEditing ? 'Save Correction' : 'Authorize & Release'}

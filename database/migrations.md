@@ -1,5 +1,25 @@
 # Database Migration & Schema History
 
+## [1.113.0] - 2026-10-15 (Releasing does not email; the portal views and prints, no download)
+
+No schema change; nothing to run.
+
+**Emailing a result is now a choice, not a side effect of releasing.** Not every patient wants a
+medical report sent to them. `releaseResult` no longer calls `deliverResultEmail`; it authorises the
+report, puts it in the portal and replies "it has not been emailed", with `patientEmail` so the
+screen can offer the send. The panel after release now offers **Email to patient** (or says there is
+no address); History's Email button is unchanged. Both use `POST /results/:id/email`, now the only
+path that emails a result. History's "Not recorded" reads **Not sent**, and Today's "N released
+reports not yet sent to the patient" is gone — under opt-in it would nag after every release.
+
+**The patient portal offers View and Print, not Download.** The Download button beside a released
+report and the viewer's Download and "Open in new tab" are hidden for a Client, and the PDF viewer
+is asked to hide its own toolbar. A Word or Excel report, which no browser can show, tells the
+patient to ask the clinic to email it. Removed with it: `lib/resultFile.js` and the portal's
+`file_url` branch, dead since [1.31.0] dropped that column.
+
+`release-email-choice.spec.js` holds both halves.
+
 ## [1.112.0] - 2026-10-14 (Patient feedback: the clinic's paper form, in the portal and at the desk)
 
 Run on an existing database:

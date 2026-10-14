@@ -246,7 +246,7 @@ start releasing their slot after 15 minutes ([1.35.0] — HMO and staff bookings
 the client's booking cards begin offering GCash instead of "pay at the counter".
 
 **Outbound email is configured and working.** `[1.50.0]` The clinic sends from
-`enlogada2011@gmail.com` via Gmail SMTP — released results, booking confirmations, and the
+`enlogada2011@gmail.com` via Gmail SMTP — a released result when staff choose to send it `[1.113.0]`, booking confirmations, and the
 6-digit codes for sign-up and password reset `[1.73.0]`, so without it nobody can create an
 account online (sign-up answers 503 and says why). `SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` in `backend/.env` (gitignored, untracked);
 `EMAIL_USER`/`EMAIL_APP_PASSWORD`/`EMAIL_FROM` are accepted as aliases because that is how Google
@@ -420,7 +420,7 @@ and rescheduling each awaited their email after the commit, so the patient's rep
 3–4 seconds a send on an ordinary run, and 44 seconds for one on 2026-09-14, when three specs failed
 at their 90-second timeout. Each is now started and not awaited, with a `.catch`. The commit is
 what the reply reports, and the send never could fail it anyway. A send whose OUTCOME the screen
-shows is different and stays awaited: releasing a result reports whether the email went.
+shows is different and stays awaited: emailing a result (`POST /results/:id/email`) reports whether it went.
 
 **An uploaded file is never named from what the client sent, and never served statically.** All three upload paths (`src/config/upload.js`) build the stored filename from random hex plus an extension mapped from the *validated* mime type, and re-check containment with `assertInside`. The extension used to come from `file.originalname`, which combined with a `%2F`-encoded route param let a request choose both the directory and the suffix — and multer writes before the controller's authorization check runs, so the 403 arrives after the file is on disk. Result files, avatars and HMO cards are all streamed back through an authenticated, ownership-checked route: an HMO card carries a member number, a name and often a photo.
 
@@ -902,7 +902,8 @@ with a link to the printable document.
   - **One "Needs you now"**, however many sections, built from descriptors in `lib/today.js` (pure,
     unit-tested). Each row has the one button that deals with it. A button that opens another screen
     passes an INTENT, `onSelectNav(id, intent)`: the Desk takes `verify` (that booking's card),
-    `find` and `editTests` (that visit's tests); a department's History takes `delivery`. App clears
+    `find` and `editTests` (that visit's tests); a department's History takes `delivery` (nothing on
+    Today sends it since `[1.113.0]`). App clears
     it on the next navigation, and the screen acts on it once.
   - **A fact appears once.** A need is never also a figure; a booking is on the bookings list only.
     There is no "Open the X" in the header: the empty list offers it, and a row carries it otherwise.
@@ -913,7 +914,7 @@ with a link to the printable document.
     yesterday rather than "yesterday by now".
   - **Test contracts:** `data-testid="today-needs"`, each row `today-need` with `data-need`
     (`no-tests-<visitId>`, `till`, `online`, `worklist-<Category>`,
-    `unsent-<Category>`, `hmo-decisions`, `failed`), plus `today-booking`, `today-takings`,
+    `hmo-decisions`, `failed`), plus `today-booking`, `today-takings`,
     `today-departments`. A spec about any other screen opens it first: `helpers/auth.js`
     `openScreen` / `signInTo`.
 - **SuperAdmin assigns access on "Who sees what".** `[1.78.0]` This is Steven's picture from the
@@ -1084,6 +1085,19 @@ Services Catalogue.
   structured measurement while 84 of 90 already had a file. The file is required to RELEASE and
   not to save, so a ticket still parks in 'Waiting for Release' while the report is produced.
   `RESULTS_REQUIRE_FILE=false` restores the old behaviour without a deploy.
+- **Releasing does not email; emailing is a separate choice.** `[1.113.0]` Not every patient wants a
+  medical report in their inbox. `releaseResult` authorises the report and puts it in the portal,
+  and returns `patientEmail` so the panel after release can OFFER "Email to patient"; History's
+  Email button sends it later, as often as needed. Both go through `POST /results/:id/email`
+  (`results:release`), the only path that emails a result, audited as `result.emailed`. History
+  reads "Not sent" for a released report with an address and no send, which is now the normal
+  state, so Today no longer lists unemailed reports as work.
+- **A patient views and prints a released report; the portal offers no download.** `[1.113.0]` The
+  clinic's choice: a patient who wants their own copy asks for it by email. `ResultDocument` hides
+  Download and "Open in new tab" for a Client and asks the PDF viewer to hide its toolbar
+  (`#toolbar=0`, Chrome and Edge). It is what the portal OFFERS, not a lock — a report on someone's
+  screen can be kept. A Word or Excel report cannot be shown in a browser, so the patient is told to
+  ask for it by email; a phone with no PDF viewer keeps "Open in new tab", the only way to read it.
 - **The typed result forms are gone, tables and all.** `[1.109.0]` `result_field_sets`,
   `result_fields`, `result_field_set_tests`, `result_measurements` and `clinic_signatories` were
   dropped by `migrateRemoveResultForms.js`, which writes every typed value

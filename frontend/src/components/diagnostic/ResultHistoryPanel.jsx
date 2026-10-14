@@ -161,12 +161,12 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                           </span>
                         </span>
                       ) : test.patient_email ? (
-                        // Released, has an address, and no record of a send. Either it predates
-                        // [1.59.0] (nothing was written down, so this honestly says "unknown")
-                        // or the send failed at release. Both are cases for the button beside it.
+                        // Released, has an address, not emailed. Since [1.113.0] that is the
+                        // normal state: releasing does not email, and the button beside this sends
+                        // it when the patient asks.
                         <span className="inline-flex items-center gap-1.5 text-slate-600">
                           <Mail className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                          Not recorded
+                          Not sent
                         </span>
                       ) : (
                         // Most walk-ins. Not a fault — a patient registered at the counter has no

@@ -435,9 +435,8 @@ class ResultService {
   /**
    * Send the patient their report, and WRITE DOWN that it went. [1.59.0]
    *
-   * One builder, called by release and by a manual re-send, because two copies of this would
-   * drift — and the copy that drifts is the one nobody is looking at, which here means an
-   * amended report going out under the wording for a first release.
+   * Called only when a member of staff chooses to send it [1.113.0]: releasing no longer emails.
+   * The wording still follows the version, so an amended report goes out as the replacement.
    *
    * Recording happens only on success. `emailed_at IS NULL` has to keep meaning "this report has
    * never reached the patient", with no second reading — a failed attempt that stamped the column
@@ -506,13 +505,12 @@ class ResultService {
   }
 
   /**
-   * Send a released report to the patient AGAIN, on request. [1.59.0]
+   * Send a released report to the patient by email, when somebody chooses to. [1.59.0] [1.113.0]
    *
-   * The gap this closes: release was the only path that emailed, it fired once, and it could not
-   * be repeated. A patient who says "I never received it", an address corrected after the fact,
-   * an SMTP outage during a release — in every case the only remedy available to a technician was
-   * to re-release a result that was already out, which writes a new authorisation record for a
-   * clinical event that did not happen again.
+   * The ONLY way a report is emailed. Releasing used to email the patient automatically; not every
+   * patient wants a medical report in their inbox, so release now only authorises the report and
+   * puts it in the portal, and a member of staff sends it when the patient asks — from the release
+   * confirmation, or later from the department's History, as many times as needed.
    *
    * Refuses on anything not yet released. A report that has not been authorised must not be
    * emailable by another door — that would make `results:release` bypassable by whoever can send
@@ -530,7 +528,7 @@ class ResultService {
     }
     if (!result.released_at || !result.authorised_at) {
       const error = new Error(
-        'This report has not been released yet. Release it from the worklist — that notifies the patient as part of the same step.'
+        'This report has not been released yet. Release it from the worklist first, then send it.'
       );
       error.statusCode = 409;
       throw error;
@@ -562,15 +560,14 @@ class ResultService {
       throw error;
     }
 
-    // Audited, unlike the automatic send at release: this one is a person deciding to put a
-    // medical report in front of a patient a second time, and "who sent this, and when" is the
-    // question asked afterwards.
+    // Audited: a person deciding to put a medical report in front of a patient, and "who sent
+    // this, and when" is the question asked afterwards.
     await auditService.log({
       actorId: requestingUser?.userId,
       action: 'result.emailed',
       entityType: 'test_results',
       entityId: result.id,
-      description: `${patientInfo.test_name} for ${patientInfo.first_name} ${patientInfo.last_name} re-sent to ${patientInfo.email}`,
+      description: `${patientInfo.test_name} for ${patientInfo.first_name} ${patientInfo.last_name} emailed to ${patientInfo.email}`,
     });
 
     const fresh = await resultRepository.findResultByVisitTestId(visitTestId);
@@ -588,8 +585,11 @@ class ResultService {
    * @returns {Promise<object>}
    *
    * Completing the last outstanding test also completes the VISIT, so the two writes share a
-   * transaction. The patient email is sent AFTER the commit — an email is not rollback-able, and
-   * telling somebody their result is ready when the release failed is worse than a delay.
+   * transaction.
+   *
+   * It does NOT email the patient. [1.113.0] Releasing authorises the report and puts it in the
+   * patient's portal; emailing it is a separate choice (`emailResult`), because not every patient
+   * wants their result sent to them.
    */
   async releaseResult({ visitTestId, releasedBy }, requestingUser) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
@@ -657,16 +657,10 @@ class ResultService {
       }
     });
 
-    // Attempt to send email notification to patient. sendEmail() never throws (it swallows
-    // SMTP failures and returns {error}/{skipped} instead, per backend/src/config/email.js) —
-    // UI/UX Modernization Phase 11: previously that return value was discarded here, so the
-    // controller always reported "patient notified via email" even when nothing was sent.
+    // Who and what, for the staff notification below. `result` was read before the release, so
+    // this is the version being authorised.
     const patientInfo = await resultRepository.findPatientEmailByVisitTestId(visitTestId);
-
-    // `result` was read before the release, so this is the version being authorised.
     const isAmendment = (result.version || 1) > 1;
-
-    const emailStatus = await this.deliverResultEmail({ patientInfo, isAmendment, visitTestId });
 
     // Module 18 (Notification): Admin/SuperAdmin oversight of diagnostic throughput, matching
     // the existing Reports/oversight theme — not the releasing staff member themselves, who is
@@ -684,7 +678,8 @@ class ResultService {
       });
     }
 
-    return { ...result, emailStatus, isAmendment };
+    // Whether there is an address to send it to, so the screen can offer the email or say why not.
+    return { ...result, isAmendment, patientEmail: patientInfo?.email || null };
   }
 
   // Lets the modality re-open a ticket that is already 'Waiting for Release' and edit the

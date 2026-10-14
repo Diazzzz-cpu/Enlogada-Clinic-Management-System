@@ -73,7 +73,6 @@ const Today = ({ onSelectNav }) => {
     hmo: hasPermission('hmo:read'),
     decide: hasPermission('hmo:approve'),
     results: hasPermission('results:read'),
-    send: hasPermission('results:release'),
     checkIn: hasPermission('appointments:read') && hasPermission('appointments:update'),
     takeMoney: hasPermission('billing:process'),
   };
@@ -109,8 +108,6 @@ const Today = ({ onSelectNav }) => {
   worklists.forEach(({ category }) => {
     fetchers[`pending:${category}`] = can.results
       && (() => api.get(`/results/pending/${category}`).then((r) => body(r).pending || []));
-    fetchers[`unsent:${category}`] = can.results && can.send
-      && (() => api.get(`/results/released/${category}`, { params: { delivery: 'unsent', days: 7 } }).then((r) => body(r).released || []));
   });
 
   const reads = useTodayReads(fetchers);
@@ -147,18 +144,13 @@ const Today = ({ onSelectNav }) => {
       now,
     }));
   }
-  worklists.forEach(({ nav, history, category }) => {
+  worklists.forEach(({ nav, category }) => {
     const pending = reads.read(`pending:${category}`);
-    const unsent = reads.read(`unsent:${category}`);
     if (pending.failed) couldNot.push(`the ${categoryLabel(category)} worklist`);
-    if (unsent.failed) couldNot.push('reports not yet sent');
     needs.push(...departmentNeeds({
       category,
       pending: pending.data || [],
-      unsent: unsent.data || [],
       nav,
-      historyNav: history,
-      canSend: can.send,
       labelled: worklists.length > 1,
       now,
     }));

@@ -1,6 +1,6 @@
 import React from 'react';
 import { printElement } from '../../lib/printArea';
-import { Activity, Calendar, CheckCircle, Clock, Download, Eye, FileText, FlaskConical, Printer, Scan, Search, Stethoscope } from 'lucide-react';
+import { Activity, Calendar, CheckCircle, Clock, Eye, FileText, FlaskConical, Printer, Scan, Search, Stethoscope } from 'lucide-react';
 
 // The mark a patient recognises their own report by. Elements rather than components because
 // they are looked up by name and rendered as-is; the sizing is the same everywhere it appears.
@@ -19,7 +19,6 @@ import { SearchInput } from '../ui/search-input';
 import { Dialog, DialogContent, DialogTrigger } from '../ui/dialog';
 import { StatusBadge } from '../ui/status-badge';
 import ResultReport from '../ResultReport';
-import { isSafeResultUrl, downloadResultFile } from '../../lib/resultFile';
 
 /**
  * The diagnostic reports this patient can read.
@@ -148,7 +147,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                             patientName={patientName}
                             variant="patient"
                           >
-                              {(item.file_path || item.file_url) && (
+                              {item.file_path && (
                                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e6ebf1] bg-slate-50/80 p-3">
                                   <span className="flex items-center gap-2">
                                     <FileText className="h-4 w-4 text-brand-600" />
@@ -156,48 +155,23 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                                       {item.file_original_name || 'Attached report'}
                                     </span>
                                   </span>
-                                  {item.file_path ? (
-                                    // View, not download. The patient is already looking at the
-                                    // summary; making them save a file to read the report itself
-                                    // is a step that exists only because nothing rendered it.
-                                    <span className="flex items-center gap-1.5">
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="xs"
-                                        onClick={() => onPreviewDocument({
-                                          visitTestId: item.visit_test_id,
-                                          testName: item.test_name,
-                                          patientName,
-                                          fileName: item.file_original_name,
-                                        })}
-                                      >
-                                        <Eye className="h-3 w-3" />
-                                        View Report
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="xs"
-                                        onClick={() => downloadResultFile(item.visit_test_id, item.file_original_name)}
-                                      >
-                                        <Download className="h-3 w-3" />
-                                        Download
-                                      </Button>
-                                    </span>
-                                  ) : isSafeResultUrl(item.file_url) ? (
-                                    <a
-                                      href={item.file_url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="inline-flex items-center gap-1 text-fine font-semibold text-brand-700 hover:underline"
-                                    >
-                                      <Download className="h-3 w-3" />
-                                      Open attachment
-                                    </a>
-                                  ) : (
-                                    <span className="text-fine font-semibold text-amber-700">Attachment link unavailable</span>
-                                  )}
+                                  {/* View and print only. [1.113.0] A released report is not offered as
+                                      a download in the portal; a patient who wants their own copy asks
+                                      the clinic to email it, which the clinic does on request. */}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={() => onPreviewDocument({
+                                      visitTestId: item.visit_test_id,
+                                      testName: item.test_name,
+                                      patientName,
+                                      fileName: item.file_original_name,
+                                    })}
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                    View Report
+                                  </Button>
                                 </div>
                               )}
                           </ResultReport>

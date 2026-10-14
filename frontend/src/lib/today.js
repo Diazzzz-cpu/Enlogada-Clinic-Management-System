@@ -189,14 +189,16 @@ export function tillNeeds({ waiting = [], online = [], canCheck = false, now = n
 }
 
 /**
- * A department's work. One row for its worklist, however many tests wait on it, because both
- * halves — the exam and the release — are done from the same screen; and one for released reports
- * whose email never went, which are done from History.
+ * A department's work: one row for its worklist, however many tests wait on it, because both
+ * halves — the exam and the release — are done from the same screen.
+ *
+ * Released reports that were never emailed are NOT work [1.113.0]: emailing is the patient's
+ * choice, made when they ask, so listing every unemailed report here would nag after each release.
  *
  * `labelled` names the department in the title, for someone who works more than one.
  */
 export function departmentNeeds({
-  category, pending = [], unsent = [], nav, historyNav, canSend = false, labelled = false, now = new Date(),
+  category, pending = [], nav, labelled = false, now = new Date(),
 } = {}) {
   const label = categoryLabel(category);
   const prefix = labelled ? `${label}: ` : '';
@@ -214,20 +216,6 @@ export function departmentNeeds({
       title: prefix + [exam && `${exam} waiting for exam`, ready && `${ready} ready to release`].filter(Boolean).join(' · '),
       detail: `Oldest: ${personName(oldest)}, ${oldest.test_name}${since ? `, waiting ${since}` : ''}`,
       action: { label: 'Open worklist', ariaLabel: `Open the ${label} worklist`, go: nav },
-    });
-  }
-
-  // Only reports that CAN be sent: an address on file and no send recorded. A walk-in with no email
-  // is not work anyone can do, and listing them would bury the ones a mail outage left behind.
-  const reachable = unsent.filter((r) => r.patient_email && !r.emailed_at);
-  if (canSend && reachable.length) {
-    rows.push({
-      id: `unsent-${category}`,
-      tone: 'blue',
-      icon: 'mail',
-      title: `${prefix}${count(reachable.length, 'released report')} not yet sent to the patient`,
-      detail: `${someNames(reachable.map(personName))} · an email address is on file`,
-      action: { label: 'Open History', ariaLabel: `Open ${label} History`, go: historyNav, intent: { delivery: 'unsent' } },
     });
   }
   return rows;

@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import api from '../config/api';
-import { toastSuccess, toastInfo, toastWarning } from '../lib/toast';
-
 import { isAllowedReportFile, REPORT_FILE_MAX_BYTES, REPORT_FILE_TYPE_ERROR } from '../lib/reportFileTypes';
 
 /**
@@ -52,6 +50,9 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
    * to History and finding the same result again.
    */
   const [justReleased, setJustReleased] = useState(null);
+  // [1.113.0] Emailing the report just released, if the patient wants it. Opt-in: releasing never
+  // sends it. { status: 'idle' | 'sending' | 'sent' | 'failed', message }
+  const [emailState, setEmailState] = useState({ status: 'idle', message: '' });
 
   const [isEditing, setIsEditing] = useState(false);
 
@@ -239,30 +240,10 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       if (resultFile) await submitReport();
 
       const releaseRes = await api.post(`/results/${activeTest.visit_test_id}/release`);
-      const emailStatus = releaseRes.data.data.result?.emailStatus;
-
-      // What actually happened, not a blanket "released and notified". This used to claim
-      // success even when sendEmail had failed or silently skipped on unconfigured SMTP.
-      // A WARNING, not an error. [1.54.0] The release SUCCEEDED — the report is out, the visit
-      // has moved on, and there is nothing to undo. Only the email did not go. Reporting that in
-      // red says the release failed, which sends a technician looking for a problem that is not
-      // there, and risks them releasing it a second time.
-      //
-      // The description carries the action, because the headline states an outcome and the
-      // reader's next question is "so what do I do".
-      if (emailStatus === 'sent') {
-        toastSuccess('Result released and the patient was notified by email.');
-      } else if (emailStatus === 'failed') {
-        toastWarning(
-          'Result released — but the email did not send.',
-          'The report is available in the portal. Telephone the patient if this one is urgent.'
-        );
-      } else {
-        toastInfo(
-          'Result released. No email address on file.',
-          'The patient can still read it in their portal, or collect a printed copy.'
-        );
-      }
+      // Releasing does not email. [1.113.0] The panel that replaces the form says so and offers
+      // the email, which is why there is no toast here: it would say the same thing twice.
+      const patientEmail = releaseRes.data.data.result?.patientEmail || null;
+      setEmailState({ status: 'idle', message: '' });
 
       setConfirmingRelease(false);
 
@@ -280,8 +261,9 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
         // Non-fatal: the release succeeded either way, and the panel falls back to what is in hand.
       }
 
-      setJustReleased(stored ? { ...activeTest, ...stored } : {
+      setJustReleased(stored ? { ...activeTest, ...stored, patient_email: patientEmail } : {
         ...activeTest,
+        patient_email: patientEmail,
         released_at: new Date().toISOString(),
         released_by_first_name: user?.firstName,
         released_by_last_name: user?.lastName,
@@ -294,8 +276,24 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       setReleasing(false);
     }
 
-    // The report has gone to the patient. Nothing past here may report it as failed.
+    // The report is released. Nothing past here may report it as failed.
     onReleased?.();
+  };
+
+  /**
+   * Email the report just released, because the patient asked for it. [1.113.0] The same endpoint
+   * History's Email button uses; the outcome is shown in the panel, where the button was.
+   */
+  const emailReleased = async () => {
+    if (!justReleased) return;
+    setEmailState({ status: 'sending', message: '' });
+    try {
+      const res = await api.post(`/results/${justReleased.visit_test_id}/email`);
+      setEmailState({ status: 'sent', message: res.data.message });
+      onReleased?.();
+    } catch (err) {
+      setEmailState({ status: 'failed', message: err.response?.data?.message || 'The report could not be sent.' });
+    }
   };
 
   return {
@@ -303,7 +301,7 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
     resultFile, hasReport,
     open, error, saving,
     confirmingRelease, releasing,
-    justReleased,
+    justReleased, emailState, emailReleased,
     isEditing, isAmendingReleased,
     amendmentReason, setAmendmentReason,
     openFor, openForEdit, openRelease,

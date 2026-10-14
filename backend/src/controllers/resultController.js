@@ -161,15 +161,12 @@ class ResultController {
       const releasedBy = req.user.userId;
 
       const result = await resultService.releaseResult({ visitTestId, releasedBy }, req.user);
-      const message = result.emailStatus === 'sent'
-        ? 'Result released and patient notified via email.'
-        : result.emailStatus === 'failed'
-        ? 'Result released — email notification failed, patient was not notified.'
-        : 'Result released. No email on file, so the patient was not notified.';
 
+      // [1.113.0] Releasing no longer emails; the patient reads it in the portal, and staff send it
+      // by email only when asked (POST /results/:visitTestId/email).
       return res.status(200).json({
         status: 'success',
-        message,
+        message: "Result released. It is in the patient's portal; it has not been emailed.",
         data: { result }
       });
     } catch (err) {
@@ -178,11 +175,10 @@ class ResultController {
   }
 
   /**
-   * Send a released report to the patient again. [1.59.0]
+   * Email a released report to the patient, when somebody chooses to. [1.59.0] [1.113.0]
    *
-   * Separate from release on purpose: releasing is a clinical authorisation that happens once,
-   * and re-sending is a delivery problem that can happen any number of times. Folding the second
-   * into the first would mean re-authorising a result to fix an email bounce.
+   * Separate from release on purpose: releasing is a clinical authorisation that happens once, and
+   * sending is the patient's choice, made any number of times — never a reason to re-authorise.
    */
   async emailResult(req, res, next) {
     try {

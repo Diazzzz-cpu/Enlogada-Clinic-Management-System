@@ -125,31 +125,6 @@ test.describe('Today', () => {
     await expect(card.getByRole('button', { name: 'Confirm Check-In Patient' })).toBeVisible();
   });
 
-  test('reports that never reached the patient open History already filtered to them', async ({ page }) => {
-    const report = {
-      visit_test_id: 987654324, test_status: 'Completed', test_name: 'Complete Blood Count (CBC)',
-      category_name: 'Laboratory', first_name: 'Ana', last_name: 'Reyes', patient_id: 987654324,
-      patient_email: 'ana.reyes@enlogada-e2e.test', emailed_at: null, email_count: 0,
-      released_at: new Date().toISOString(), visit_date: new Date().toISOString(), queue_number: 'Q-097', version: 1,
-    };
-    // Only Today's read (the last seven days) is served; History asks the real server.
-    const todaysRead = (url) => url.pathname === '/api/results/released/Laboratory' && url.searchParams.get('days') === '7';
-    await page.route(todaysRead, (route) => route.fulfill({ json: { status: 'success', data: { released: [report] } } }));
-
-    await signIn(page, 'lab@enlogada.com');
-    const need = page.locator('[data-need="unsent-Laboratory"]');
-    await expect(need).toContainText('1 released report not yet sent to the patient', { timeout: 20000 });
-
-    const historyAsks = page.waitForRequest((req) => {
-      const url = new URL(req.url());
-      return url.pathname === '/api/results/released/Laboratory'
-        && url.searchParams.get('delivery') === 'unsent' && !url.searchParams.has('days');
-    });
-    await need.getByRole('button', { name: 'Open Laboratory History' }).click();
-    await expect(page.getByRole('heading', { name: 'Laboratory History', exact: true, level: 1 })).toBeVisible({ timeout: 15000 });
-    await historyAsks;
-  });
-
   test('the cashier sees the takings, and one way to the till', async ({ page }) => {
     await signIn(page, 'cashier@enlogada.com');
     await expect(page.getByTestId('today-takings')).toContainText('Collected today', { timeout: 20000 });

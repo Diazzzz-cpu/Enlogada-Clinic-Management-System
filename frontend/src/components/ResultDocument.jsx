@@ -42,6 +42,15 @@ import { FileText, Download, Printer, AlertCircle, ExternalLink } from 'lucide-r
  * `authorisedOnly` asks for the report that went out rather than an amendment still being
  * written — what Patient Records shows. `autoPrint` prints as soon as the report has loaded, for
  * a Print button on a list.
+ *
+ * ── A patient views and prints; they are not offered a download [1.113.0] ──────────────────────
+ * The clinic's choice: a patient who wants their own copy asks for it to be emailed, and the clinic
+ * sends it. So for a Client there is no Download and no "Open in new tab" (a tab is a download one
+ * click later), and the PDF viewer's own toolbar is asked to hide (`#toolbar=0`, honoured by Chrome
+ * and Edge). This is what the portal OFFERS, not a lock: a report on someone's screen can still be
+ * kept by whoever is looking at it. A Word or Excel report cannot be shown in a browser at all, so
+ * the patient is told to ask for it by email. The one exception is a phone with no PDF viewer, where
+ * a new tab is the only way to read it at all.
  */
 
 const ResultDocument = ({
@@ -49,6 +58,7 @@ const ResultDocument = ({
   authorisedOnly = false, autoPrint = false,
 }) => {
   const { hasRole } = useAuth();
+  const isPatient = hasRole('Client');
   const [state, setState] = useState({ status: 'idle', url: null, kind: null, error: '' });
   // Held in a ref as well as state so the cleanup effect can revoke the *current* URL without
   // taking `state` as a dependency, which would re-run cleanup on every render and revoke a URL
@@ -177,7 +187,7 @@ const ResultDocument = ({
               <iframe
                 id="result-document-frame"
                 title={`${testName || 'Diagnostic report'} preview`}
-                src={state.url}
+                src={isPatient ? `${state.url}#toolbar=0&navpanes=0` : state.url}
                 onLoad={printIfAsked}
                 className="h-[60vh] w-full border-0 bg-white"
               />
@@ -185,17 +195,21 @@ const ResultDocument = ({
               <EmptyState
                 icon={FileText}
                 title="This browser can't display PDFs inline"
-                description="The report loaded fine — your browser just has no built-in PDF viewer. Open it in a new tab or download it."
+                description={isPatient
+                  ? 'The report loaded fine — your browser just has no built-in PDF viewer. Open it in a new tab to read it.'
+                  : 'The report loaded fine — your browser just has no built-in PDF viewer. Open it in a new tab or download it.'}
                 action={
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => window.open(state.url, '_blank', 'noopener')}>
                       <ExternalLink className="h-3.5 w-3.5" />
                       Open in new tab
                     </Button>
-                    <Button size="sm" onClick={download}>
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </Button>
+                    {!isPatient && (
+                      <Button size="sm" onClick={download}>
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </Button>
+                    )}
                   </div>
                 }
               />
@@ -215,32 +229,44 @@ const ResultDocument = ({
           )}
 
           {state.status === 'ready' && !state.kind && (
-            <EmptyState
-              icon={FileText}
-              title="This file type can't be shown here"
-              description="Download it to open in the right application. PDFs and images preview inline."
-              action={<Button size="sm" onClick={download}><Download className="h-3.5 w-3.5" />Download</Button>}
-            />
+            isPatient ? (
+              <EmptyState
+                icon={FileText}
+                title="This report can't be shown here"
+                description="It is a Word document or a spreadsheet, which a browser cannot display. Ask the clinic to email it to you, or to print you a copy."
+              />
+            ) : (
+              <EmptyState
+                icon={FileText}
+                title="This file type can't be shown here"
+                description="Download it to open in the right application. PDFs and images preview inline."
+                action={<Button size="sm" onClick={download}><Download className="h-3.5 w-3.5" />Download</Button>}
+              />
+            )
           )}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           {state.status === 'ready' && (
             <>
-              <Button variant="outline" onClick={() => window.open(state.url, '_blank', 'noopener')}>
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open in new tab
-              </Button>
+              {!isPatient && (
+                <Button variant="outline" onClick={() => window.open(state.url, '_blank', 'noopener')}>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open in new tab
+                </Button>
+              )}
               {canPrint && (
-                <Button variant="outline" onClick={printDocument}>
+                <Button variant={isPatient ? 'default' : 'outline'} onClick={printDocument}>
                   <Printer className="h-3.5 w-3.5" />
                   Print
                 </Button>
               )}
-              <Button onClick={download}>
-                <Download className="h-3.5 w-3.5" />
-                Download
-              </Button>
+              {!isPatient && (
+                <Button onClick={download}>
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </Button>
+              )}
             </>
           )}
         </div>

@@ -135,17 +135,9 @@ describe('departmentNeeds', () => {
     expect(row.action.go).toBe('lab-ops');
   });
 
-  it('counts only reports that can be sent, and only for someone who may send them', () => {
-    const unsent = [
-      { first_name: 'Liza', last_name: 'Tan', patient_email: 'liza@example.com', emailed_at: null },
-      { first_name: 'Walk', last_name: 'In', patient_email: null, emailed_at: null },
-      { first_name: 'Sent', last_name: 'Already', patient_email: 'x@example.com', emailed_at: iso(9) },
-    ];
-    const base = { category: 'Xray', unsent, historyNav: 'xray-history', now: at(10) };
-    expect(departmentNeeds({ ...base, canSend: false })).toEqual([]);
-    const [row] = departmentNeeds({ ...base, canSend: true, labelled: true });
-    expect(row.title).toBe('X-Ray: 1 released report not yet sent to the patient');
-    expect(row.action).toMatchObject({ go: 'xray-history', intent: { delivery: 'unsent' } });
+  // [1.113.0] Emailing a released report is the patient's choice, so an unemailed one is not work.
+  it('asks nothing of a department with an empty worklist', () => {
+    expect(departmentNeeds({ category: 'Xray', pending: [], nav: 'xray-ops', now: at(10) })).toEqual([]);
   });
 });
 

@@ -1,10 +1,12 @@
 /**
  * A patient's booking, as the API now requires it. [1.106.0]
  *
- * Every booking a patient makes carries the doctor's signed request, self-pay included, so it is a
- * multipart body with a file — a JSON body from a Client token is refused with 400. Ten specs
- * booked as a patient with `data: {...}`; they all go through here, so the next change to what a
- * booking must carry is made once.
+ * A patient's HMO booking carries the doctor's signed request, so it is a multipart body with a
+ * file. [1.107.0] made it optional for self-pay, and this still attaches it by default, so the
+ * specs that go through here book exactly as they did before; pass `doctorRequest: false` to
+ * book without it. Ten
+ * specs booked as a patient with `data: {...}`; they all go through here, so the next change to
+ * what a booking must carry is made once.
  *
  * Staff bookings are exempt and may stay JSON.
  *

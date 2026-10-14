@@ -125,18 +125,22 @@ test.describe('Booking atomicity (API)', () => {
     expect(body.data.alreadyBooked).toBe(false);
   });
 
-  // [1.106.0] A patient's booking carries the doctor's signed request — self-pay as well as HMO —
-  // in place of the doctor's name and clinical notes they used to type. Refused before the
-  // transaction, so the slot stays free; and the file reaches the visit, readable by its owner.
-  test("a patient's booking without the doctor's request is refused and consumes no slot", async () => {
+  // [1.106.0] A patient's HMO booking carries the doctor's signed request, in place of the
+  // doctor's name and clinical notes they used to type: the HMO approves the tests against it.
+  // Refused before the transaction, so the slot stays free; and the file reaches the visit,
+  // readable by its owner.
+  test("a patient's HMO booking without the doctor's request is refused and consumes no slot", async () => {
+    const providerId = (await (await apiContext.get(`${API}/hmo/providers`, {
+      headers: { Authorization: `Bearer ${clientToken}` }
+    })).json()).data.providers[0].id;
     const target = await claimSlot();
     const before = await countMyBookings();
 
     const res = await apiContext.post(`${API}/appointments`, {
       headers: { Authorization: `Bearer ${clientToken}` },
       multipart: appointmentForm(
-        { patientId, scheduledDate: BOOKING_DATE, scheduledTime: target, testIds },
-        { doctorRequest: false }
+        { patientId, scheduledDate: BOOKING_DATE, scheduledTime: target, testIds, hmo: { providerId } },
+        { doctorRequest: false, hmoCard: true }
       )
     });
     expect(res.status()).toBe(400);
@@ -144,6 +148,25 @@ test.describe('Booking atomicity (API)', () => {
 
     expect(await countMyBookings()).toBe(before);
     expect((await freeSlot(BOOKING_DATE)).some((s) => s.time === target)).toBe(true);
+  });
+
+  // [1.107.0] Self-pay is not asked for it. A patient paying for their own test books without the
+  // paper, and the visit simply has none on file.
+  test("a self-pay booking needs no doctor's request", async () => {
+    const res = await apiContext.post(`${API}/appointments`, {
+      headers: { Authorization: `Bearer ${clientToken}` },
+      multipart: appointmentForm(
+        { patientId, scheduledDate: BOOKING_DATE, scheduledTime: await claimSlot(), testIds },
+        { doctorRequest: false }
+      )
+    });
+    expect(res.status()).toBe(201);
+    const visitId = (await res.json()).data.appointment.patient_visit_id;
+
+    const file = await apiContext.get(`${API}/visits/${visitId}/doctor-request`, {
+      headers: { Authorization: `Bearer ${clientToken}` }
+    });
+    expect(file.status()).toBe(404);
   });
 
   test("the doctor's request lands on the visit, and only its owner and staff may read it", async () => {

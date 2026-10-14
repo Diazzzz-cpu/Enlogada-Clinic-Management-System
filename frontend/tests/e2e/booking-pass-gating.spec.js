@@ -71,8 +71,8 @@ test('a self-pay booking is confirmed without issuing the pass', async ({ page }
   await expect(box).toBeVisible({ timeout: 10000 });
   await box.check();
 
-  // Step 2 — the doctor's request every booking carries [1.106.0], with the HMO question left on
-  // its Self-Pay default, which is the case under test.
+  // Step 2 — the doctor's request [1.106.0], optional on self-pay since [1.107.0] and attached
+  // anyway, with the HMO question left on its Self-Pay default, which is the case under test.
   await attachDoctorRequest(dialog);
   const submit = dialog.getByRole('button', { name: /submit schedule request/i });
   await expect(submit).toBeVisible({ timeout: 10000 });

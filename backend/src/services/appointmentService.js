@@ -259,11 +259,14 @@ class AppointmentService {
         error.statusCode = 404;
         throw error;
       }
-      // [1.106.0] A patient's own booking carries the doctor's signed request, and that paper
-      // also answers "who referred them" — so a patient no longer types the doctor's name.
+      // [1.107.0] A patient's HMO booking, or a Private patient's, carries the doctor's signed
+      // request, and that paper also answers "who referred them" — so a patient no longer types
+      // the doctor's name. Optional for self-pay.
       assertDoctorRequestIfRequired({
         isStaff: isStaffUser(requestingUser),
-        hasDoctorRequest: Boolean(doctorRequestFile)
+        hasDoctorRequest: Boolean(doctorRequestFile),
+        hasHmoClaim: Boolean(hmo),
+        patientTypeName: bookingPatient.patient_type_name
       });
       assertReferralIfRequired({
         patientTypeName: bookingPatient.patient_type_name,

@@ -206,8 +206,8 @@ const HMO_CARD_MIME_EXTENSIONS = new Map([
 const MAX_HMO_CARD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
 // The doctor's signed request for a booking's tests. [1.106.0] A file on the VISIT, not on an HMO
-// claim: every online booking carries one, self-pay included, and it stands in for the doctor's
-// name and the clinical notes the patient used to type. Its own folder, because it is part of the
+// claim: every online HMO booking carries one, a self-pay booking may [1.107.0], and it stands in
+// for the doctor's name and the clinical notes the patient used to type. Its own folder, because it is part of the
 // visit's record rather than insurance evidence, and pruneHmoCards.js must never reach it.
 const DOCTOR_REQUEST_UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads', 'doctor-requests');
 fs.mkdirSync(DOCTOR_REQUEST_UPLOAD_ROOT, { recursive: true });

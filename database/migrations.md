@@ -1,5 +1,31 @@
 # Database Migration & Schema History
 
+## [1.107.0] - 2026-10-14 (The doctor's request is required for an HMO booking, optional for self-pay)
+
+No schema change; nothing to run.
+
+[1.106.0] asked every booking a patient made for the doctor's signed request, self-pay included.
+A patient paying for their own test is not asked for paperwork the clinic does not
+need to bill it. `referralService.assertDoctorRequestIfRequired` now requires the paper exactly when
+`referralRequirement` requires the visit to name its doctor:
+
+- **An HMO claim** — the HMO approves the tests against it. Required, as before.
+- **A Private patient** — the type means "a physician referred them", whoever pays. Required: the
+  booking dialog no longer has a typed name, so the paper is the only way such a booking could
+  satisfy the referral rule, and leaving it optional would have refused the booking at submit with
+  a message about a field the patient cannot see.
+- **Anyone else paying for themselves** — optional. They may still attach it, and the Desk shows
+  "View doctor's request / notes" only when one is on file.
+
+The dialog's step 2 now asks who pays FIRST, because that decides what else is asked, and marks the
+upload required or "(optional)" to match. The pill reads "2. HMO & Doctor's Notes" and the field
+"Doctor's Request / Doctor's Notes", because "doctor's notes" is what many patients call the paper;
+the Desk button and Admin's Service Requests heading carry the same pair.
+
+A patient cannot later claim HMO from the portal on a self-pay visit booked without the paper —
+`POST /hmo/request` still refuses a patient's claim on a visit with none — but the portal has no
+such screen; only the front desk files a claim later, and staff are exempt.
+
 ## [1.106.0] - 2026-10-12 (A booking carries the doctor's signed request, in place of typing it)
 
 Run on an existing database:

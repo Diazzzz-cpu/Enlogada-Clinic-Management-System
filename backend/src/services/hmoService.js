@@ -176,10 +176,10 @@ class HmoService {
     const supplied = normaliseReferral(referral || {});
     const already = isNamed(visit?.referring_physician);
     // [1.106.0] The doctor's signed request lives on the visit. A patient's own claim needs one —
-    // their booking carried it, so this only refuses a visit booked for them some other way — and
-    // a request on file names the doctor, so it answers the LOA rule below as well.
+    // a self-pay booking may have been made without it [1.107.0], and so may one the desk made for
+    // them — and a request on file names the doctor, so it answers the LOA rule below as well.
     const hasDoctorRequest = Boolean(visit?.doctor_request_file_path);
-    assertDoctorRequestIfRequired({ isStaff: isStaffUser(requestingUser), hasDoctorRequest });
+    assertDoctorRequestIfRequired({ isStaff: isStaffUser(requestingUser), hasDoctorRequest, hasHmoClaim: true });
 
     assertReferralIfRequired({
       patientTypeName: visit?.patient_type_name,

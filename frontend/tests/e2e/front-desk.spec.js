@@ -116,11 +116,11 @@ test.describe("The Desk's Who's here box", () => {
 
     // The patient uploaded the doctor's request instead of typing the doctor's name, so check-in
     // is where the desk reads it — in place, and decoded rather than a broken image. [1.106.0]
-    await card.getByRole('button', { name: "View doctor's request" }).click();
+    await card.getByRole('button', { name: "View doctor's request / notes" }).click();
     const paper = card.getByAltText("The doctor's signed request for this booking");
     await expect(paper).toBeVisible();
     await expect.poll(() => paper.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
-    await card.getByRole('button', { name: "Hide doctor's request" }).click();
+    await card.getByRole('button', { name: "Hide doctor's request / notes" }).click();
     await expect(paper).toHaveCount(0);
   });
 

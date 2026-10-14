@@ -354,13 +354,13 @@ const ServiceRequests = () => {
               />
 
               {/* [1.106.0] What the doctor signed for, which the HMO approves against. It belongs to
-                  the VISIT — every online booking carries one, HMO or not — so it is read from the
-                  visit's own route. A claim filed at the desk has none because the patient handed
+                  the VISIT — every online HMO booking carries one, and a self-pay booking may
+                  [1.107.0] — so it is read from the visit's own route. A claim filed at the desk has none because the patient handed
                   reception the paper; an older booking has none at all, and says so. */}
               <AttachedFile
                 url={detailRequest?.patient_visit_id ? `/visits/${detailRequest.patient_visit_id}/doctor-request` : null}
                 hasFile={Boolean(detailRequest?.has_doctor_request)}
-                title="Doctor's Request"
+                title="Doctor's Request / Notes"
                 noun="doctor's request"
                 imageAlt="The doctor's signed request for these tests"
                 frameTitle="Scan of the doctor's signed request"

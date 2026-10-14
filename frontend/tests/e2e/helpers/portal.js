@@ -44,11 +44,15 @@ export async function openBooking(page) {
   return dialog;
 }
 
-/** The booking wizard's second step, by its pill. [1.106.0] It used to be "2. HMO / Payment Note". */
-export const BOOKING_STEP_TWO = /^2\. Doctor's Request/i;
+/**
+ * The booking wizard's second step, by its pill. It was "2. HMO / Payment Note", then "2. Doctor's
+ * Request & HMO" [1.106.0], and is "2. HMO & Doctor's Notes" since [1.107.0] put who pays first.
+ */
+export const BOOKING_STEP_TWO = /^2\. HMO & Doctor's Notes/i;
 
 /**
- * Go to step 2 and attach the doctor's signed request, which every booking needs. [1.106.0]
+ * Go to step 2 and attach the doctor's signed request. [1.106.0] Required on an HMO booking and
+ * optional for self-pay [1.107.0]; a spec that attaches it either way still books.
  *
  * The pill rather than the Next button: the pill is always in view, while Next sits below a
  * catalogue of 60-odd tests. Waits for the preview, because the dialog prepares the image before

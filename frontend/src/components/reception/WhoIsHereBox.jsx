@@ -307,7 +307,8 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
  */
 function BookingCard({ booking, checkIn, disposition, can }) {
   // [1.106.0] The patient uploaded the doctor's signed request instead of typing the doctor's
-  // name, so check-in is where the desk reads it. Shown in place, not in a dialog, so the card's
+  // name, so check-in is where the desk reads it. Optional on a self-pay booking [1.107.0], so the
+  // button appears only when there is one. Shown in place, not in a dialog, so the card's
   // own actions stay in view.
   const [showRequest, setShowRequest] = useState(false);
   return (
@@ -364,7 +365,7 @@ function BookingCard({ booking, checkIn, disposition, can }) {
             onClick={() => setShowRequest((v) => !v)}
           >
             <FileText className="h-4 w-4" />
-            {showRequest ? "Hide doctor's request" : "View doctor's request"}
+            {showRequest ? "Hide doctor's request / notes" : "View doctor's request / notes"}
           </Button>
         )}
         {can.checkIn && (

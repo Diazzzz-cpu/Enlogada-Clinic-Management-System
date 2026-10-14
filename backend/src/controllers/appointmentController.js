@@ -92,10 +92,15 @@ class AppointmentController {
         return reject('Please attach a photo of your HMO card to claim HMO coverage.');
       }
 
-      // [1.106.0] Every booking a patient makes carries the doctor's signed request, self-pay
-      // included. The same early exit; appointmentService holds the rule (referralService).
+      // [1.107.0] A patient's HMO booking carries the doctor's signed request; self-pay does not
+      // have to. The same early exit; appointmentService holds the rule (referralService), and is
+      // also where the Private patient type is known — this controller has not read the patient.
       try {
-        assertDoctorRequestIfRequired({ isStaff: isStaffUser(req.user), hasDoctorRequest: Boolean(doctorRequest) });
+        assertDoctorRequestIfRequired({
+          isStaff: isStaffUser(req.user),
+          hasDoctorRequest: Boolean(doctorRequest),
+          hasHmoClaim: Boolean(normalisedHmo),
+        });
       } catch (err) {
         return reject(err.message);
       }

@@ -190,10 +190,14 @@ Run it before and after any non-trivial change and compare the pass/fail counts 
 
 Three notes learned the hard way. The dev rate limiter allows 20,000 requests per 15 minutes; running the suite many times back to back trips it, and the resulting 429s surface as scattered, unrelated-looking failures — restart the backend to reset the counter. (There is now a second, tighter limiter on the credential endpoints, but it only counts *failed* attempts and allows 2,000 outside production, so the suite does not touch it.) Editing a backend file mid-run has the same signature: nodemon restarts, in-flight requests are dropped, and several unrelated specs go red at once — re-run on a settled server before believing a failure. And navigation/role changes need `multirole@enlogada.com` (see `TEST_ACCOUNTS.md`) to exercise properly: a single-role account cannot reveal the class of bug where the sidebar offers a screen the router refuses to open.
 
-**A patient's booking is multipart, and carries the doctor's signed request.** `[1.106.0]` It
-replaced the typed referring physician and clinical notes in the patient's booking dialog, self-pay
-included, and a JSON booking from a Client token is refused 400. Book as a patient in a spec through
-`helpers/booking.js` `appointmentForm()`, and walk the wizard's step 2 with `helpers/portal.js`
+**A patient's HMO booking carries the doctor's signed request; self-pay may.** `[1.106.0]` It
+replaced the typed referring physician and clinical notes in the patient's booking dialog, labelled
+"Doctor's Request / Doctor's Notes". `[1.107.0]` It is required exactly when
+`referralService.referralRequirement` says the visit must name its doctor — an HMO claim, or a
+Private patient — and OPTIONAL for self-pay, so the patient's step 2 asks who pays first. A
+self-pay booking from a Client token may be JSON again; an HMO or Private one without the file is
+refused 400. Book as a patient in a spec through `helpers/booking.js` `appointmentForm()` (it
+attaches the paper unless told not to), and walk the wizard's step 2 with `helpers/portal.js`
 `attachDoctorRequest()`. Staff bookings stay exempt and may be JSON. The file is on the VISIT
 (`uploads/doctor-requests`), read through `GET /visits/:id/doctor-request`, and a request on file
 satisfies the referring-physician rule.

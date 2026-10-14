@@ -67,15 +67,25 @@ function assertReferralIfRequired({ patientTypeName, hasHmoClaim, referringPhysi
 }
 
 /**
- * A patient's own booking must carry the doctor's signed request. [1.106.0]
+ * When a patient's own booking must carry the doctor's signed request. [1.107.0]
  *
- * Every online booking, self-pay included: the clinic performs a test on a doctor's request, and
- * the paper is the request. Staff are exempt, as for the HMO card — at the desk the patient hands
- * the paper over in person.
+ * Exactly when `referralRequirement` says the visit must name its referring physician: an HMO
+ * claim, whose LOA is issued against that paper, or a Private patient, which means "a physician
+ * referred them". The patient no longer types the doctor's name [1.106.0], so on those bookings
+ * the paper is the only way they can satisfy the rule, and one predicate keeps the two from
+ * drifting apart.
+ *
+ * Optional for self-pay. [1.107.0] [1.106.0] asked for it on every booking, but a
+ * patient paying for their own test is not asked for paperwork the clinic does not need to bill
+ * it. A self-pay patient may still attach it, and reception reads it at check-in.
+ *
+ * Staff are exempt, as for the HMO card: at the desk the patient hands the paper over in person.
  */
-function assertDoctorRequestIfRequired({ isStaff, hasDoctorRequest }) {
-  if (!isStaff && !hasDoctorRequest) {
-    const error = new Error("Please upload your doctor's signed request for these tests.");
+function assertDoctorRequestIfRequired({ isStaff, hasDoctorRequest, hasHmoClaim = false, patientTypeName = null }) {
+  if (isStaff || hasDoctorRequest) return;
+  const { required, because } = referralRequirement({ patientTypeName, hasHmoClaim });
+  if (required) {
+    const error = new Error(`Please upload your doctor's signed request — ${because}.`);
     error.statusCode = 400;
     throw error;
   }

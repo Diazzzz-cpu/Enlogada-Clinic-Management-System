@@ -1,8 +1,10 @@
 import React from 'react';
 
 /**
- * A required upload in the HMO branch of the booking wizard: the card, or the doctor's signed
- * request. [1.106.0] Driven by `useEvidenceFile`.
+ * An upload in the booking wizard: the HMO card, or the doctor's signed request. [1.106.0]
+ * Driven by `useEvidenceFile`. The card is always required; the doctor's request only on an HMO
+ * booking or a Private patient's, and optional for self-pay [1.107.0] — hence `required`, which is
+ * presentation only. referralService on the server decides.
  *
  * The preview is shown large enough to actually read. No API detects blur, glare, a thumb over
  * the number or the wrong side of the card — asking the patient to confirm they can read it is
@@ -15,15 +17,19 @@ import React from 'react';
  * @param {string} readCheck   the question asked under the preview
  * @param {string} pdfCheck    what to check when the file is a PDF, which cannot be previewed
  * @param {object} evidence    the hook's return value
+ * @param {boolean} [required=true]  an asterisk when true, "(optional)" when false
  * @param {boolean} disabled
  */
-export default function EvidenceUpload({ id, label, hint, previewAlt, readCheck, pdfCheck, evidence, disabled }) {
+export default function EvidenceUpload({ id, label, hint, previewAlt, readCheck, pdfCheck, evidence, required = true, disabled }) {
   const { file, preview, error, preparing, pick } = evidence;
 
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="field-label">
-        {label} <span className="text-rose-600">*</span>
+        {label}{' '}
+        {required
+          ? <span className="text-rose-600">*</span>
+          : <span className="font-normal normal-case tracking-normal text-slate-400">(optional)</span>}
       </label>
       <p className="m-0 text-fine text-slate-500">{hint}</p>
       <input

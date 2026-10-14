@@ -24,7 +24,7 @@ const CARD_PNG = Buffer.from(
 // input type rather than by accessible name.
 
 test.describe('HMO card evidence (UI)', () => {
-  test("the booking wizard asks for the doctor's request always, and a card only for HMO", async ({ page }) => {
+  test("the booking wizard offers the doctor's request on self-pay, and requires it and a card for HMO", async ({ page }) => {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
 
@@ -36,14 +36,15 @@ test.describe('HMO card evidence (UI)', () => {
 
     // Step 1 -> step 2. The card field belongs to the HMO branch of step 2, so getting there is
     // the whole point of walking the wizard rather than asserting on a rendered fragment.
-    await dialog.getByRole('button', { name: /next: doctor's request/i }).click();
+    await dialog.getByRole('button', { name: /next: hmo & doctor's notes/i }).click();
 
-    // Self-Pay is the default: no card field, because there is no claim to evidence — but the
-    // doctor's signed request is asked of every booking [1.106.0], and nothing is typed instead of
+    // Self-Pay is the default: no card field, because there is no claim to evidence. The doctor's
+    // signed request is offered and marked optional [1.107.0], and nothing is typed instead of
     // it: no referring physician, no clinical notes.
     // By label: the HMO hint mentions the card, and only the field is labelled with it.
     await expect(dialog.getByLabel(/photo of your hmo card/i)).toHaveCount(0);
-    await expect(dialog.getByLabel(/doctor's request/i)).toBeVisible();
+    await expect(dialog.getByLabel(/doctor's request \/ doctor's notes/i)).toBeVisible();
+    await expect(dialog.locator('label[for="booking-doctor-request"]')).toContainText('(optional)');
     await expect(dialog.getByText(/referring physician/i)).toHaveCount(0);
     await expect(dialog.getByText(/clinical notes/i)).toHaveCount(0);
 
@@ -52,6 +53,8 @@ test.describe('HMO card evidence (UI)', () => {
 
     await expect(dialog.getByLabel(/photo of your hmo card/i)).toBeVisible();
     await expect(dialog.getByLabel(/doctor's request/i)).toBeVisible();
+    // Choosing an HMO makes the doctor's request required. [1.107.0]
+    await expect(dialog.locator('label[for="booking-doctor-request"]')).not.toContainText('(optional)');
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
   });
@@ -86,7 +89,7 @@ test.describe('HMO card evidence (UI)', () => {
     await expect(slot).toBeVisible({ timeout: 10000 });
     await slot.click();
 
-    await dialog.getByRole('button', { name: /next: doctor's request/i }).click();
+    await dialog.getByRole('button', { name: /next: hmo & doctor's notes/i }).click();
     await expect(dialog.getByText(/hmo provider/i).first()).toBeVisible();
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
@@ -159,7 +162,7 @@ test.describe('HMO card evidence (UI)', () => {
 
     // [1.106.0] The doctor's request beside it, read from the visit and decoded too — it is what
     // the HMO approves against.
-    await expect(dialog.getByText("Doctor's Request", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Doctor's Request / Notes", { exact: true })).toBeVisible();
     const requestImg = dialog.getByAltText(/doctor's signed request/i);
     await expect(requestImg).toBeVisible();
     await expect.poll(() => requestImg.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);

@@ -42,9 +42,9 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
   const [showBooking, setShowBooking] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [isBooking, setIsBooking] = useState(false);
-  // The booking's uploads. [1.106.0] Every booking carries the doctor's signed request, self-pay
-  // included: it names the doctor and the tests in the doctor's own hand, so the patient no longer
-  // types the doctor's name or clinical notes. An HMO claim adds the card.
+  // The booking's uploads. [1.106.0] The doctor's signed request names the doctor and the tests in
+  // the doctor's own hand, so the patient no longer types the doctor's name or clinical notes. An
+  // HMO claim needs it and the card; self-pay may attach it and does not have to [1.107.0].
   const cardPhoto = useEvidenceFile();
   const doctorRequest = useEvidenceFile(DOCTOR_REQUEST_IMAGE);
   const [bookingData, setBookingData] = useState(EMPTY_BOOKING);
@@ -77,6 +77,15 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
     clearEvidence();
   }, [selectedProfileId, clearEvidence]);
 
+  // The Self-Pay option carries the string 'none' rather than an empty value, so a bare
+  // truthiness check treated self-pay as an HMO selection. Nothing chosen is self-pay too.
+  const isHmo = Boolean(bookingData.hmoProviderId) && bookingData.hmoProviderId !== 'none';
+  // [1.107.0] When the doctor's request is required: referralService.referralRequirement's rule,
+  // said here so the field is marked before the patient submits rather than refused after. A
+  // Private patient is one a physician referred, whoever pays.
+  const isReferred = selectedProfile?.patient_type_name === 'Private';
+  const needsDoctorRequest = isHmo || isReferred;
+
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     if (isBooking) return; // a second submit while the first is still in flight books twice
@@ -89,17 +98,16 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       return;
     }
 
-    // The Self-Pay option carries the string 'none' rather than an empty value, so a bare
-    // truthiness check treated self-pay as an HMO selection. The render guard below already
-    // tests for 'none'; these two must agree.
-    const hmo = hmoProviderId && hmoProviderId !== 'none'
+    const hmo = isHmo
       ? { providerId: parseInt(hmoProviderId, 10), approvalCode: hmoApprovalCode || null }
       : null;
 
     // The same two rules the server holds (referralService, hmoService), said before the request
     // rather than after it.
-    if (!doctorRequest.file) {
-      setBookingError("Please upload your doctor's signed request for these tests.");
+    if (needsDoctorRequest && !doctorRequest.file) {
+      setBookingError(isHmo
+        ? "Please upload your doctor's request / notes — your HMO approves these tests against it."
+        : "Please upload your doctor's request / notes — this profile is a Private (doctor-referred) patient.");
       return;
     }
     if (hmo && !cardPhoto.file) {
@@ -114,8 +122,8 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       // after the first left a booking the patient had been told did not happen, holding a slot
       // their own retry was then refused.
       //
-      // Always multipart since [1.106.0]: every booking carries a file now. Self-pay used to be
-      // JSON and only an HMO booking switched.
+      // Always multipart since [1.106.0], with or without a file: one shape for every booking, so
+      // attaching the optional doctor's request to a self-pay booking changes nothing else.
       const fd = new FormData();
       fd.append('patientId', String(parseInt(selectedProfileId, 10)));
       fd.append('scheduledDate', scheduledDate);
@@ -124,7 +132,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
       // than a bare string, which a plain repeated field would not.
       testIds.forEach((id) => fd.append('testIds[]', String(parseInt(id, 10))));
       packageIds.forEach((id) => fd.append('packageIds[]', String(parseInt(id, 10))));
-      fd.append('doctorRequest', doctorRequest.file, doctorRequest.file.name);
+      if (doctorRequest.file) fd.append('doctorRequest', doctorRequest.file, doctorRequest.file.name);
       if (hmo) {
         fd.append('hmo[providerId]', String(hmo.providerId));
         if (hmo.approvalCode) fd.append('hmo[approvalCode]', hmo.approvalCode);
@@ -257,7 +265,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                             aria-current={bookingStep === 2 ? 'step' : undefined}
                             className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer ${bookingStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-500'}`}
                           >
-                            2. Doctor&apos;s Request &amp; HMO
+                            2. HMO &amp; Doctor&apos;s Notes
                           </button>
                         </div>
 
@@ -298,7 +306,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
 
                             <div className="flex justify-end pt-2">
                               <Button type="button"  onClick={() => setBookingStep(2)}>
-                                Next: Doctor&apos;s Request &amp; HMO &rarr;
+                                Next: HMO &amp; Doctor&apos;s Notes &rarr;
                               </Button>
                             </div>
                           </div>
@@ -306,28 +314,16 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
 
                         {bookingStep === 2 && (
                           <div className="space-y-4">
-                            {/* First, and for every booking. [1.106.0] The signed request names the
-                                doctor and the tests in the doctor's own hand, which is why this step
-                                no longer asks the patient to type the doctor's name or their
-                                symptoms. Reception reads it at check-in. */}
-                            <EvidenceUpload
-                              id="booking-doctor-request"
-                              label="Doctor's request"
-                              hint="A photo or scan of the request your doctor signed for these tests. It tells the clinic who referred you and what to do, so there is nothing to type — just make sure the doctor's name, signature and the tests are clear."
-                              previewAlt="The doctor's request you attached"
-                              readCheck="Can you clearly read the doctor's name, signature and the tests? If not, take another photo."
-                              pdfCheck="Check it shows the doctor's name, signature and the tests."
-                              evidence={doctorRequest}
-                              disabled={isBooking}
-                            />
-
+                            {/* Who pays comes first, because it decides what else is asked. [1.107.0]
+                                An HMO claim needs the card and the doctor's signed request; self-pay
+                                needs neither, and may still attach the request. */}
                             <div className="space-y-1.5">
                               <label className="field-label">
                                 HMO Provider
                                 <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">(optional)</span>
                               </label>
                               <p className="m-0 text-fine text-slate-500">
-                                Choose your HMO to claim coverage — you will need a photo of your HMO card. Choose Self-Pay to pay for this visit yourself.
+                                Choose your HMO to claim coverage — you will need a photo of your HMO card and your doctor&apos;s request. Choose Self-Pay to pay for this visit yourself.
                               </p>
                               <Select
                                 value={bookingData.hmoProviderId}
@@ -347,7 +343,7 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                               </Select>
                             </div>
 
-                            {bookingData.hmoProviderId && bookingData.hmoProviderId !== 'none' && (
+                            {isHmo && (
                               <>
                                 <div className="space-y-1.5">
                                   <label htmlFor="clientdashboard-hmo-authorization-loa-code" className="field-label">HMO Authorization / LOA Code</label>
@@ -370,6 +366,27 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
                                 />
                               </>
                             )}
+
+                            {/* [1.106.0] The signed request names the doctor and the tests in the
+                                doctor's own hand, which is why this step no longer asks the patient
+                                to type the doctor's name or their symptoms. Reception reads it at
+                                check-in. "Doctor's Notes" beside it because that is what many
+                                patients call the paper. [1.107.0] */}
+                            <EvidenceUpload
+                              id="booking-doctor-request"
+                              label="Doctor's Request / Doctor's Notes"
+                              hint={isHmo
+                                ? "Your HMO approves these tests against it. Attach a photo or scan of the request your doctor signed — make sure the doctor's name, signature and the tests are clear."
+                                : isReferred
+                                  ? "This profile is a Private (doctor-referred) patient, so the clinic needs the request your doctor signed. Attach a photo or scan — make sure the doctor's name, signature and the tests are clear."
+                                  : "Not needed when you pay for the visit yourself. If your doctor gave you a signed request or notes for these tests, attach a photo or scan and the clinic will have it ready when you arrive."}
+                              previewAlt="The doctor's request you attached"
+                              readCheck="Can you clearly read the doctor's name, signature and the tests? If not, take another photo."
+                              pdfCheck="Check it shows the doctor's name, signature and the tests."
+                              evidence={doctorRequest}
+                              required={needsDoctorRequest}
+                              disabled={isBooking}
+                            />
 
                             <div className="flex justify-between pt-2 border-t border-line">
                               <Button type="button" variant="outline" onClick={() => setBookingStep(1)}>

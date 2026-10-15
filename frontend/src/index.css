@@ -1042,23 +1042,34 @@ body.printing-report {
     font-size: 7.5pt;
     color: #444;
   }
+  /* The top margin is claimed, empty, so the browser does not print its own date and page title
+     there: the letterhead and the footer already say both. [1.119.0] */
+  @top-left { content: ""; }
+  @top-center { content: ""; }
+  @top-right { content: ""; }
 }
 @media print {
   body.printing-document {
     page: document;
     background: #fff !important;
   }
+  /* Nothing but the report reaches the paper. [1.119.0] A node a browser extension adds to <html>
+     itself, outside <body>, escapes the isolation rule above and can push a blank sheet out. */
+  html:has(body.printing-document) > :not(head):not(body) {
+    display: none !important;
+  }
   .report-doc {
     color: #000;
-    font-size: 9.5pt;
-    line-height: 1.35;
+    font-size: 9pt;
+    line-height: 1.3;
     width: 100%;
   }
+  .report-doc > :last-child { margin-bottom: 0; }
   .report-doc p { margin: 0; }
   .report-doc__letterhead {
     text-align: center;
     border-bottom: 1.5pt solid #000;
-    padding-bottom: 6pt;
+    padding-bottom: 4pt;
   }
   .report-doc__clinic {
     font-size: 14pt;
@@ -1073,7 +1084,7 @@ body.printing-report {
   }
   .report-doc__contact { font-size: 8pt; color: #333; }
   .report-doc__title {
-    margin: 10pt 0 6pt;
+    margin: 7pt 0 4pt;
     text-align: center;
     font-size: 13pt;
     font-weight: 800;
@@ -1091,7 +1102,13 @@ body.printing-report {
   .report-doc__meta th,
   .report-doc__meta td { padding: 1.5pt 4pt; text-align: left; vertical-align: top; }
   .report-doc__meta th { width: 14%; font-weight: 700; white-space: nowrap; }
-  .report-doc__section { margin-top: 12pt; }
+  .report-doc__section { margin-top: 9pt; }
+  .report-doc__columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 14pt;
+    align-items: start;
+  }
   .report-doc__section h2 {
     margin: 0 0 4pt;
     padding-bottom: 2pt;
@@ -1105,13 +1122,13 @@ body.printing-report {
   .report-doc__note { margin: 0 0 4pt; font-size: 8pt; color: #333; break-after: avoid; }
   .report-doc__empty { font-style: italic; color: #333; }
   .report-doc__figures th,
-  .report-doc__figures td { border: 0.5pt solid #888; padding: 3pt 5pt; }
+  .report-doc__figures td { border: 0.5pt solid #888; padding: 2pt 5pt; }
   .report-doc__figures th { width: 22%; text-align: left; font-weight: 600; }
   .report-doc__figures td { width: 28%; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
   .report-doc__table th,
   .report-doc__table td {
     border: 0.5pt solid #888;
-    padding: 2.5pt 5pt;
+    padding: 1.6pt 5pt;
     text-align: left;
     vertical-align: top;
   }
@@ -1133,18 +1150,21 @@ body.printing-report {
      report table is allowed to run on, or it leaves most of a sheet blank. */
   .report-doc table.report-doc__table { break-inside: auto; }
   /* Prepared by / Noted by: the label, room to sign, a line, then the printed name and title. */
+  /* Kept with the section before it: when the signatures do not fit, the last rows come over
+     with them, so no sheet is ever just two signature lines. [1.119.0] */
   .report-doc__sign {
     display: flex;
     justify-content: space-between;
     gap: 48pt;
-    margin-top: 24pt;
+    margin-top: 16pt;
     break-inside: avoid;
+    break-before: avoid-page;
   }
   .report-doc__signatory { flex: 1; }
   .report-doc__sign-label { font-size: 9pt; }
   .report-doc__line {
     display: block;
-    height: 30pt;
+    height: 26pt;
     border-bottom: 0.75pt solid #000;
   }
   .report-doc__sign-name {

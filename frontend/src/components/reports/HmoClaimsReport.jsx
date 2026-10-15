@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import EmptyState from '../ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
-import ExportCsvButton from '../ui/export-csv-button';
+import ExportButton from '../ui/export-button';
 import MetricCard from '../ui/metric-card';
 import api from '../../config/api';
 import { formatCurrency } from '../../lib/currency';
@@ -79,10 +79,10 @@ const HmoClaimsReport = () => {
           {/* The exported file carries the receivable caveat in its own header block — see
               reportCsv.hmoClaimsCsv. A claim total copied out of here without it is the one
               mistake this report can cause. */}
-          <ExportCsvButton
+          <ExportButton
             path="/reports/hmo-claims"
             params={{ startDate, endDate }}
-            fallbackName={`hmo-claims-${startDate}_to_${endDate}.csv`}
+            fallbackName={`hmo-claims-report-${startDate}_to_${endDate}.xlsx`}
             className="text-xs font-semibold"
           />
           <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)} className="text-xs font-semibold">

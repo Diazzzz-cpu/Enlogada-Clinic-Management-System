@@ -2,17 +2,25 @@ import { useRef } from 'react';
 import useOperationsReport from '../../hooks/useOperationsReport';
 import { printReport } from '../../lib/reportPrint';
 import { OperationsPrint } from './ReportPrints';
-import { BillingTotalsPanel, SalesByServicePanel, ReceptionThroughputPanel, TurnaroundPanel } from './OperationsPanels';
+import { BillingTotalsPanel, SalesByServicePanel } from './OperationsPanels';
 import Toolbar, { ToolbarField, ToolbarSpacer } from '../ui/toolbar';
 import EmptyState from '../ui/empty-state';
 import { Button } from '../ui/button';
-import ExportCsvButton from '../ui/export-csv-button';
+import ExportButton from '../ui/export-button';
 // `todayStr` / `daysAgoStr` were re-implemented locally at the top of this file. The local copies
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
 // second place for the toISOString bug to come back — see the dates note in CLAUDE.md.
 import { Info, RefreshCw, ShieldCheck, Printer } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
+/**
+ * Departments: what was taken, and what each department sold. [1.119.0]
+ *
+ * Front desk throughput and turnaround by department were here too. Steven: a department report
+ * does not need them, and the clinic is trying to print less. They are still measured where they
+ * are used: turnaround on Today, the front desk on Visit History. The operations endpoint still
+ * returns both slices for those screens; this tab simply does not show or print them.
+ */
 const OperationsReport = () => {
   const { report, loading, error, range, setRange, refresh } = useOperationsReport({ days: 7 });
   // The printed form [1.117.0]. The range refetches as it changes, so the dates are the figures'.
@@ -58,10 +66,10 @@ const OperationsReport = () => {
         <ToolbarSpacer />
         {/* The export contains exactly the slices the API returned, so an account that cannot see
             takings gets a file without them rather than a file of zeroes. */}
-        <ExportCsvButton
+        <ExportButton
           path="/reports/operations"
           params={{ startDate: range.startDate, endDate: range.endDate }}
-          fallbackName={`operations-${range.startDate}_to_${range.endDate}.csv`}
+          fallbackName={`departments-report-${range.startDate}_to_${range.endDate}.xlsx`}
         />
         <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)}>
           <Printer className="h-3.5 w-3.5" />
@@ -83,8 +91,6 @@ const OperationsReport = () => {
             <SalesByServicePanel billing={report.billing} loading={loading} />
           </>
         )}
-        {report?.reception && <ReceptionThroughputPanel reception={report.reception} loading={loading} />}
-        {report?.diagnostics && <TurnaroundPanel diagnostics={report.diagnostics} loading={loading} />}
       </div>
 
       <OperationsPrint ref={printRef} report={report} startDate={range.startDate} endDate={range.endDate} />

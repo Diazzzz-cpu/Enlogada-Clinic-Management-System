@@ -1,6 +1,7 @@
 const reportService = require('../services/reportService');
 const reportExport = require('../services/export/reportExportFactory');
 const reportCsv = require('../utils/reportCsv');
+const reportXlsx = require('../utils/reportXlsx');
 
 /**
  * Reports, in whichever format the caller asked for. [1.62.0 export, 1.63.0 factory]
@@ -43,9 +44,11 @@ class ReportController {
 
       return reportExport.respond(req, res, report, {
         name: 'clinic-summary',
+        xlsxName: 'trends-report',
         startDate,
         endDate,
         toCsv: reportCsv.summaryCsv,
+        toXlsx: reportXlsx.summaryXlsx,
       });
     } catch (err) {
       next(err);
@@ -71,9 +74,11 @@ class ReportController {
 
       return reportExport.respond(req, res, report, {
         name: 'hmo-claims',
+        xlsxName: 'hmo-claims-report',
         startDate,
         endDate,
         toCsv: reportCsv.hmoClaimsCsv,
+        toXlsx: reportXlsx.hmoClaimsXlsx,
       });
     } catch (err) {
       next(err);
@@ -101,9 +106,11 @@ class ReportController {
 
       return reportExport.respond(req, res, report, {
         name: 'operations',
+        xlsxName: 'departments-report',
         startDate,
         endDate,
         toCsv: reportCsv.operationsCsv,
+        toXlsx: reportXlsx.operationsXlsx,
       });
     } catch (err) {
       next(err);
@@ -129,10 +136,12 @@ class ReportController {
 
       return reportExport.respond(req, res, workload, {
         name: 'staff-workload',
+        xlsxName: 'staff-workload-report',
         startDate,
         endDate,
         key: 'workload',
         toCsv: reportCsv.staffWorkloadCsv,
+        toXlsx: reportXlsx.staffWorkloadXlsx,
       });
     } catch (err) {
       next(err);

@@ -1,5 +1,38 @@
 # Database Migration & Schema History
 
+## [1.119.0] - 2026-10-16 (Reports export to Excel; Departments is takings and sales; one page each)
+
+No schema change; nothing to run. No new dependency.
+
+**Export downloads an Excel workbook, not a CSV.** Opened in Excel the CSV was one cramped grid:
+every column at the default width ("Receipts I"), no bold, no money format, the sections run
+together. A CSV cannot carry any of that. `utils/xlsxWriter.js` writes a real .xlsx (inline strings,
+a fixed style sheet, a zip container from Node's own zlib) laid out like the printed report: the
+clinic, the title, the period, when it was made, then numbered sections as bordered tables with
+bold shaded headers and columns sized to their contents. Money stays a NUMBER in a "₱#,##0.00"
+format, so a column still adds up, and each total row is a SUM formula over exactly its own rows.
+Gridlines off; A4, fitted one page wide, with the report named in the printed footer.
+`utils/reportXlsx.js` holds each report's layout; `reportExportFactory` registers it as the `xlsx`
+serializer (`?format=xlsx`), after the service, so it can never show more than the JSON.
+`?format=csv` is unchanged for anyone who scripts it. The button is "Export Excel"
+(`components/ui/export-button.jsx`, `lib/downloadReport.js`, renamed from the CSV ones).
+Excel opened the Departments file without a repair prompt; its automation was then blocked by the
+copy's activation prompt, so the layout itself is held by `tests/unit/xlsxWriter.test.js`.
+
+**Departments is takings and sales by service.** Steven: a department report does not need front
+desk throughput or turnaround by department. Gone from the tab, its print and its workbook. Both are
+still measured where they are used: turnaround on Today, the front desk on Visit History; the
+operations endpoint still returns them for those screens.
+
+**Every report fits its paper.** On Chrome, measured: Departments, Trends, HMO Claims and Staff
+Workload are one A4 page each (Departments was three sheets in Steven's preview). Spacing is tighter,
+explanatory notes that did not prevent a misreading are gone, and Trends prints its narrow two- and
+three-column tables two to a row (`ReportColumns`). The signature block is kept with the section
+before it (`break-before: avoid-page`), so a sheet is never only two signature lines: the last rows
+come over with it. The top margin is claimed empty, so the browser's own date and title are not
+printed over it, and while a report prints nothing but `<head>` and `<body>` may sit in `<html>`,
+so a node an extension adds there cannot push out a blank sheet.
+
 ## [1.118.0] - 2026-10-15 (A printed report is noted by Jesie B. Enlogada; the final page footer)
 
 No schema change; nothing to run.

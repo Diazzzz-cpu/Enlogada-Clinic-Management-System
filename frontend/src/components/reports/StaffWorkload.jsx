@@ -4,7 +4,7 @@ import { WorkloadPrint } from './ReportPrints';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import EmptyState from '../ui/empty-state';
 import { Button } from '../ui/button';
-import ExportCsvButton from '../ui/export-csv-button';
+import ExportButton from '../ui/export-button';
 import api from '../../config/api';
 // `todayStr` / `daysAgoStr` were re-implemented locally at the top of this file. The local copies
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
@@ -73,10 +73,10 @@ const StaffWorkload = () => {
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Apply</span>
           </Button>
-          <ExportCsvButton
+          <ExportButton
             path="/reports/staff-workload"
             params={{ startDate, endDate }}
-            fallbackName={`staff-workload-${startDate}_to_${endDate}.csv`}
+            fallbackName={`staff-workload-report-${startDate}_to_${endDate}.xlsx`}
             className="text-xs font-semibold"
           />
           <Button variant="outline" disabled={!period || loading} onClick={() => printReport(printRef.current)} className="text-xs font-semibold">

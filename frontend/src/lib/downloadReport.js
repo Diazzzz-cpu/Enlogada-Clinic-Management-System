@@ -1,7 +1,11 @@
 import api from '../config/api';
 
 /**
- * Fetch a report as CSV and hand it to the browser as a download. [1.62.0]
+ * Fetch a report as a file and hand it to the browser as a download. [1.62.0]
+ *
+ * [1.119.0] Excel by default. The CSV opened in Excel as one cramped grid with no widths, no bold
+ * and no money format, which a CSV cannot carry; the server now builds a real .xlsx
+ * (backend/src/utils/xlsxWriter.js). CSV is still served to anyone who asks for it.
  *
  * ── Why not just point an <a href> at the endpoint ──────────────────────────────────────────
  *
@@ -96,26 +100,32 @@ async function messageFromBlobError(err) {
   return data.message || err?.message || 'Export failed.';
 }
 
+const TYPES = {
+  // The server already prepends a BOM to a CSV body; declaring the type here only tells the OS
+  // what the file is. Re-adding a BOM would put two in the file and Excel shows the second as a
+  // stray character in the first cell.
+  csv: 'text/csv;charset=utf-8',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
 /**
- * Downloads `path` as CSV.
+ * Downloads `path` as a file.
  *
  * @param {string} path      report endpoint, e.g. '/reports/summary'
- * @param {object} params    query parameters — `format: 'csv'` is added here so no caller forgets
+ * @param {object} params    query parameters — `format` is added here so no caller forgets
  * @param {string} fallback  filename to use if the server's is unreadable
+ * @param {'xlsx'|'csv'} [format]
  * @returns {Promise<string>} the filename actually saved, for the caller's confirmation message
  */
-export async function downloadCsv(path, params, fallback = 'report.csv') {
+export async function downloadReport(path, params, fallback = 'report.xlsx', format = 'xlsx') {
   try {
     const response = await api.get(path, {
-      params: { ...params, format: 'csv' },
+      params: { ...params, format },
       responseType: 'blob',
     });
 
     const name = filenameFromDisposition(response.headers?.['content-disposition']) || fallback;
-    // The server already prepends a BOM to the body; declaring the type here only tells the OS
-    // what the file is. Re-adding a BOM would put two in the file and Excel shows the second as
-    // a stray character in the first cell.
-    saveBlob(new Blob([response.data], { type: 'text/csv;charset=utf-8' }), name);
+    saveBlob(new Blob([response.data], { type: TYPES[format] || TYPES.xlsx }), name);
     return name;
   } catch (err) {
     const error = new Error(await messageFromBlobError(err));
@@ -124,4 +134,4 @@ export async function downloadCsv(path, params, fallback = 'report.csv') {
   }
 }
 
-export default downloadCsv;
+export default downloadReport;

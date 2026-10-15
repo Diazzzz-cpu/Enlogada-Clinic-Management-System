@@ -7,7 +7,7 @@ import EmptyState from '../ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import ExportCsvButton from '../ui/export-csv-button';
+import ExportButton from '../ui/export-button';
 import RevenueTrendChart from '../charts/RevenueTrendChart';
 import CategoryVolumeChart from '../charts/CategoryVolumeChart';
 import PeakHoursArrivalChart from '../charts/PeakHoursArrivalChart';
@@ -96,10 +96,10 @@ const DateRangeReports = () => {
           {/* Export sits BEFORE Print, and that order is deliberate: a file you can total is the
               more useful of the two, and Print was the only option for long enough that it reads
               as the default. */}
-          <ExportCsvButton
+          <ExportButton
             path="/reports/summary"
             params={{ startDate, endDate }}
-            fallbackName={`clinic-summary-${startDate}_to_${endDate}.csv`}
+            fallbackName={`trends-report-${startDate}_to_${endDate}.xlsx`}
           />
           <Button variant="outline" disabled={!report || loading} onClick={() => printReport(printRef.current)}>
             <Printer className="h-3.5 w-3.5" />

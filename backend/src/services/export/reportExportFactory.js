@@ -1,4 +1,5 @@
-const { wantsCsv, csvFilename, sendCsv } = require('../../utils/csvExport');
+const { csvFilename, sendCsv } = require('../../utils/csvExport');
+const { XLSX_MIME } = require('../../utils/xlsxWriter');
 
 /**
  * Chooses how a report leaves the building. [1.63.0]
@@ -90,9 +91,30 @@ const csvSerializer = {
   },
 };
 
+/**
+ * The Excel workbook. [1.119.0] What the Export button downloads now: the CSV opened in Excel as one
+ * cramped grid, and a CSV cannot carry column widths, bold or a money format. The renderer gets
+ * the same report the JSON would carry, so the same permission gating holds.
+ */
+const xlsxSerializer = {
+  format: 'xlsx',
+  send(res, report, { name, xlsxName, startDate, endDate, toXlsx }) {
+    if (typeof toXlsx !== 'function') {
+      throw new Error(`No Excel renderer was provided for the "${name}" report.`);
+    }
+    const file = toXlsx(report, startDate, endDate);
+    const filename = csvFilename(xlsxName || name, startDate, endDate).replace(/\.csv$/, '.xlsx');
+    res.setHeader('Content-Type', XLSX_MIME);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).send(file);
+  },
+};
+
 const SERIALIZERS = {
   json: jsonSerializer,
   csv: csvSerializer,
+  xlsx: xlsxSerializer,
 };
 
 /**
@@ -119,8 +141,10 @@ function createSerializer(format) {
  * @returns {void}
  */
 function respond(req, res, report, context) {
-  const serializer = createSerializer(wantsCsv(req) ? 'csv' : 'json');
+  // Only a format that has a serializer is honoured; anything else, or nothing, is JSON.
+  const requested = String(req.query?.format || '').toLowerCase();
+  const serializer = createSerializer(requested in SERIALIZERS ? requested : 'json');
   return serializer.send(res, report, context);
 }
 
-module.exports = { createSerializer, respond, jsonSerializer, csvSerializer };
+module.exports = { createSerializer, respond, jsonSerializer, csvSerializer, xlsxSerializer };

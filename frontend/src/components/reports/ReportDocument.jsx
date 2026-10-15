@@ -99,6 +99,9 @@ export const ReportSection = ({ number, title, note, children }) => (
   </section>
 );
 
+/** Two sections side by side, for tables too narrow to deserve the width of the page. [1.119.0] */
+export const ReportColumns = ({ children }) => <div className="report-doc__columns">{children}</div>;
+
 /** Headline figures, label beside value, two pairs to a row. */
 export const ReportFigures = ({ items }) => {
   const rows = [];

@@ -258,4 +258,31 @@ test.describe('Clinic analytics', () => {
     const refused = await ctx.get(`${API}/reports/analytics?${QS}`, { headers: auth(client) });
     expect(refused.status()).toBe(403);
   });
+
+  // [1.119.0] The Export button downloads Excel now: a CSV cannot carry column widths, bold or a
+  // money format, and opened in Excel as one cramped grid. The workbook's contents are held by
+  // backend/tests/unit/xlsxWriter.test.js; this holds that each report serves one, to staff only.
+  test('every report the Reports tabs export comes as an Excel workbook', async () => {
+    const token = await login('clinicadmin@enlogada.com');
+    for (const [path, name] of [
+      ['/reports/operations', 'departments-report'],
+      ['/reports/summary', 'trends-report'],
+      ['/reports/hmo-claims', 'hmo-claims-report'],
+      ['/reports/staff-workload', 'staff-workload-report'],
+    ]) {
+      const res = await ctx.get(`${API}${path}?${QS}&format=xlsx`, { headers: auth(token) });
+      expect(res.status(), `${path} should export`).toBe(200);
+      expect(res.headers()['content-type']).toContain('spreadsheetml.sheet');
+      expect(res.headers()['content-disposition'])
+        .toBe(`attachment; filename="${name}-${RANGE.startDate}_to_${RANGE.endDate}.xlsx"`);
+      expect(res.headers()['cache-control']).toContain('no-store');
+      const body = await res.body();
+      expect(body.subarray(0, 4).toString('latin1'), 'a zip, which is what an .xlsx is').toBe('PK' + String.fromCharCode(3, 4));
+    }
+
+    const client = await login('client@enlogada.com');
+    const refused = await ctx.get(`${API}/reports/operations?${QS}&format=xlsx`, { headers: auth(client) });
+    expect(refused.status(), 'a patient cannot export').toBe(403);
+    expect(refused.headers()['content-type']).toContain('application/json');
+  });
 });

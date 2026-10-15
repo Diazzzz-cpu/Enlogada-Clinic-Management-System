@@ -1,7 +1,6 @@
 import React, { forwardRef } from 'react';
-import { ReportDocument, ReportSection, ReportFigures, ReportTable } from './ReportDocument';
+import { ReportDocument, ReportSection, ReportFigures, ReportTable, ReportColumns } from './ReportDocument';
 import { formatCurrency } from '../../lib/currency';
-import { formatDuration } from '../../lib/duration';
 import { formatDate } from '../../lib/date';
 
 /**
@@ -23,12 +22,10 @@ const hourLabel = (hour) => {
 };
 const percent = (part, whole) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—');
 
-/** Departments: takings, sales by service, the front desk, turnaround. */
+/** Departments: takings and sales by service. [1.119.0] No front desk or turnaround: see OperationsReport. */
 export const OperationsPrint = forwardRef(function OperationsPrint({ report, startDate, endDate }, ref) {
   const sections = [];
   const billing = report?.billing;
-  const reception = report?.reception;
-  const diagnostics = report?.diagnostics;
 
   if (billing?.totals) {
     const t = billing.totals;
@@ -43,7 +40,6 @@ export const OperationsPrint = forwardRef(function OperationsPrint({ report, sta
     if (num(t.refunded) > 0) items.push({ label: `Refunded (${plural(num(t.refunds), 'reversal')})`, value: formatCurrency(t.refunded) });
     sections.push({
       title: 'Takings',
-      note: 'Settled payments in the period. Refunds are listed beside the takings, never subtracted.',
       body: (
         <ReportFigures items={items} />
       ),
@@ -54,7 +50,7 @@ export const OperationsPrint = forwardRef(function OperationsPrint({ report, sta
     const rows = billing.byService;
     sections.push({
       title: 'Sales by service',
-      note: 'Every service paid for in the period. Net is after discounts.',
+      note: 'Net is after discounts.',
       body: (
         <ReportTable
           columns={[
@@ -77,56 +73,12 @@ export const OperationsPrint = forwardRef(function OperationsPrint({ report, sta
     });
   }
 
-  if (reception) {
-    sections.push({
-      title: 'Front desk',
-      note: 'From check-in to payment. "Typical" is the median wait.',
-      body: (
-        <ReportFigures items={[
-          { label: 'Visits', value: num(reception.visits) },
-          { label: 'Walk-in / booked', value: `${num(reception.walk_ins)} / ${num(reception.appointments)}` },
-          { label: 'Typical wait', value: formatDuration(reception.median_wait_minutes) },
-          { label: 'Average wait', value: formatDuration(reception.avg_wait_minutes) },
-          { label: 'Completed', value: num(reception.completed) },
-          { label: 'Cancelled', value: num(reception.cancelled) },
-        ]} />
-      ),
-    });
-  }
-
-  if (diagnostics) {
-    const outstanding = diagnostics.outstanding || [];
-    const waiting = (name) => {
-      const o = outstanding.find((x) => x.category_name === name);
-      return num(o?.awaiting_exam) + num(o?.awaiting_release);
-    };
-    sections.push({
-      title: 'Turnaround by department',
-      note: 'From payment to the released report. "Typical" is the median.',
-      body: (
-        <ReportTable
-          columns={[
-            { key: 'category_name', label: 'Department' },
-            { key: 'released', label: 'Released', align: 'right' },
-            { key: 'typical', label: 'Typical', align: 'right', render: (r) => formatDuration(r.median_turnaround_minutes) },
-            { key: 'mean', label: 'Average', align: 'right', render: (r) => formatDuration(r.avg_turnaround_minutes) },
-            { key: 'outstanding', label: 'Still waiting', align: 'right', render: (r) => waiting(r.category_name) },
-            { key: 'amended', label: 'Amended', align: 'right' },
-          ]}
-          rows={diagnostics.byCategory || []}
-          empty="No report was released in this period."
-        />
-      ),
-    });
-  }
-
   return (
     <ReportDocument
       ref={ref}
       title="Departments Report"
       startDate={startDate}
       endDate={endDate}
-      scope={diagnostics?.scope ? `${diagnostics.scope.join(', ')} only` : undefined}
     >
       {sections.map(({ title, note, body }, i) => (
         <ReportSection key={title} number={i + 1} title={title} note={note}>{body}</ReportSection>
@@ -135,7 +87,7 @@ export const OperationsPrint = forwardRef(function OperationsPrint({ report, sta
   );
 });
 
-/** Trends: money by day, volume by department, visit status, payment methods, arrivals by hour. */
+/** Trends: money by day and by method, tests by department, visits by status, arrivals by hour. */
 export const TrendsPrint = forwardRef(function TrendsPrint({ report, startDate, endDate }, ref) {
   const revenue = report?.revenueTrend || [];
   const volume = report?.serviceVolume || [];
@@ -146,59 +98,63 @@ export const TrendsPrint = forwardRef(function TrendsPrint({ report, startDate, 
 
   return (
     <ReportDocument ref={ref} title="Trends Report" startDate={startDate} endDate={endDate}>
-      <ReportSection number={1} title="Takings by day" note="Money taken in on each day of the period.">
-        <ReportTable
-          columns={[
-            { key: 'day', label: 'Day', render: (r) => formatDate(r.day) },
-            { key: 'total', label: 'Collected', align: 'right', render: (r) => formatCurrency(r.total) },
-          ]}
-          rows={revenue}
-          total={{ day: 'Total', total: formatCurrency(revenue.reduce((s, r) => s + num(r.total), 0)) }}
-          empty="No payment was taken in this period."
-        />
-      </ReportSection>
+      {/* Two narrow tables to a row: they are two or three columns wide, and a sheet of paper
+          is not. [1.119.0] Side by side, the whole report fits on one page. */}
+      <ReportColumns>
+        <ReportSection number={1} title="Takings by day">
+          <ReportTable
+            columns={[
+              { key: 'day', label: 'Day', render: (r) => formatDate(r.day) },
+              { key: 'total', label: 'Collected', align: 'right', render: (r) => formatCurrency(r.total) },
+            ]}
+            rows={revenue}
+            total={{ day: 'Total', total: formatCurrency(revenue.reduce((s, r) => s + num(r.total), 0)) }}
+            empty="No payment was taken in this period."
+          />
+        </ReportSection>
+        <ReportSection number={2} title="Payments by method">
+          <ReportTable
+            columns={[
+              { key: 'payment_method', label: 'Method' },
+              { key: 'payment_count', label: 'Payments', align: 'right' },
+              { key: 'total', label: 'Amount', align: 'right', render: (r) => formatCurrency(r.total) },
+            ]}
+            rows={methods}
+            total={{
+              payment_method: 'Total',
+              payment_count: methods.reduce((s, r) => s + num(r.payment_count), 0),
+              total: formatCurrency(methods.reduce((s, r) => s + num(r.total), 0)),
+            }}
+            empty="No payment in this period."
+          />
+        </ReportSection>
+      </ReportColumns>
 
-      <ReportSection number={2} title="Tests by department" note="Tests attached to a visit in the period.">
-        <ReportTable
-          columns={[
-            { key: 'category_name', label: 'Department' },
-            { key: 'test_count', label: 'Tests', align: 'right' },
-          ]}
-          rows={volume}
-          total={{ category_name: 'Total', test_count: volume.reduce((s, r) => s + num(r.test_count), 0) }}
-          empty="No test was recorded in this period."
-        />
-      </ReportSection>
-
-      <ReportSection number={3} title="Visits by status">
-        <ReportTable
-          columns={[
-            { key: 'status', label: 'Status' },
-            { key: 'visit_count', label: 'Visits', align: 'right' },
-            { key: 'share', label: 'Share', align: 'right', render: (r) => percent(num(r.visit_count), totalVisits) },
-          ]}
-          rows={statuses}
-          total={{ status: 'Total', visit_count: totalVisits, share: totalVisits > 0 ? '100%' : '' }}
-          empty="No visit in this period."
-        />
-      </ReportSection>
-
-      <ReportSection number={4} title="Payments by method">
-        <ReportTable
-          columns={[
-            { key: 'payment_method', label: 'Method' },
-            { key: 'payment_count', label: 'Payments', align: 'right' },
-            { key: 'total', label: 'Amount', align: 'right', render: (r) => formatCurrency(r.total) },
-          ]}
-          rows={methods}
-          total={{
-            payment_method: 'Total',
-            payment_count: methods.reduce((s, r) => s + num(r.payment_count), 0),
-            total: formatCurrency(methods.reduce((s, r) => s + num(r.total), 0)),
-          }}
-          empty="No payment in this period."
-        />
-      </ReportSection>
+      <ReportColumns>
+        <ReportSection number={3} title="Tests by department">
+          <ReportTable
+            columns={[
+              { key: 'category_name', label: 'Department' },
+              { key: 'test_count', label: 'Tests', align: 'right' },
+            ]}
+            rows={volume}
+            total={{ category_name: 'Total', test_count: volume.reduce((s, r) => s + num(r.test_count), 0) }}
+            empty="No test was recorded in this period."
+          />
+        </ReportSection>
+        <ReportSection number={4} title="Visits by status">
+          <ReportTable
+            columns={[
+              { key: 'status', label: 'Status' },
+              { key: 'visit_count', label: 'Visits', align: 'right' },
+              { key: 'share', label: 'Share', align: 'right', render: (r) => percent(num(r.visit_count), totalVisits) },
+            ]}
+            rows={statuses}
+            total={{ status: 'Total', visit_count: totalVisits, share: totalVisits > 0 ? '100%' : '' }}
+            empty="No visit in this period."
+          />
+        </ReportSection>
+      </ReportColumns>
 
       <ReportSection number={5} title="Arrivals by hour" note="When patients arrived, walk-in against booked, over the whole period.">
         <ReportTable

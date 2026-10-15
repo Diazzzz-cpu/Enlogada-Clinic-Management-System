@@ -533,6 +533,10 @@ A refusal at either level wins, matching the partial unique index on that table.
 VISIT date, so a claim decided three weeks later never moves money out of a period already
 reported — the closed-day restatement [1.30.0] exists to prevent, arriving by another door.
 
+**A report exports as Excel via `?format=xlsx`** `[1.119.0]`, which is what the Reports tabs' "Export
+Excel" downloads: `utils/xlsxWriter.js` (no dependency) + `utils/reportXlsx.js`, laid out like the
+printed report, money a NUMBER in a peso format, totals as SUM formulas. CSV below is still served.
+
 **A report exports as CSV via `?format=csv`, and money in it is a NUMBER.** `[1.62.0]` All five
 report endpoints serve the same figures as a file through `utils/csvExport.js` +
 `utils/reportCsv.js`. Three rules, each of which was the obvious thing done the other way round:
@@ -840,7 +844,10 @@ with a link to the printable document.
   Feedback print `components/reports/ReportDocument.jsx`: letterhead, title, period, generated
   at/by, numbered sections of plain tables with totals, a Prepared by / Noted by block (Noted by
   is `clinic.reportNotedBy`, Jesie B. Enlogada, Proprietor `[1.118.0]`), and a footer on every
-  page naming the clinic, the report, its period and "Confidential", with "Page N of M". One print component per report in `ReportPrints.jsx`, fed the figures the tab already
+  page naming the clinic, the report, its period and "Confidential", with "Page N of M". Each report
+  fits one A4 page `[1.119.0]`: narrow tables print two to a row (`ReportColumns`), and the
+  signatures are kept with the last section so no sheet is only signatures. Departments is takings
+  and sales by service only; front desk and turnaround live on Visit History and Today. One print component per report in `ReportPrints.jsx`, fed the figures the tab already
   holds and the range they were fetched FOR. Tables, not charts, on paper (printers are often black
   and white). Print with `lib/reportPrint.js` `printReport`, which selects `@page document` (A4);
   `.report-doc` styles are in points, the one place a size is not rem. A new report gets a print

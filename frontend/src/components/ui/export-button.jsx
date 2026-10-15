@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from './button';
-import { downloadCsv } from '../../lib/downloadCsv';
+import { downloadReport } from '../../lib/downloadReport';
 import { toastSuccess, toastError } from '../../lib/toast';
 
 /**
- * "Export CSV" for a report panel. [1.62.0]
+ * "Export Excel" for a report panel. [1.62.0] [1.119.0]
+ *
+ * It was "Export CSV". A CSV opened in Excel as one cramped grid, so the button now downloads a
+ * real workbook laid out like the printed report; `format="csv"` still gives the CSV.
  *
  * One component rather than the same six lines beside four Print buttons — that duplication is
  * how the copies drift, and an export that names its file differently on one screen than another
@@ -23,11 +26,12 @@ import { toastSuccess, toastError } from '../../lib/toast';
  *     boundary, not a fault, and saying so is the difference between a person understanding the
  *     system and distrusting it.
  */
-const ExportCsvButton = ({
+const ExportButton = ({
   path,
   params,
-  fallbackName = 'report.csv',
-  label = 'Export CSV',
+  fallbackName = 'report.xlsx',
+  format = 'xlsx',
+  label = format === 'csv' ? 'Export CSV' : 'Export Excel',
   disabled = false,
   variant = 'outline',
   size,
@@ -38,7 +42,7 @@ const ExportCsvButton = ({
   const onExport = async () => {
     setBusy(true);
     try {
-      const filename = await downloadCsv(path, params, fallbackName);
+      const filename = await downloadReport(path, params, fallbackName, format);
       toastSuccess('Report exported', filename);
     } catch (err) {
       toastError('Export failed', err.message);
@@ -63,4 +67,4 @@ const ExportCsvButton = ({
   );
 };
 
-export default ExportCsvButton;
+export default ExportButton;

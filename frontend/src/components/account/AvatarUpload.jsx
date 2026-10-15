@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import api from '../config/api';
-import { useAuth } from '../contexts/AuthContext';
-import { toastSuccess, toastError } from '../lib/toast';
-import { Camera, Loader2 } from 'lucide-react';
+import api from '../../config/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { toastSuccess, toastError } from '../../lib/toast';
+import { Button } from '../ui/button';
+import { Camera, Trash2 } from 'lucide-react';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_BYTES = 3 * 1024 * 1024; // 3MB, matches backend/src/config/upload.js
@@ -10,7 +11,10 @@ const MAX_SIZE_BYTES = 3 * 1024 * 1024; // 3MB, matches backend/src/config/uploa
 // UI/UX Modernization Phase 8: self-service profile photo, scoped to the My Account/Profile
 // page only — the initials-circle avatars elsewhere in the app (sidebar, public header) are
 // left as-is (see database/migrations.md [1.9.0] for the scope reasoning).
-const AvatarUpload = () => {
+//
+// [1.120.0] The large photo at the top of the profile card, with ONE way to change it. It had a
+// camera badge on the photo and an "Upload" link beside it, two controls doing the same thing.
+const AvatarUpload = ({ children }) => {
   const { user, updateAvatarFlag } = useAuth();
   const [objectUrl, setObjectUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -92,59 +96,42 @@ const AvatarUpload = () => {
   const initial = user?.firstName ? user.firstName.charAt(0).toUpperCase() : 'U';
 
   return (
-    <div className="flex items-center space-x-4">
-      <div className="relative w-16 h-16 flex-shrink-0">
-        <div className="w-16 h-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-xl overflow-hidden border-2 border-surface shadow-md">
-          {objectUrl ? (
-            <img src={objectUrl} alt="Profile" className="w-full h-full object-cover" />
-          ) : (
-            <span>{initial}</span>
-          )}
-        </div>
-        <button
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-primary text-3xl font-bold text-primary-foreground ring-4 ring-brand-50">
+        {objectUrl ? (
+          <img src={objectUrl} alt="Your profile photo" className="h-full w-full object-cover" />
+        ) : (
+          <span aria-hidden="true">{initial}</span>
+        )}
+      </div>
+      {children}
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
+          loading={uploading}
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          aria-label="Change profile photo"
-          className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-surface border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 hover:text-brand-600 hover:border-brand-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={handleFileSelected}
-        />
+          <Camera className="h-3.5 w-3.5" />
+          {objectUrl ? 'Change photo' : 'Upload photo'}
+        </Button>
+        {objectUrl && (
+          <Button type="button" size="sm" variant="ghost" onClick={handleRemove} disabled={uploading}>
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove
+          </Button>
+        )}
       </div>
-      <div className="space-y-1">
-        <p className="text-xs font-semibold text-gray-700 m-0">Profile Photo</p>
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="text-fine font-bold text-brand-600 hover:underline bg-transparent border-0 p-0 cursor-pointer disabled:opacity-50"
-          >
-            {objectUrl ? 'Change' : 'Upload'}
-          </button>
-          {objectUrl && (
-            <>
-              <span className="text-gray-300">&middot;</span>
-              <button
-                type="button"
-                onClick={handleRemove}
-                disabled={uploading}
-                className="text-fine font-bold text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer disabled:opacity-50"
-              >
-                Remove
-              </button>
-            </>
-          )}
-        </div>
-        <p className="text-meta text-gray-400 m-0">JPEG, PNG, or WebP. Max 3MB.</p>
-      </div>
+      <p className="m-0 text-meta text-slate-500">JPEG, PNG or WebP, up to 3 MB.</p>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFileSelected}
+        aria-label="Profile photo file"
+      />
     </div>
   );
 };

@@ -1,5 +1,29 @@
 # Database Migration & Schema History
 
+## [1.120.0] - 2026-10-16 (My Account: the account beside the forms that change it)
+
+No schema change; nothing to run.
+
+**One narrow column became two.** Staff My Account was a single 42rem column of forms with the rest
+of a desk screen empty. Now the profile card (the photo, the name, the role) sits on the left and the
+forms on the right; on a phone they stack. The patient portal's My Account is built from the same
+three parts (`components/account/`: `ProfileCard`, `PersonalDetailsPanel`, `PasswordPanel`), so the
+two cannot drift; `AccountSettingsForm.jsx` is gone, and `AvatarUpload` moved into that folder.
+
+- **Each fact once.** The card shows no email or number: the form beside it already does. The photo
+  has one way to change it: the camera badge on the photo and the "Upload" link beside it were two
+  controls doing the same thing. The portal's safety note no longer repeats that a new password
+  signs you out elsewhere; the Password section says so.
+- **Save only when something changed**, with "You have unsaved changes" beside it, and buttons
+  that keep their label while saving (`<Button loading>`, CLAUDE.md [1.39.0]); both used to swap to
+  "Saving…". The sign-in email is a plain read-only line with a lock, not a greyed-out input that
+  looks broken.
+- **The password is checked while it is typed:** Create Account's strength meter under the new
+  password, and "Passwords match" or "Doesn't match yet" under the confirmation. Change Password
+  waits until all three are filled.
+
+`my-account.spec.js` holds it without changing a seeded account.
+
 ## [1.119.0] - 2026-10-16 (Reports export to Excel; Departments is takings and sales; one page each)
 
 No schema change; nothing to run. No new dependency.

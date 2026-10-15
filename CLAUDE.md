@@ -459,6 +459,16 @@ discount on a paid visit cannot change either. With no way back, the till's HMO 
 cashier to wait for a pending decision rather than charge for a test the HMO may yet cover. Do
 not reintroduce a reversal path.
 
+**No void either, and the tests are confirmed before the money.** `[1.122.0]` Cancelling a PAID
+visit (`visitService.updateStatus`) or a PAID booking (`appointmentService.cancelAppointment` and
+`updateStatus`) kept the money and gave nothing for it: a void by another name. All three refuse
+with 409; a paid booking is moved, not cancelled. The Desk and the portal hide Cancel on a paid one
+(`is_paid` on the queue row and the booking). Because a receipt is final, the tests are confirmed
+first: the till's `PaymentConfirmDialog` lists them and waits for the cashier's tick that the
+patient confirmed them, and the portal's `PayBookingPanel` shows the clinic's account only after
+the patient ticks "These are the tests I want" (bookings carry `booked_tests`).
+`final-tests.spec.js` holds both halves.
+
 **An omitted field is not an instruction to erase.** `testRepository.updateTest` writes every
 column unconditionally, so a caller sending only the fields it cares about destroys the rest —
 the Services Catalogue's status toggle sent four fields and every activate/deactivate wiped that

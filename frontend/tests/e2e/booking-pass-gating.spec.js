@@ -165,6 +165,11 @@ test('the patient can pay on the confirmation itself, without going to Appointme
     'the confirmation must offer payment itself, not send the patient to another screen'
   ).toBeVisible({ timeout: 15000 });
 
+  // [1.122.0] The account is shown only once the patient confirms these are the tests they want:
+  // a paid receipt is final, and the money leaves their banking app before the clinic sees it.
+  await expect(dialog.getByText(methods[0].account_number), 'not before the tests are confirmed').toHaveCount(0);
+  await dialog.getByRole('checkbox', { name: 'These are the tests I want.' }).check();
+
   // The clinic's actual published account, so this is the real panel and not a placeholder.
   await expect(dialog.getByText(methods[0].account_number)).toBeVisible();
 

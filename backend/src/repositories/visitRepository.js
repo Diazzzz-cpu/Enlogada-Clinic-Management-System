@@ -135,7 +135,12 @@ class VisitRepository {
              pt.name as patient_type_name,
              u.first_name as created_by_first_name, u.last_name as created_by_last_name,
              pv.status as visit_status,
-             q.queue_position, q.patients_ahead
+             q.queue_position, q.patients_ahead,
+             -- [1.122.0] A paid visit cannot be cancelled; the Desk hides Cancel on it.
+             EXISTS (
+               SELECT 1 FROM payments pay
+                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
+             ) AS is_paid
       FROM patient_visits pv
       JOIN patients p ON pv.patient_id = p.id
       JOIN patient_types pt ON p.patient_type_id = pt.id

@@ -1,5 +1,30 @@
 # Database Migration & Schema History
 
+## [1.122.0] - 2026-10-16 (No void; the tests are confirmed before the money)
+
+No schema change; nothing to run.
+
+**No void.** The receipt void went with the refund route in [1.121.0]. One left was not called a
+void: cancelling a visit that was already paid. It kept the payment as Paid and took the tests off
+every worklist, so the clinic held money for nothing. A paid visit can no longer be cancelled, and a
+paid booking can be moved but not cancelled (both answer 409, Admin included). The Desk hides the
+Cancel on a paid visit (`is_paid` on the queue row), the portal hides it on a paid booking. An
+unpaid visit or booking cancels as before.
+
+**The tests are confirmed before the money.** Steven: a patient still deciding between tests should
+not be charged for the wrong ones, now that a payment cannot be undone.
+- **At the till**, the payment confirmation is "Are these the final tests?": every test and its
+  price, the total and the method, what payment locks, and Take ₱X waits until the cashier ticks
+  "The patient has confirmed these are their final tests." The tick resets each time it opens.
+  (`components/cashier/PaymentConfirmDialog.jsx`)
+- **In the portal**, the money leaves the patient's banking app before the clinic sees it, so the
+  check comes first: the pay panel lists the booked tests (`booked_tests` on the patient's
+  bookings, and the rows a new booking returns) and shows the clinic's account and the upload only
+  after "These are the tests I want." A patient not sure yet is told they can pay at the counter.
+
+`final-tests.spec.js` holds the till, the portal, and both refusals; `booking-pass-gating.spec.js`
+ticks the box before it reads the account.
+
 ## [1.121.0] - 2026-10-16 (No refunds: a paid receipt is final)
 
 No schema change. **Re-run `node src/scripts/setupRbac.js`** on any existing database: it retires

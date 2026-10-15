@@ -36,6 +36,7 @@ const BookingConfirmation = ({
   scheduledTime,
   slotMinutes = null,
   amountDue = 0,
+  tests = [],
   isHmo = false,
   onClose,
 }) => {
@@ -134,6 +135,7 @@ const BookingConfirmation = ({
             <PayBookingPanel
               visitId={visitId}
               amountDue={owed}
+              tests={tests}
               onSettled={() => setProofSent(true)}
             />
           </div>

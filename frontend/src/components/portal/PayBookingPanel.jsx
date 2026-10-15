@@ -226,8 +226,51 @@ function ScanAssist({ scanning, scan, amountDue }) {
   );
 }
 
-export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
+/**
+ * Step one: are these the tests you want? [1.122.0]
+ *
+ * Asked BEFORE the clinic's account appears, because the money leaves the patient's banking app
+ * and the clinic only sees it afterwards. A paid receipt is final: no refunds [1.121.0], and a paid
+ * visit's tests cannot change. A patient still deciding is pointed at the counter instead.
+ */
+function FinalTestsCheck({ tests, amountDue, confirmed, onChange }) {
+  return (
+    <div data-testid="final-tests-check" className="space-y-2 rounded-lg border border-line bg-surface p-3">
+      <p className="m-0 text-fine font-semibold text-slate-900">Check your tests before you pay</p>
+      {tests.length > 0 && (
+        <ul className="m-0 list-none divide-y divide-line rounded-lg border border-line p-0 text-fine">
+          {tests.map((t, i) => (
+            <li key={`${t.name}-${i}`} className="flex items-baseline justify-between gap-3 px-2.5 py-1.5">
+              <span className="min-w-0 text-slate-800">{t.name}</span>
+              <span className="flex-shrink-0 tabular-nums text-slate-600">{formatCurrency(t.price)}</span>
+            </li>
+          ))}
+          <li className="flex items-baseline justify-between gap-3 bg-slate-50 px-2.5 py-1.5 font-semibold text-ink">
+            <span>Total</span>
+            <span className="tabular-nums">{formatCurrency(amountDue)}</span>
+          </li>
+        </ul>
+      )}
+      <p className="m-0 text-fine leading-relaxed text-slate-600">
+        Once the clinic confirms your payment, these tests can&apos;t be changed and the payment
+        can&apos;t be refunded. Not sure yet? You can pay at the counter when you arrive instead.
+      </p>
+      <label className="flex cursor-pointer items-start gap-2 text-fine font-medium text-ink">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-0.5 rounded text-brand-600 focus:ring-brand-500"
+        />
+        These are the tests I want.
+      </label>
+    </div>
+  );
+}
+
+export default function PayBookingPanel({ visitId, amountDue, tests = [], onSettled }) {
   const pay = usePaymentSubmission(visitId, { onSettled });
+  const [confirmed, setConfirmed] = useState(false);
   const selected = pay.methods.find((m) => String(m.id) === String(pay.methodId)) || pay.methods[0];
   // What goes into the banking app's amount box: digits, no peso sign or thousands separator.
   const due = Number(amountDue);
@@ -295,127 +338,141 @@ export default function PayBookingPanel({ visitId, amountDue, onSettled }) {
       <div>
         <p className="m-0 text-note font-bold text-slate-900">Pay to confirm this booking</p>
         <p className="m-0 mt-0.5 text-fine leading-relaxed text-slate-600">
-          Send {amountDue ? <strong>{formatCurrency(amountDue)}</strong> : 'the amount due'} to the
-          account below, then upload the confirmation. Your pass is issued once the clinic checks it.
+          {confirmed ? (
+            <>
+              Send {amountDue ? <strong>{formatCurrency(amountDue)}</strong> : 'the amount due'} to the
+              account below, then upload the confirmation. Your pass is issued once the clinic checks it.
+            </>
+          ) : (
+            'First, check the tests you are paying for.'
+          )}
         </p>
       </div>
 
-      {/* A rejection has to say why, and offer another go. */}
-      {pay.rejected && (
-        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2.5">
-          <p className="m-0 flex items-center gap-1.5 text-fine font-semibold text-rose-800">
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-            Your last payment could not be confirmed
-          </p>
-          <p className="m-0 mt-0.5 text-fine leading-relaxed text-rose-700">
-            {pay.rejected.review_note} — you can submit again below.
-          </p>
-        </div>
-      )}
+      <FinalTestsCheck tests={tests} amountDue={amountDue} confirmed={confirmed} onChange={setConfirmed} />
 
-      {pay.methods.length > 1 && (
-        <div className="flex flex-wrap gap-1.5">
-          {pay.methods.map((m) => {
-            const on = String(m.id) === String(selected?.id);
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => pay.setMethodId(String(m.id))}
-                className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-fine font-semibold transition-colors ${
-                  on ? 'border-azure-400 bg-surface text-azure-800' : 'border-line bg-white/60 text-slate-600 hover:bg-surface'
-                }`}
-              >
-                {m.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* The account and the upload only once the tests are confirmed. [1.122.0] */}
+      {confirmed && (
+        <>
 
-      {selected && (
-        <div className="flex flex-col gap-3 sm:flex-row">
-          {selected.has_qr && (
-            <div className="flex flex-shrink-0 flex-col items-center gap-1">
-              <MethodQr methodId={selected.id} label={selected.label} />
-              <span className="flex items-center gap-1 text-micro font-semibold text-slate-500">
-                <QrCode className="h-3 w-3" aria-hidden="true" />
-                Scan to pay
-              </span>
+          {/* A rejection has to say why, and offer another go. */}
+          {pay.rejected && (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2.5">
+              <p className="m-0 flex items-center gap-1.5 text-fine font-semibold text-rose-800">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                Your last payment could not be confirmed
+              </p>
+              <p className="m-0 mt-0.5 text-fine leading-relaxed text-rose-700">
+                {pay.rejected.review_note} — you can submit again below.
+              </p>
             </div>
           )}
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <CopyField
-              label={selected.kind === 'Bank' ? 'Account number' : 'GCash number'}
-              value={selected.account_number}
-            />
-            {selected.account_name && (
-              <p className="m-0 text-fine text-slate-600">
-                Account name: <strong>{selected.account_name}</strong>
-                {selected.bank_name ? ` · ${selected.bank_name}` : ''}
+
+          {pay.methods.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              {pay.methods.map((m) => {
+                const on = String(m.id) === String(selected?.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => pay.setMethodId(String(m.id))}
+                    className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-fine font-semibold transition-colors ${
+                      on ? 'border-azure-400 bg-surface text-azure-800' : 'border-line bg-white/60 text-slate-600 hover:bg-surface'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {selected && (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {selected.has_qr && (
+                <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                  <MethodQr methodId={selected.id} label={selected.label} />
+                  <span className="flex items-center gap-1 text-micro font-semibold text-slate-500">
+                    <QrCode className="h-3 w-3" aria-hidden="true" />
+                    Scan to pay
+                  </span>
+                </div>
+              )}
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <CopyField
+                  label={selected.kind === 'Bank' ? 'Account number' : 'GCash number'}
+                  value={selected.account_number}
+                />
+                {selected.account_name && (
+                  <p className="m-0 text-fine text-slate-600">
+                    Account name: <strong>{selected.account_name}</strong>
+                    {selected.bank_name ? ` · ${selected.bank_name}` : ''}
+                  </p>
+                )}
+                {/* The amount is stated, not asked for. [1.105.0] It was an editable "Amount sent"
+                    box, which invited the patient to send a different figure from the one the
+                    booking owes; it now sits beside the number it is sent to, ready to copy. */}
+                {dueToCopy && (
+                  <CopyField label="Amount to send" value={dueToCopy} display={formatCurrency(due)} />
+                )}
+                {selected.instructions && (
+                  <p className="m-0 text-fine leading-relaxed text-slate-600">{selected.instructions}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={pay.submit} className="space-y-2 border-t border-azure-200 pt-3">
+            {pay.error && (
+              <div role="alert" className="alert alert-error">
+                <AlertCircle />
+                <span>{pay.error}</span>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor={`ref-${visitId}`} className="field-label">Reference number</label>
+              <Input
+                id={`ref-${visitId}`}
+                value={pay.reference}
+                onChange={(e) => pay.setReference(e.target.value)}
+                placeholder="From your payment confirmation"
+                disabled={pay.submitting}
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`proof-${visitId}`} className="field-label">Screenshot of the transaction</label>
+              {/* Said before they choose, not after it is rejected. A cashier can only approve what
+                  they can read, and a cropped or blurred screenshot costs the patient a whole
+                  round trip — a rejection, a phone call, and a second upload. */}
+              <p className="m-0 mb-1.5 text-fine leading-relaxed text-slate-500">
+                The <strong>reference number</strong> and the <strong>amount</strong> must both be
+                readable. A screenshot from your banking app works better than a photo of the screen.
               </p>
-            )}
-            {/* The amount is stated, not asked for. [1.105.0] It was an editable "Amount sent"
-                box, which invited the patient to send a different figure from the one the
-                booking owes; it now sits beside the number it is sent to, ready to copy. */}
-            {dueToCopy && (
-              <CopyField label="Amount to send" value={dueToCopy} display={formatCurrency(due)} />
-            )}
-            {selected.instructions && (
-              <p className="m-0 text-fine leading-relaxed text-slate-600">{selected.instructions}</p>
-            )}
-          </div>
-        </div>
+              <input
+                id={`proof-${visitId}`}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => pay.chooseProof(e.target.files?.[0] || null)}
+                disabled={pay.submitting}
+                className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-surface p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
+              />
+              {/* chooseProof(null) rather than setProof(null): clearing the file must also clear the
+                  scan, or a removed screenshot leaves its duplicate warning on screen attached to
+                  nothing. */}
+              <ProofPreview file={pay.proof} onClear={() => pay.chooseProof(null)} />
+              <ScanAssist scanning={pay.scanning} scan={pay.scan} amountDue={amountDue} />
+            </div>
+
+            <Button type="submit" loading={pay.submitting} className="w-full">
+              <Upload className="h-4 w-4" />
+              Send for verification
+            </Button>
+          </form>
+        </>
       )}
-
-      <form onSubmit={pay.submit} className="space-y-2 border-t border-azure-200 pt-3">
-        {pay.error && (
-          <div role="alert" className="alert alert-error">
-            <AlertCircle />
-            <span>{pay.error}</span>
-          </div>
-        )}
-
-        <div>
-          <label htmlFor={`ref-${visitId}`} className="field-label">Reference number</label>
-          <Input
-            id={`ref-${visitId}`}
-            value={pay.reference}
-            onChange={(e) => pay.setReference(e.target.value)}
-            placeholder="From your payment confirmation"
-            disabled={pay.submitting}
-          />
-        </div>
-
-        <div>
-          <label htmlFor={`proof-${visitId}`} className="field-label">Screenshot of the transaction</label>
-          {/* Said before they choose, not after it is rejected. A cashier can only approve what
-              they can read, and a cropped or blurred screenshot costs the patient a whole
-              round trip — a rejection, a phone call, and a second upload. */}
-          <p className="m-0 mb-1.5 text-fine leading-relaxed text-slate-500">
-            The <strong>reference number</strong> and the <strong>amount</strong> must both be
-            readable. A screenshot from your banking app works better than a photo of the screen.
-          </p>
-          <input
-            id={`proof-${visitId}`}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            onChange={(e) => pay.chooseProof(e.target.files?.[0] || null)}
-            disabled={pay.submitting}
-            className="block w-full cursor-pointer rounded-lg border border-slate-200 bg-surface p-2 text-fine text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-fine file:font-semibold file:text-slate-700"
-          />
-          {/* chooseProof(null) rather than setProof(null): clearing the file must also clear the
-              scan, or a removed screenshot leaves its duplicate warning on screen attached to
-              nothing. */}
-          <ProofPreview file={pay.proof} onClear={() => pay.chooseProof(null)} />
-          <ScanAssist scanning={pay.scanning} scan={pay.scan} amountDue={amountDue} />
-        </div>
-
-        <Button type="submit" loading={pay.submitting} className="w-full">
-          <Upload className="h-4 w-4" />
-          Send for verification
-        </Button>
-      </form>
     </div>
   );
 }

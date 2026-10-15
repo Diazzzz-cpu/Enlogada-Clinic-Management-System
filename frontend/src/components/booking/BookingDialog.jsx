@@ -166,6 +166,12 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
         scheduledDate: formatAppointmentDate(bookingData.scheduledDate),
         scheduledTime: bookingData.scheduledTime,
         amountDue,
+        // What the pay panel asks the patient to confirm before paying. [1.122.0] The rows the
+        // server wrote, named from the catalogue the picker showed.
+        tests: visitTests.map((vt) => ({
+          name: (testCatalog || []).find((t) => String(t.id) === String(vt.test_id))?.name || 'Test',
+          price: vt.price_at_time,
+        })),
         isHmo: !!hmoRequest
       });
       setBookingData(EMPTY_BOOKING);

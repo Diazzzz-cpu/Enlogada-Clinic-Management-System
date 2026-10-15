@@ -190,6 +190,18 @@ class AppointmentRepository {
                FROM visit_tests vt
                WHERE vt.patient_visit_id = pv.id
              ) AS amount_due,
+             -- The tests this booking is for, each at the price it is billed. [1.122.0] The pay
+             -- panel lists them and asks the patient to confirm they are final BEFORE the money
+             -- leaves their banking app: a paid receipt is final, and the tests cannot change.
+             (
+               SELECT COALESCE(
+                 json_agg(json_build_object('name', t.name, 'price', vt.price_at_time) ORDER BY vt.id),
+                 '[]'::json
+               )
+               FROM visit_tests vt
+               JOIN tests t ON vt.test_id = t.id
+               WHERE vt.patient_visit_id = pv.id
+             ) AS booked_tests,
              -- What the patient has to do before this appointment. [1.24.0] put these in the
              -- booking wizard and the confirmation email, and then the patient's own list of
              -- bookings — the screen they open the day before to check the time — could not show

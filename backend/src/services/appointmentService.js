@@ -1,3 +1,4 @@
+const paymentRepository = require('../repositories/paymentRepository');
 const db = require('../config/database');
 const { formatTime12 } = require('../constants/clockFormat');
 const { isStaffUser } = require('../constants/roles');
@@ -135,6 +136,20 @@ function formatDateOnly(value) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * A paid booking cannot be cancelled. [1.122.0] With no refunds, cancelling it kept the money and
+ * gave nothing for it. Moving it to another day is the remedy, and the message says so.
+ */
+async function assertNotPaid(appointment) {
+  if (await paymentRepository.hasPaidPayment(appointment.patient_visit_id)) {
+    const error = new Error(
+      "This booking has already been paid, so it can't be cancelled. Move it to another day instead."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 }
 
 class AppointmentService {
@@ -533,6 +548,7 @@ class AppointmentService {
       error.statusCode = 400;
       throw error;
     }
+    await assertNotPaid(appointment);
 
     // Cancelling the appointment and cancelling its visit is one decision, so it is one write.
     // Split, a failure on the second left the appointment Cancelled while its visit stayed active
@@ -749,6 +765,8 @@ class AppointmentService {
       error.statusCode = 404;
       throw error;
     }
+    // The same rule as cancelAppointment, on the route that can also set Cancelled. [1.122.0]
+    if (status === 'Cancelled') await assertNotPaid(appointment);
     // Checking a patient in is only meaningful against the booking the receptionist just looked
     // at. Passing the status they read makes this a compare-and-swap against a reschedule landing
     // in the same instant — without it, a move that commits while this call waits on the row lock

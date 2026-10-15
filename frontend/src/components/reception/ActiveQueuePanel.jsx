@@ -289,7 +289,8 @@ export default function ActiveQueuePanel({ queue, disposition, hmo, testAssignme
                                 Edit Tests
                               </Button>
                             )}
-                            {!['Completed', 'Cancelled'].includes(visit.visit_status) && (
+                            {/* A paid visit cannot be cancelled: a paid receipt is final. [1.122.0] */}
+                            {!['Completed', 'Cancelled'].includes(visit.visit_status) && !visit.is_paid && (
                               <button
                                 type="button"
                                 onClick={() => disposition.cancel.request(visit)}

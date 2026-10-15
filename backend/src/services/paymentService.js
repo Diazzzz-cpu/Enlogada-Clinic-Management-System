@@ -8,9 +8,8 @@ const visitRepository = require('../repositories/visitRepository');
 const patientRepository = require('../repositories/patientRepository');
 const auditService = require('./auditService');
 
-// Feature Gap Plan Phase A: payment_status's CHECK constraint has allowed 'Refunded'/'Cancelled'
-// since the schema baseline, but no endpoint ever set them — a duplicate or disputed charge had
-// no reversal path anywhere in the app.
+// There is no reversal path. [1.121.0] 'Refunded' and a paid 'Cancelled' are statuses that only
+// receipts from before then carry; nothing sets them now. A paid receipt is final.
 
 // The methods this clinic records, for validating a filter against. [1.33.0]
 const { COUNTER_METHODS } = require('../constants/paymentMethods');
@@ -77,9 +76,8 @@ class PaymentService {
     //
     // Charged at full price here, because an undecided claim covers nothing — which is arithmetic
     // the cashier cannot see. The patient hands over the full amount for a test their HMO is
-    // about to cover, the approval lands the next day, and the clinic now owes a refund: a second
-    // counter visit, a reversal against the cashier's account, and a patient who was charged for
-    // something they had been told was covered.
+    // about to cover, the approval lands the next day, and there is no refund [1.121.0]: the
+    // patient has paid for something they had been told was covered, and the receipt is final.
     //
     // Reported, not blocked. Some providers take days to answer and the patient cannot be kept
     // waiting at the counter for one — so this is the cashier's decision to make, and all the

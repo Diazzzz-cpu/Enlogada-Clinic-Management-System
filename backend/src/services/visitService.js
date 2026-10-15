@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const visitRepository = require('../repositories/visitRepository');
+const paymentRepository = require('../repositories/paymentRepository');
 const { VISIT_TYPES, VISIT_STATUSES } = require('../constants/visits');
 const { DOCTOR_REQUEST_UPLOAD_ROOT } = require('../config/upload');
 const { CLIENT_ROLE } = require('../constants/roles');
@@ -275,6 +276,17 @@ class VisitService {
     if (!visit) {
       const error = new Error('Visit not found');
       error.statusCode = 404;
+      throw error;
+    }
+
+    // A paid visit cannot be cancelled. [1.122.0] With no refunds, cancelling one kept the money
+    // as paid and took the tests off every worklist: a void by another name. Nobody, Admin
+    // included, gets an exception, or the void is back.
+    if (status === 'Cancelled' && await paymentRepository.hasPaidPayment(id)) {
+      const error = new Error(
+        "This visit has already been paid, so it can't be cancelled. A paid receipt is final; the tests can still be done later."
+      );
+      error.statusCode = 409;
       throw error;
     }
 

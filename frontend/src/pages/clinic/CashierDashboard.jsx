@@ -4,8 +4,6 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import PageHeader from '../../components/ui/page-header';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
-import { ConfirmDialog } from '../../components/ui/confirm-dialog';
-import { formatCurrency } from '../../lib/currency';
 import { useAuth } from '../../contexts/AuthContext';
 // Aliased: `Receipt` is already taken by the lucide icon used in this file's headers.
 import ReceiptDocument from '../../components/Receipt';
@@ -20,6 +18,7 @@ import BillingQueuePanel from '../../components/cashier/BillingQueuePanel';
 import CheckoutTerminal from '../../components/cashier/CheckoutTerminal';
 import TransactionHistoryPanel from '../../components/cashier/TransactionHistoryPanel';
 import OnlinePaymentsPanel from '../../components/cashier/OnlinePaymentsPanel';
+import PaymentConfirmDialog from '../../components/cashier/PaymentConfirmDialog';
 import { Receipt, Printer, History, Wallet, Search } from 'lucide-react';
 
 // The sidebar's names, so the heading, the breadcrumb and the sidebar all call a screen the same
@@ -174,12 +173,13 @@ const CashierDashboard = ({ activeNav = 'cashier-queue', onSelectNav }) => {
         )}
 
         {/* Payment confirmation — irreversible action, see .agents Phase 12 */}
-        <ConfirmDialog
+        {/* The final check: the tests, their prices, and a tick that the patient confirmed them.
+            [1.122.0] A paid receipt is final, so this is the last moment a test can change. */}
+        <PaymentConfirmDialog
           open={checkout.confirming}
           onOpenChange={(next) => { if (!next) checkout.cancelConfirmation(); }}
-          title="Confirm Payment"
-          description={checkout.bill ? `Charge ${formatCurrency(checkout.bill.totalAmount)} via ${checkout.paymentMethod} for ${checkout.bill.patientName}? This will issue a receipt and cannot be undone from this screen.` : ''}
-          confirmLabel="Confirm & Process"
+          bill={checkout.bill}
+          method={checkout.paymentMethod}
           onConfirm={checkout.confirm}
           loading={checkout.submitting}
           error={checkout.error}

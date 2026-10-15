@@ -131,13 +131,12 @@ const AREAS = [
     permissions: [
       { name: 'billing:read', label: 'See takings, bills and receipts' },
       { name: 'billing:process', label: 'Take payments and issue receipts' },
-      { name: 'billing:refund', label: 'Refund or void a payment' },
       { name: 'billing:discount', label: 'Give a Senior Citizen, PWD or other discount' },
       { name: 'billing:submit_proof', label: 'Send in proof of an online payment for a patient' },
     ],
     summarize: (h) => {
       const verbs = [
-        h('billing:read') && 'see takings', h('billing:process') && 'take payments', h('billing:refund') && 'refund',
+        h('billing:read') && 'see takings', h('billing:process') && 'take payments',
         h('billing:discount') && 'discount', h('billing:submit_proof') && 'send in online proofs',
       ];
       if (!verbs.some(Boolean)) return 'No';
@@ -289,7 +288,7 @@ function whoLabel(roles) {
 }
 
 /**
- * The unsaved changes, as sentences: "Front desk can now refund or void a payment." One per
+ * The unsaved changes, as sentences: "Front desk can now take payments and issue receipts." One per
  * permission and direction, with the roles it applies to named together, so a switch in the
  * departments' column reads as one change rather than three.
  */

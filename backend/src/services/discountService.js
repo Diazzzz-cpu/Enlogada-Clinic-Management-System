@@ -126,7 +126,7 @@ class DiscountService {
     const alreadyPaid = await paymentRepository.hasPaidPayment(visitId);
     if (alreadyPaid) {
       throw new ConflictError(
-        'This visit has already been paid. Refund the payment first if the discount needs to change.'
+        'This visit has already been paid, so its discount can no longer change.'
       );
     }
 
@@ -177,7 +177,7 @@ class DiscountService {
     const alreadyPaid = await paymentRepository.hasPaidPayment(visitId);
     if (alreadyPaid) {
       throw new ConflictError(
-        'This visit has already been paid. Refund the payment first if the discount needs to change.'
+        'This visit has already been paid, so its discount can no longer change.'
       );
     }
 

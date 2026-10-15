@@ -81,7 +81,7 @@ const ActivityLog = () => {
       <PageHeader
         icon={ScrollText}
         title="Activity Log"
-        description="Who did what — payment refunds and cancellations, staff account changes, HMO provider changes, and result corrections."
+        description="Who did what — staff account changes, HMO provider changes, result corrections, and who opened or printed a report."
         actions={
           <RefreshButton onRefresh={() => fetchActivity(page)} loading={loading} updatedAt={updatedAt} />
         }
@@ -127,7 +127,7 @@ const ActivityLog = () => {
             <EmptyState
               icon={ActivityIcon}
               title="No recorded activity yet"
-              description="Sensitive actions are logged here as staff perform them — refunds, account changes and result corrections."
+              description="Sensitive actions are logged here as staff perform them — account changes, result corrections and report copies."
             />
           ) : (
             <ul className="m-0 list-none divide-y divide-[#eef2f6] p-0">

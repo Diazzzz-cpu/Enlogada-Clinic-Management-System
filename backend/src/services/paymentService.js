@@ -7,12 +7,10 @@ const visitService = require('./visitService');
 const visitRepository = require('../repositories/visitRepository');
 const patientRepository = require('../repositories/patientRepository');
 const auditService = require('./auditService');
-const logger = require('../config/logger');
 
 // Feature Gap Plan Phase A: payment_status's CHECK constraint has allowed 'Refunded'/'Cancelled'
 // since the schema baseline, but no endpoint ever set them — a duplicate or disputed charge had
 // no reversal path anywhere in the app.
-const REVERSIBLE_TARGET_STATUSES = ['Refunded', 'Cancelled'];
 
 // The methods this clinic records, for validating a filter against. [1.33.0]
 const { COUNTER_METHODS } = require('../constants/paymentMethods');
@@ -235,99 +233,6 @@ class PaymentService {
     });
 
     return payment;
-  }
-
-  /**
-   * Reverses a settled receipt — a refund or a staff void.
-   *
-   * @param {number} paymentId
-   * @param {object} params
-   * @param {string} params.status  'Refunded' or 'Cancelled'.
-   * @param {string} params.reason  Required. A reversal with no stated reason leaves the cash-up
-   *   short with nothing to explain it.
-   * @param {object} requestingUser  Audited; a reversal names who authorised it.
-   * @returns {Promise<object>} The updated row.
-   *
-   * Stamps `refunded_at` rather than mutating `paid_at`. That is the whole of [1.30.0]: takings are
-   * bucketed by when money was TAKEN and reversals by when it was HANDED BACK, so reversing an old
-   * receipt can never restate a day that has already been printed and filed.
-   */
-  async updatePaymentStatus(paymentId, { status, reason }, requestingUser) {
-    if (!REVERSIBLE_TARGET_STATUSES.includes(status)) {
-      const error = new Error(`Status must be one of: ${REVERSIBLE_TARGET_STATUSES.join(', ')}`);
-      error.statusCode = 400;
-      throw error;
-    }
-
-    // A reversal must say why. [1.26.0]
-    //
-    // `reason` was optional, so money could leave the till with the audit entry recording who and
-    // how much and nothing at all about why. That is the one field that makes the entry worth
-    // keeping: "Cashier refunded ₱1,200" answers nothing when somebody asks about it in three
-    // months, and the person who could have answered has gone home. Required, and required to be
-    // more than a keystroke.
-    if (!reason || String(reason).trim().length < 4) {
-      const error = new Error(
-        `Give a reason for the ${status.toLowerCase()} — it is recorded against your account and is what explains this to anyone reviewing the day's takings.`
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const payment = await paymentRepository.findById(paymentId);
-    if (!payment) {
-      const error = new Error('Payment not found');
-      error.statusCode = 404;
-      throw error;
-    }
-    if (payment.payment_status !== 'Paid') {
-      const error = new Error(`Only a 'Paid' payment can be ${status.toLowerCase()}. This payment is currently '${payment.payment_status}'.`);
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const updated = await paymentRepository.updatePaymentStatus(paymentId, status, reason);
-
-    // Take the visit back off the modality worklists. [1.26.0]
-    //
-    // Payment is half of the release rule, so reversing it removes the precondition — and until
-    // now nothing acted on that. A refunded visit stayed 'Processing' with its tickets in front
-    // of the department, which carried on and did the work: the clinic paying twice, once in
-    // reagents and time and once in the refund, with nothing on any screen connecting the two.
-    //
-    // Work already performed is left alone. A test that has reached 'Waiting for Release' or
-    // 'Completed' has been done, and a refund is a commercial decision rather than a reason to
-    // pretend an assay never ran.
-    let recall = { testsRecalled: 0, workAlreadyDone: false };
-    try {
-      recall = await visitRepository.recallVisitFromModalities(payment.patient_visit_id);
-    } catch (err) {
-      // The reversal itself is committed and correct; failing here must not undo it. Logged loudly
-      // because it leaves a ticket on a worklist that should not be there.
-      logger.error(`Refund recall failed for visit ${payment.patient_visit_id}: ${err.message}`);
-    }
-
-    await notificationService.notifyRoles(['Admin', 'SuperAdmin', 'Receptionist'], {
-      title: `Payment ${status}`,
-      message:
-        `Receipt #${payment.receipt_number} — ₱${parseFloat(payment.amount).toFixed(2)}: ${reason}` +
-        (recall.workAlreadyDone
-          ? ' — work already performed, tickets left with the department.'
-          : recall.testsRecalled
-            ? ` — ${recall.testsRecalled} ticket(s) pulled back off the worklist.`
-            : ''),
-      type: 'warning'
-    });
-
-    await auditService.log({
-      actorId: requestingUser?.userId,
-      action: `payment.${status.toLowerCase()}`,
-      entityType: 'payment',
-      entityId: paymentId,
-      description: `Marked payment ${payment.receipt_number || `#${paymentId}`} (₱${parseFloat(payment.amount).toFixed(2)}) as ${status}${reason ? ` — ${reason}` : ''}`
-    });
-
-    return updated;
   }
 
   // `limit` is optional and absent by default, so the callers that need the whole set — the

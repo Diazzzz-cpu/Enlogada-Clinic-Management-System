@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, History, Printer, Receipt, RefreshCw, Undo2 } from 'lucide-react';
+import { ExternalLink, History, Printer, Receipt, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
 import Toolbar, { SegmentedFilter } from '../ui/toolbar';
@@ -26,7 +26,7 @@ import DataBadge from '../ui/data-badge';
  * the transaction log from one 971-line file. The props are the hooks this piece reads —
  * listed rather than reached for, so its dependencies are visible at the top.
  */
-export default function TransactionHistoryPanel({ history, receipt, refund, operations }) {
+export default function TransactionHistoryPanel({ history, receipt, operations }) {
   return (
       <div>
         <Toolbar attached>
@@ -189,18 +189,6 @@ export default function TransactionHistoryPanel({ history, receipt, refund, oper
                             <Printer className="h-3 w-3" />
                             Reprint
                           </Button>
-                          {(t.payment_status || 'Paid') === 'Paid' && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              onClick={() => refund.request(t)}
-                              className="text-rose-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
-                            >
-                              <Undo2 className="h-3 w-3" />
-                              Refund
-                            </Button>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -211,7 +199,7 @@ export default function TransactionHistoryPanel({ history, receipt, refund, oper
                       <EmptyState
                         icon={Receipt}
                         title="No payments in this date range"
-                        description="Widen the dates above. Refunds and cancellations stay listed against their original receipt."
+                        description="Widen the dates above."
                       />
                     </TableCell>
                   </TableRow>

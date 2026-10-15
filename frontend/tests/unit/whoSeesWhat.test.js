@@ -13,7 +13,7 @@ const RECEPTION = [
 ];
 const CASHIER = [
   'patients:read', 'patients:read_all_departments', 'visits:read', 'visits:update',
-  'billing:read', 'billing:process', 'billing:refund', 'billing:discount', 'hmo:read',
+  'billing:read', 'billing:process', 'billing:discount', 'hmo:read',
 ];
 const MODALITY = [
   'results:read', 'results:write', 'results:release',
@@ -24,7 +24,7 @@ const ADMIN = [
   'visits:create', 'visits:read', 'visits:update',
   'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
   'tests:manage', 'tests:assign', 'tests:read_assigned', 'results:read',
-  'billing:read', 'billing:refund', 'billing:discount', 'billing:submit_proof',
+  'billing:read', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve', 'reports:view', 'audit:view', 'staff:manage',
 ];
 const TEMPLATES = {
@@ -50,8 +50,8 @@ describe('a cell reads like the picture', () => {
 
   it('cashier takes payments; Admin sees the money and cannot take it', () => {
     const d = fresh();
-    expect(areaCell(area('money'), d, TILL).text).toBe('See takings, take payments, refund and discount');
-    expect(areaCell(area('money'), d, ADMIN_COL).text).toBe("See takings, refund, discount and send in online proofs; can't take payments");
+    expect(areaCell(area('money'), d, TILL).text).toBe('See takings, take payments and discount');
+    expect(areaCell(area('money'), d, ADMIN_COL).text).toBe("See takings, discount and send in online proofs; can't take payments");
     expect(areaCell(area('bookings'), d, TILL)).toEqual({ mark: 'no', text: 'No' });
   });
 
@@ -89,22 +89,22 @@ describe('switches', () => {
 
   it('never changes the draft it was given', () => {
     const d = fresh();
-    toggle(d, 'billing:refund', DESK.roles);
-    expect(d.Receptionist.has('billing:refund')).toBe(false);
+    toggle(d, 'billing:read', DESK.roles);
+    expect(d.Receptionist.has('billing:read')).toBe(false);
   });
 });
 
 describe('the unsaved changes', () => {
   it('are sentences, one per change, with the departments named together', () => {
     const original = fresh();
-    let d = toggle(original, 'billing:refund', DESK.roles);
+    let d = toggle(original, 'billing:read', DESK.roles);
     d = toggle(d, 'results:release', ROOMS.roles);
     expect(describeChanges(original, d, areas).map((c) => c.text)).toEqual([
-      'Front desk can now refund or void a payment.',
+      'Front desk can now see takings, bills and receipts.',
       'Lab, X-Ray and Ultrasound can no longer release a result to the patient.',
     ]);
     expect(changedRoles(original, d)).toEqual(['Receptionist', 'Laboratory Staff', 'Xray Staff', 'Ultrasound Staff']);
-    expect(changedRoles(original, toggle(d, 'billing:refund', DESK.roles))).not.toContain('Receptionist');
+    expect(changedRoles(original, toggle(d, 'billing:read', DESK.roles))).not.toContain('Receptionist');
   });
 
   it('say when nobody but SuperAdmin would be able to do something', () => {

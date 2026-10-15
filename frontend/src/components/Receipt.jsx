@@ -230,7 +230,7 @@ const Receipt = ({ payment, bill, cashier, tendered, change, reprint = false }) 
 
       <footer className="space-y-1 text-center">
         <p className="m-0 text-micro leading-snug text-slate-600">
-          Thank you. Please keep this receipt — it is required for any refund, and for claiming
+          Thank you. Please keep this receipt — it is required for claiming
           your results.
         </p>
         {/* Required on a non-VAT establishment's invoice, and printed on the clinic's own

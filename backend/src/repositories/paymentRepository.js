@@ -405,29 +405,6 @@ class PaymentRepository {
     return result.rows[0];
   }
 
-  async updatePaymentStatus(id, status, reason) {
-    const queryText = `
-      UPDATE payments
-      SET payment_status = $1::varchar,
-          refund_reason = $2,
-          -- Stamped only on the way INTO a reversal, and only once. [1.30.0] Without this the
-          -- cash-up had nothing to bucket a refund by except paid_at — the day the money came
-          -- in — so reversing an older receipt restated a day that was already closed.
-          -- $1 is cast everywhere it appears. Without the casts Postgres has to deduce one type
-          -- for a parameter used both as a varchar assignment and as the left side of an IN, and
-          -- refuses: "inconsistent types deduced for parameter $1" — a 500 on every reversal.
-          refunded_at = CASE
-            WHEN $1::varchar IN ('Refunded', 'Cancelled') AND refunded_at IS NULL THEN CURRENT_TIMESTAMP
-            WHEN $1::varchar IN ('Refunded', 'Cancelled') THEN refunded_at
-            ELSE NULL
-          END
-      WHERE id = $3
-      RETURNING *
-    `;
-    const result = await db.query(queryText, [status, reason || null, id]);
-    return result.rows[0];
-  }
-
   async hasPaidPayment(patientVisitId) {
     const queryText = `
       SELECT 1 FROM payments

@@ -197,7 +197,7 @@ class TestService {
     };
 
     if (line.visit_paid) {
-      refuse('This visit has already been paid. Removing a test now would change a bill the patient has a receipt for — reverse the payment first if it was charged in error.');
+      refuse('This visit has already been paid, so its tests can no longer change: the patient holds a receipt for this bill.');
     }
     if (line.has_result) {
       refuse(`${line.test_name} already has a result recorded. A result is a clinical record and cannot be removed by taking the test off the visit.`);
@@ -253,7 +253,7 @@ class TestService {
     // patient holds a receipt for. A paid visit is finished in both directions.
     if (await paymentRepository.hasPaidPayment(patientVisitId)) {
       const error = new Error(
-        'This visit has already been paid, so tests can no longer be added to it. Open a new visit for the extra work, or reverse the payment first if the bill was wrong.'
+        'This visit has already been paid, so tests can no longer be added to it. Open a new visit for the extra work.'
       );
       error.statusCode = 409;
       throw error;

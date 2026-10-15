@@ -5,7 +5,6 @@ import { Input } from '../../components/ui/input';
 import PageHeader from '../../components/ui/page-header';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
-import { Textarea } from '../../components/ui/textarea';
 import { formatCurrency } from '../../lib/currency';
 import { useAuth } from '../../contexts/AuthContext';
 // Aliased: `Receipt` is already taken by the lucide icon used in this file's headers.
@@ -13,7 +12,6 @@ import ReceiptDocument from '../../components/Receipt';
 import useOperationsReport from '../../hooks/useOperationsReport';
 import { useTransactionHistory } from '../../hooks/useTransactionHistory';
 import { useBillingQueue } from '../../hooks/useBillingQueue';
-import { useRefund } from '../../hooks/useRefund';
 import { useCheckout } from '../../hooks/useCheckout';
 import { useReceipt } from '../../hooks/useReceipt';
 import { usePaymentReview } from '../../hooks/usePaymentReview';
@@ -22,7 +20,7 @@ import BillingQueuePanel from '../../components/cashier/BillingQueuePanel';
 import CheckoutTerminal from '../../components/cashier/CheckoutTerminal';
 import TransactionHistoryPanel from '../../components/cashier/TransactionHistoryPanel';
 import OnlinePaymentsPanel from '../../components/cashier/OnlinePaymentsPanel';
-import { Receipt, Printer, AlertCircle, History, Wallet, Search } from 'lucide-react';
+import { Receipt, Printer, History, Wallet, Search } from 'lucide-react';
 
 // The sidebar's names, so the heading, the breadcrumb and the sidebar all call a screen the same
 // thing (option C3, "the same screens, tidied"). [1.75.0] "Cashier POS & Billing Terminal" was a
@@ -42,7 +40,7 @@ const PAGE_ICONS = {
 const PAGE_BLURBS = {
   'cashier-queue': 'Pick a patient, apply a statutory discount, take payment and print the receipt.',
   'cashier-payments': "Patients who paid into the clinic's GCash or bank account and are waiting for you to check the screenshot. Verifying issues a receipt and releases their booking pass.",
-  'cashier-history': 'Receipts you and other cashiers have issued, for the daily cash-up. Refunds and cancellations are recorded against the original receipt.',
+  'cashier-history': 'Receipts you and other cashiers have issued, for the daily cash-up. A paid receipt is final.',
 };
 const VALID_VIEWS = Object.keys(PAGE_TITLES);
 
@@ -74,20 +72,6 @@ const CashierDashboard = ({ activeNav = 'cashier-queue', onSelectNav }) => {
   });
   // Only polls while its own screen is open, like the two above it.
   const review = usePaymentReview({ enabled: view === 'cashier-payments' });
-
-  // Feature Gap Plan Phase A: payment_status has always allowed 'Refunded'/'Cancelled', but
-  // nothing in the app ever set them — a duplicate or disputed charge had no reversal path.
-  const refund = useRefund({
-    // Both, not just the log. Review catch: refreshing only the history list left the metric
-    // strip stating a Collected Today and a "Reversed this shift" that predated the reversal,
-    // for up to a polling interval — on the screen whose figures a cashier reconciles against
-    // the drawer in front of them. `queue` is declared below; the closure is not called until
-    // the reversal returns, by which point it exists.
-    onRefunded: () => {
-      history.reload();
-      queue.refresh();
-    },
-  });
 
   // The till, the queue and the receipt are three separate concerns and are wired to each other
   // here rather than inside one another. `checkout.selectedVisit` is read by the queue (to pause polling)
@@ -185,52 +169,9 @@ const CashierDashboard = ({ activeNav = 'cashier-queue', onSelectNav }) => {
           <TransactionHistoryPanel
             history={history}
             receipt={receipt}
-            refund={refund}
             operations={operations}
           />
         )}
-
-        <Dialog open={!!refund.target} onOpenChange={(open) => { if (!open) refund.cancel(); }}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Refund Payment</DialogTitle>
-              <DialogDescription className="text-xs text-gray-500">
-                {refund.target && `Refund ${formatCurrency(refund.target.amount)} (Receipt ${refund.target.receipt_number || `OR-${refund.target.id}`})? This marks the payment as Refunded and cannot be undone from this screen.`}
-              </DialogDescription>
-            </DialogHeader>
-
-            {refund.error && (
-              <div role="alert" className="alert alert-error">
-                <AlertCircle />
-                <span>{refund.error}</span>
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <label htmlFor="cashierdashboard-reason" className="field-label">Reason <span className="text-red-600">*</span></label>
-              <Textarea id="cashierdashboard-reason"
-                value={refund.reason}
-                onChange={e => refund.setReason(e.target.value)}
-                placeholder="e.g. Duplicate charge, patient dispute..."
-                disabled={refund.submitting}
-                required
-                className="text-xs rounded-xl"
-              />
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={refund.cancel} disabled={refund.submitting}>Cancel</Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={refund.confirm}
-                loading={refund.submitting}
-              >
-                Confirm Refund
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Payment confirmation — irreversible action, see .agents Phase 12 */}
         <ConfirmDialog

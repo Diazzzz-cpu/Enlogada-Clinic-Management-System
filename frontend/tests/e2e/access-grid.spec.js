@@ -40,7 +40,7 @@ test.describe('Who sees what', () => {
   });
 
   test.afterAll(async () => {
-    // Always put the front desk back: a half-finished run must not leave reception able to refund.
+    // Always put the front desk back: a half-finished run must not leave reception able to see takings.
     if (receptionRoleId && originalReceptionIds) {
       await ctx.put(`${API}/rbac/roles/${receptionRoleId}/permissions`, {
         headers: { Authorization: `Bearer ${token}` }, data: { permissionIds: originalReceptionIds },
@@ -72,19 +72,19 @@ test.describe('Who sees what', () => {
     const grid = await openGrid(page);
     await openRow(grid, 'money');
 
-    const refund = grid.getByRole('checkbox', { name: 'Front desk: Refund or void a payment' });
-    await expect(refund).toHaveAttribute('aria-checked', 'false');
-    await refund.click();
-    await expect(refund).toHaveAttribute('aria-checked', 'true');
+    const takings = grid.getByRole('checkbox', { name: 'Front desk: See takings, bills and receipts' });
+    await expect(takings).toHaveAttribute('aria-checked', 'false');
+    await takings.click();
+    await expect(takings).toHaveAttribute('aria-checked', 'true');
 
     const changes = page.getByTestId('who-changes');
-    await expect(changes).toContainText('Front desk can now refund or void a payment.');
+    await expect(changes).toContainText('Front desk can now see takings, bills and receipts.');
     // Nothing has reached the server yet.
-    expect((await matrix()).rolePermissions.Receptionist).not.toContain('billing:refund');
+    expect((await matrix()).rolePermissions.Receptionist).not.toContain('billing:read');
 
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(changes).toContainText('Saved', { timeout: 15000 });
-    expect((await matrix()).rolePermissions.Receptionist).toContain('billing:refund');
+    expect((await matrix()).rolePermissions.Receptionist).toContain('billing:read');
   });
 
   test('Discard puts every switch back and saves nothing, and a lone holder is warned about', async ({ page }) => {

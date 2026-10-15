@@ -413,59 +413,6 @@ class VisitRepository {
     });
   }
 
-  /**
-   * Pulls a visit back off the modality worklists when its payment is reversed. [1.26.0]
-   *
-   * The mirror image of releaseVisitToModalities, and it was missing: refunding a payment left
-   * the visit 'Processing' and its tickets sitting on the worklist, so the department carried on
-   * and did the work with nothing anywhere saying the money had gone back. That is the clinic
-   * paying twice — once in reagents and time, once in the refund.
-   *
-   * Only untouched tests are recalled. A test that is already 'Waiting for Release' or
-   * 'Completed' has had the work done, and dragging it back would misrepresent what happened in
-   * the laboratory — the refund is a commercial decision, not a reason to un-perform an assay.
-   * The visit itself is only recalled when NO test has progressed, since a visit with completed
-   * work on it is genuinely still in progress.
-   *
-   * Returns what it actually did, so the caller can say so rather than guess.
-   */
-  async recallVisitFromModalities(visitId) {
-    return await db.withTransaction(async () => {
-      const recalled = await db.query(
-        `UPDATE visit_tests
-         SET status = 'Pending', updated_at = CURRENT_TIMESTAMP
-         WHERE patient_visit_id = $1 AND status = 'Processing'
-         RETURNING id`,
-        [visitId]
-      );
-
-      // Anything past 'Processing' means work was done. Checked after the recall above so the
-      // two see the same snapshot inside one transaction.
-      const { rows } = await db.query(
-        `SELECT COUNT(*)::int AS started
-         FROM visit_tests
-         WHERE patient_visit_id = $1
-           AND status IN ('Waiting for Release', 'Completed')`,
-        [visitId]
-      );
-      const workAlreadyDone = rows[0].started > 0;
-
-      let visit;
-      if (!workAlreadyDone) {
-        const visitRes = await db.query(
-          `UPDATE patient_visits
-           SET status = 'Pending', updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1 AND status = 'Processing'
-           RETURNING *`,
-          [visitId]
-        );
-        visit = visitRes.rows[0];
-      }
-
-      return { testsRecalled: recalled.rows.length, workAlreadyDone, visit };
-    });
-  }
-
   // Distinct test categories attached to a visit — used to route the "your department has a
   // new ticket" notification to only the modalities that actually have work on it.
   async findTestCategoriesForVisit(visitId) {

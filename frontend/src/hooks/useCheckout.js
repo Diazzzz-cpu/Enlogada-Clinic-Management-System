@@ -12,7 +12,7 @@ import { toastError } from '../lib/toast';
  *
  * `onPaid` is how a completed sale leaves. The hook does not know that a receipt gets shown or
  * that a queue gets refreshed — it announces the sale and lets the screen decide, the same shape
- * `useRefund` uses. That is what keeps the reprint path from being able to reach `bill`.
+ * the other till hooks use. That is what keeps the reprint path from being able to reach `bill`.
  *
  * `isAlreadyPaid` is a question rather than the Set itself, for two reasons. The checkout only
  * ever needs the answer for one visit, and — less obviously — the queue that knows the answer is
@@ -234,7 +234,7 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
 
     // Past this line the money is taken and the receipt exists, so nothing may report it as
     // failed. `bill` is passed out rather than read later because the panel moves on to the next
-    // patient while the receipt is still on screen. Same rule as useRefund and createAppointment.
+    // patient while the receipt is still on screen. Same rule as createAppointment.
     setConfirming(false);
     onPaid?.({ payment, bill, tender });
   };

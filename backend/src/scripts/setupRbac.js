@@ -72,7 +72,6 @@ const PERMISSIONS = [
   { name: 'billing:read', module: 'Billing', description: 'View bills and transaction history' },
   { name: 'billing:process', module: 'Billing', description: 'Take payment and issue a receipt' },
   { name: 'billing:submit_proof', module: 'Billing', description: 'Submit proof of an online payment for a cashier to verify' },
-  { name: 'billing:refund', module: 'Billing', description: 'Refund or void a settled payment' },
   { name: 'billing:discount', module: 'Billing', description: 'Grant a statutory or commercial discount' },
 
   // HMO
@@ -126,7 +125,7 @@ const RECEPTION = [
 // the cashier decides, which is the separation the routes already encoded.
 const CASHIER = [
   'patients:read', 'patients:read_all_departments', 'visits:read', 'visits:update',
-  'billing:read', 'billing:process', 'billing:refund', 'billing:discount',
+  'billing:read', 'billing:process', 'billing:discount',
   'hmo:read',
 ];
 
@@ -147,7 +146,7 @@ const ADMIN = [
   'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
   'tests:manage', 'tests:assign', 'tests:read_assigned',
   'results:read',
-  'billing:read', 'billing:refund', 'billing:discount', 'billing:submit_proof',
+  'billing:read', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve',
   'reports:view', 'audit:view', 'staff:manage',
   // [1.112.0] Admin decides what patients are asked, and can type in a paper form too.
@@ -181,6 +180,12 @@ const RETIRED = [
     reason:
       'critical-result callbacks were removed in [1.95.0]. The clinic reports clinical results ' +
       'and does not diagnose, so there is no call for it to make and nothing to acknowledge.',
+  },
+  {
+    permission: 'billing:refund',
+    reason:
+      'refunds were removed in [1.121.0]: a paid receipt is final. The route it gated is gone, and ' +
+      'a refund let one person take money and hand it back with nobody else involved.',
   },
 ];
 

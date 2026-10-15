@@ -276,10 +276,10 @@ export default function CheckoutTerminal({ checkout, queue }) {
                       still open, and the amount at stake invisible.
 
                       It names the figure rather than saying "some tests", because the decision
-                      the cashier is making is whether that number is small enough to collect now
-                      and refund later, or large enough to be worth chasing the provider first.
-                      Not a block — some providers take days, and the patient cannot wait at the
-                      counter for one. */}
+                      the cashier is making is whether to collect that number now or wait for the
+                      provider. [1.121.0] There are no refunds, so money taken for a test the HMO
+                      then approves cannot be given back: the warning says so. Not a block — some
+                      providers take days, and the patient cannot always wait for one. */}
                   {(checkout.bill?.hmoPendingCount ?? 0) > 0 && (
                     <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 flex items-start space-x-2 text-xs">
                       <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -289,8 +289,8 @@ export default function CheckoutTerminal({ checkout, queue }) {
                           awaiting an HMO decision — {formatCurrency(checkout.bill.hmoPendingAmount)}
                         </strong>
                         <span className="block font-normal mt-0.5">
-                          That amount is billed in full here. If the HMO approves it afterwards,
-                          the patient has to come back for a refund.
+                          That amount is billed in full here, and a payment cannot be refunded. If
+                          the HMO may still approve it, wait for its decision before taking payment.
                         </span>
                       </span>
                     </div>

@@ -110,7 +110,7 @@ function PersonAccess({ access }) {
             <label htmlFor="rbac-search" className="field-label m-0">Find a permission</label>
             <SearchInput
               id="rbac-search"
-              placeholder="e.g. billing, results, refund…"
+              placeholder="e.g. billing, results, discount…"
               value={access.search}
               onChange={(e) => access.setSearch(e.target.value)}
               containerClassName="max-w-xs"

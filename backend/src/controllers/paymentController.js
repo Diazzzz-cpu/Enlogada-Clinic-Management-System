@@ -44,29 +44,6 @@ class PaymentController {
     }
   }
 
-  async updateStatus(req, res, next) {
-    try {
-      const { id } = req.params;
-      const { status, reason } = req.body;
-
-      if (!status) {
-        return res.status(400).json({
-          status: 'error',
-          message: 'A target status is required.'
-        });
-      }
-
-      const payment = await paymentService.updatePaymentStatus(id, { status, reason }, req.user);
-      return res.status(200).json({
-        status: 'success',
-        message: `Payment marked ${status}.`,
-        data: { payment }
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
   async getTransactions(req, res, next) {
     try {
       const { startDate, endDate, page, limit, method, search } = req.query;

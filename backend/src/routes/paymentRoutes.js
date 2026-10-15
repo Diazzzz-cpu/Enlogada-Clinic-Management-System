@@ -19,15 +19,16 @@ router.get('/my-payments', verifyToken, paymentController.getMyPayments);
 // Capture is Cashier work (SuperAdmin retains it as break-glass). The receipt names whoever took
 // the money, so an Admin capturing payment misattributes the transaction — and Admin is the role
 // that reviews cash-ups via Cashier Monitoring, which stops meaning anything if the reviewer can
-// also be the one taking payments. Refund/cancel below deliberately KEEPS Admin: reversing a
-// transaction is a manager decision, and auditService already records who authorised it.
+// also be the one taking payments.
 router.post('/', verifyToken, authorizeStaff, authorizePermissions('billing:process'), paymentController.processPayment);
 
 // View transactions (with optional date range filters)
 router.get('/transactions', verifyToken, authorizeStaff, authorizePermissions('billing:read'), paymentController.getTransactions);
 
-// Refund or void a paid payment (Feature Gap Plan Phase A) — Cashier scope matches processPayment
-router.patch('/:id/status', verifyToken, authorizeStaff, authorizePermissions('billing:refund'), paymentController.updateStatus);
+// No refunds. [1.121.0] PATCH /:id/status refunded or voided a settled receipt, and was removed with
+// the feature: a paid receipt is final. Steven: a refund does not fit how the clinic works. One
+// person could take money and hand it back alone, a reprinted refunded receipt still read as paid,
+// and only a whole receipt could be reversed. Past reversals stay on record and in the cash book.
 
 // View payments for a specific visit
 // One receipt by number, viewable and printable.

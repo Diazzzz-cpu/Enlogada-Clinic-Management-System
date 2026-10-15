@@ -1,5 +1,33 @@
 # Database Migration & Schema History
 
+## [1.121.0] - 2026-10-16 (No refunds: a paid receipt is final)
+
+No schema change. **Re-run `node src/scripts/setupRbac.js`** on any existing database: it retires
+`billing:refund` (its grants and the permission row) through the RETIRED list.
+
+Steven: a refund does not make sense for the clinic. As built it let a cashier take money and
+hand it back with nobody else involved, a reprinted refunded receipt still read as a valid paid
+receipt (one an HMO or an employer would reimburse), only a whole receipt could be reversed, and
+nothing recorded how the money went back. So the feature is removed, not hidden:
+
+- `PATCH /payments/:id/status` and everything behind it (`updatePaymentStatus` in the controller,
+  service and repository, and `recallVisitFromModalities`, which only a refund called).
+- `billing:refund`, from the Cashier and Admin templates and from the database.
+- The Refund button in Transaction History, its dialog, `useRefund`, and the "Refund or void a
+  payment" row on Who sees what.
+- Every message that offered a reversal as the remedy. A paid visit's tests: "open a new visit".
+  A paid visit's discount: it can no longer change. The receipt no longer says it is "required
+  for any refund".
+
+The HMO warning at the till changed meaning: a test still awaiting an HMO decision is billed in
+full, and with no refund the cashier is told to wait for the decision rather than collect money
+that cannot be given back.
+
+Reversals recorded before this stay exactly as they were: `payment_status`, `refund_reason` and
+`refunded_at` are unchanged, the cash book still reports them beside the takings, and the receipt
+log still lists them, so every past day still reconciles. `cashup-reversals.spec.js` went with the
+route it drove; `refunds-removed.spec.js` holds the removal.
+
 ## [1.120.0] - 2026-10-16 (My Account: the account beside the forms that change it)
 
 No schema change; nothing to run.

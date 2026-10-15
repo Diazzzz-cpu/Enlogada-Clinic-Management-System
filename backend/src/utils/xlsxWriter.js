@@ -344,10 +344,12 @@ function packageParts(spec) {
 </cp:coreProperties>`],
     ['docProps/app.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Enlogada Clinic Management System</Application></Properties>`],
+    // No fullCalcOnLoad: each total's value is written beside its formula, so Excel has nothing to
+    // recalculate, and a recalculation on open makes it ask to save a file nobody changed.
     ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="${xml(name)}" sheetId="1" r:id="rId1"/></sheets>
-<calcPr calcId="191029" fullCalcOnLoad="1"/>
+<calcPr calcId="191029"/>
 </workbook>`],
     ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">

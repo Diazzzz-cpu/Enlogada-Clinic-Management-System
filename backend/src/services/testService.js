@@ -253,7 +253,7 @@ class TestService {
     // patient holds a receipt for. A paid visit is finished in both directions.
     if (await paymentRepository.hasPaidPayment(patientVisitId)) {
       const error = new Error(
-        'This visit has already been paid, so tests can no longer be added to it. Open a new visit for the extra work.'
+        'This visit has already been paid, so tests can no longer be added to it. Start another visit for the extra tests: find the patient in Who\'s here at the Desk.'
       );
       error.statusCode = 409;
       throw error;

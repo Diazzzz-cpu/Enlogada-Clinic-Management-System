@@ -1,6 +1,8 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
+import { patientTypeId } from './helpers/patients.js';
+import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 
 /**
  * The patient roster: browse it, filter it, archive from it. [1.56.0]
@@ -104,35 +106,53 @@ test.describe('Patient records', () => {
   test('archiving hides a record without destroying anything', async () => {
     const ctx = await request.newContext();
     const sup = await login(ctx, 'admin@enlogada.com');
+    const desk = await login(ctx, 'receptionist@enlogada.com');
     const auth = { Authorization: `Bearer ${sup}` };
+    const deskAuth = { Authorization: `Bearer ${desk}` };
 
-    const before = await roster(ctx, sup, { limit: 100 });
-    const victim = before.patients[0];
+    // Its own patient, with a visit that is over. [1.123.0] Archiving is refused while a patient
+    // has open work (process-fixes.spec.js), so the first name on the roster, usually someone
+    // in today's queue, is no longer a patient this can archive.
+    const person = fixturePerson();
+    const victim = (await (await ctx.post(`${API}/patients`, {
+      headers: deskAuth,
+      data: {
+        patientTypeId: await patientTypeId(ctx, API, desk, 'Self Pay'),
+        ...person, birthdate: '1975-05-05', sex: 'Male', contactNumber: FIXTURE_CONTACT,
+      },
+    })).json()).data.patient;
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: deskAuth, data: { patientId: victim.id, visitType: 'Walk in' },
+    })).json()).data.visit;
+    expect((await ctx.patch(`${API}/visits/${visit.id}/status`, {
+      headers: deskAuth, data: { status: 'Cancelled' },
+    })).status()).toBe(200);
+
+    const before = await roster(ctx, sup, { q: person.lastName, limit: 100 });
+    const listed = before.patients.find((p) => p.id === victim.id);
+    expect(listed, 'the patient is on the roster').toBeTruthy();
 
     const archived = await ctx.patch(`${API}/patients/${victim.id}/archive`, {
       headers: auth, data: { archived: true },
     });
-    expect(archived.status()).toBe(200);
+    expect(archived.status(), await archived.text()).toBe(200);
 
-    const after = await roster(ctx, sup, { limit: 100 });
+    const after = await roster(ctx, sup, { q: person.lastName, limit: 100 });
     expect(after.patients.some((p) => p.id === victim.id), 'archived records leave the roster').toBeFalsy();
     expect(after.total).toBe(before.total - 1);
 
     // Nothing was destroyed — the record is still there when asked for.
-    const withArchived = await roster(ctx, sup, { limit: 100, includeArchived: 'true' });
+    const withArchived = await roster(ctx, sup, { q: person.lastName, limit: 100, includeArchived: 'true' });
     const found = withArchived.patients.find((p) => p.id === victim.id);
     expect(found, 'the record still exists').toBeTruthy();
     expect(found.archived_at).toBeTruthy();
-    expect(
-      Number(found.visit_count),
-      'its visits are untouched — archive is not delete'
-    ).toBe(Number(victim.visit_count));
+    expect(Number(found.visit_count), 'its visit is untouched — archive is not delete').toBe(1);
 
     // Put it back, so this test leaves the roster as it found it.
     expect((await ctx.patch(`${API}/patients/${victim.id}/archive`, {
       headers: auth, data: { archived: false },
     })).status()).toBe(200);
-    const restored = await roster(ctx, sup, { limit: 100 });
+    const restored = await roster(ctx, sup, { q: person.lastName, limit: 100 });
     expect(restored.patients.some((p) => p.id === victim.id)).toBeTruthy();
 
     await ctx.dispose();

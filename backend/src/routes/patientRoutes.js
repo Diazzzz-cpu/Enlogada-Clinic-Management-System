@@ -47,6 +47,8 @@ router.get('/types', verifyToken, patientController.getTypes);
 router.get('/search', verifyToken, authorizeStaff, authorizePermissions('patients:read'), patientController.search);
 router.get('/:id', verifyToken, authorizePermissions('patients:read'), patientController.getProfileById);
 router.put('/:id', verifyToken, authorizePermissions('patients:update'), patientController.updateProfile);
+// [1.123.0] Connect a walk-in record to the patient's portal account. Staff only.
+router.put('/:id/link-account', verifyToken, authorizeStaff, authorizePermissions('patients:update'), patientController.linkAccount);
 
 // Archiving a record. [1.56.0] Admin and SuperAdmin only, by ROLE rather than by permission, and
 // deliberately so: `patients:update` is held by Reception too, and correcting a misspelled surname

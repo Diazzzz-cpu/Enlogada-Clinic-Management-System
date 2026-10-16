@@ -446,6 +446,7 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
                                   // The Desk's own lookup, with the name typed in for them: it lists
                                   // the record with Start visit, or the queue row if already here.
                                   onStartVisit={() => onSelectNav('reception-queue', { find: fullName(patient) })}
+                                  canLinkAccount={canEditPatients}
                                   onRetry={() => loadRecords(patient.id)}
                                 />
                               )}

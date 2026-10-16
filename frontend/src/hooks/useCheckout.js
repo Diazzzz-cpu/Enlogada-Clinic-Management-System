@@ -182,6 +182,12 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
       setError('This visit was already paid — refresh the queue before retrying.');
       return;
     }
+    // [1.123.0] The patient has sent an online payment nobody has checked: taking money here as
+    // well would charge them twice. The server refuses it too; this says so before the dialog.
+    if (bill.pendingProof) {
+      setError(`This patient has already sent an online payment (reference ${bill.pendingProof.reference}). Check it in Online Payments first.`);
+      return;
+    }
 
     const totalDue = parseFloat(bill.totalAmount);
     const tendered = parseFloat(amountTendered);
@@ -203,7 +209,7 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
     setConfirming(false);
   };
 
-  const confirm = async () => {
+  const confirm = async ({ withdrawPendingClaims = false } = {}) => {
     const totalDue = parseFloat(bill.totalAmount);
     const tender = paymentMethod === 'Cash'
       ? { tendered: parseFloat(amountTendered || 0), change: changeDue() }
@@ -222,6 +228,8 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
         paymentMethod,
         referenceNumber: paymentMethod !== 'Cash' ? referenceNumber : null,
         amount: totalDue,
+        // [1.123.0] Charging a test still waiting on the HMO in full withdraws its claim.
+        withdrawPendingClaims,
       });
       payment = response.data.data.payment;
     } catch (err) {

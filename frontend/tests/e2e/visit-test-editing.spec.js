@@ -130,7 +130,7 @@ test.describe('Editing a visit\'s tests', () => {
 
     // The message has to name the way through, because the desk still has a patient in front of
     // them who wants the extra test.
-    expect((await added.json()).message).toMatch(/new visit|reverse the payment/i);
+    expect((await added.json()).message).toMatch(/another visit/i);
 
     // And nothing was attached.
     expect(await linesOf(visit), 'the refusal must not half-apply').toHaveLength(1);

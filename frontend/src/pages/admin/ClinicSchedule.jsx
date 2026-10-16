@@ -9,7 +9,8 @@ import LoadingState from '../../components/ui/loading-state';
 import { DateField } from '../../components/ui/date-field';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { CalendarCog, CalendarX2, RefreshCw, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { CalendarCog, CalendarX2, RefreshCw, Plus, Trash2, AlertTriangle, Users } from 'lucide-react';
+import AffectedBookingsDialog from '../../components/admin/AffectedBookingsDialog';
 import api from '../../config/api';
 import { toastSuccess, toastError } from '../../lib/toast';
 import { todayStr, formatTime12 } from '../../lib/date';
@@ -156,6 +157,8 @@ export default function ClinicSchedule() {
   const [form, setForm] = useState(BLANK_OVERRIDE);
   const [submitting, setSubmitting] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState(null);
+  // The date whose stranded bookings are open for moving. [1.123.0]
+  const [bookingsFor, setBookingsFor] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -207,10 +210,14 @@ export default function ClinicSchedule() {
         note: form.note,
       });
       const affected = res.data.data.affectedBookings;
-      // Bookings already on that date are why this cannot be a silent success. It goes in the
-      // toast as well as the table, because the person doing it is about to navigate away.
-      if (affected) toastError(res.data.message, 'Those patients still hold their slot.');
-      else toastSuccess(res.data.message);
+      // Bookings already on that date are why this cannot be a silent success. [1.123.0] Each
+      // patient with an address has been emailed; the list opens so each booking can be moved.
+      if (affected) {
+        toastError(res.data.message, `${affected} booking${affected > 1 ? 's need' : ' needs'} a new time. Patients with an email on file were told.`);
+        setBookingsFor(form.date);
+      } else {
+        toastSuccess(res.data.message);
+      }
       setForm(BLANK_OVERRIDE);
       await load();
     } catch (err) {
@@ -446,6 +453,16 @@ export default function ClinicSchedule() {
                               : '—'}
                           </TableCell>
                           <TableCell className="text-right">
+                            {/* Who this date leaves without a slot, to move one by one. [1.123.0] */}
+                            {(!o.is_open || o.open_time) && (
+                              <Button
+                                variant="ghost" size="sm"
+                                onClick={() => setBookingsFor(o.override_date)}
+                                aria-label={'Bookings to move on ' + o.override_date}
+                              >
+                                <Users className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost" size="sm"
                               onClick={() => setPendingRemoval(o.override_date)}
@@ -464,6 +481,8 @@ export default function ClinicSchedule() {
           </Panel>
         </>
       )}
+
+      <AffectedBookingsDialog date={bookingsFor} onOpenChange={(open) => { if (!open) setBookingsFor(null); }} />
 
       <ConfirmDialog
         open={Boolean(pendingRemoval)}

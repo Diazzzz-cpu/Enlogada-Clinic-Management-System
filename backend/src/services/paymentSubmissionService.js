@@ -12,6 +12,7 @@ const notificationService = require('./notificationService');
 const { PAYMENT_UPLOAD_ROOT, discardPaymentFile } = require('../config/upload');
 const { formatCurrency } = require('../utils/money');
 const appointmentEmailService = require('./appointmentEmailService');
+const appointmentRepository = require('../repositories/appointmentRepository');
 
 /**
  * Manual proof of payment: the patient pays into the clinic's own account and a cashier checks it.
@@ -93,6 +94,13 @@ class PaymentSubmissionService {
         error.statusCode = 409;
         throw error;
       }
+      // Payment first [1.123.0]: a booking whose payment window ran out has released its slot.
+      const hold = await appointmentRepository.findHoldByVisitId(patientVisitId);
+      if (hold?.lapsed) {
+        const error = new Error("This booking wasn't paid in time, so its slot was released. Please book again.");
+        error.statusCode = 409;
+        throw error;
+      }
       const live = await paymentSubmissionRepository.findPendingForVisit(patientVisitId);
       if (live) {
         const error = new Error('A payment for this booking is already awaiting review.');
@@ -126,6 +134,11 @@ class PaymentSubmissionService {
       // The cashier is told, because nothing else would tell them: a patient paying from home
       // produces no queue ticket and no one at the counter. Without this the claim sits unseen
       // until somebody happens to open the review screen.
+      // A proof sent in time keeps the slot while a cashier checks it. [1.123.0] Checking happens
+      // in opening hours, so the window must not run out while the proof waits; a rejection starts
+      // it again (reject, below).
+      await appointmentRepository.confirmHold(patientVisitId);
+
       await notificationService.notifyRoles(['Cashier', 'Admin', 'SuperAdmin'], {
         title: 'Proof of payment to review',
         message: `Ref ${submission.reference_number} — ${formatCurrency(submission.amount_claimed)} awaiting verification`,
@@ -238,6 +251,7 @@ class PaymentSubmissionService {
       paymentMethod: method?.kind || 'GCash',
       referenceNumber: submission.reference_number,
       amount: bill.totalAmount,
+      fromSubmissionId: submission.id,
     });
 
     const settled = await paymentSubmissionRepository.settle(id, {
@@ -316,6 +330,9 @@ class PaymentSubmissionService {
 
     // The reason is the whole point of requiring one. Sending it is what stops the patient
     // refreshing the portal, guessing, and eventually ringing the clinic.
+    // The patient gets the payment window again to send a proof that can be accepted. [1.123.0]
+    await appointmentRepository.reholdForPayment(settled.patient_visit_id).catch(() => {});
+
     await this.notifyPatient(settled.id, { verified: false }).catch(() => {});
 
     return settled;

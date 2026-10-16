@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Printer, CheckCircle2, Wallet, ShieldCheck } from 'lucide-react';
 import AppointmentTime from './ui/appointment-time';
 import { formatCurrency } from '../lib/currency';
+import { formatTime12 } from '../lib/date';
 import DataBadge from './ui/data-badge';
 import PayBookingPanel from './portal/PayBookingPanel';
 
@@ -37,6 +38,7 @@ const BookingConfirmation = ({
   slotMinutes = null,
   amountDue = 0,
   tests = [],
+  heldUntil = null,
   isHmo = false,
   onClose,
 }) => {
@@ -59,6 +61,12 @@ const BookingConfirmation = ({
           <Wallet className="mt-0.5 h-5 w-5 flex-shrink-0" aria-hidden="true" />
           <span className="text-sm font-bold">
             Slot reserved — pay {formatCurrency(owed)} to get your pass
+            {/* Payment first [1.123.0]: the slot is kept only until then. */}
+            {heldUntil && (
+              <span className="block text-fine font-semibold">
+                Pay by {formatTime12(new Date(heldUntil).toTimeString().slice(0, 5))} to keep this slot.
+              </span>
+            )}
           </span>
         </div>
       ) : (

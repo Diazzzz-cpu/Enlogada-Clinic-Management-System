@@ -80,11 +80,15 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
 
   const queueAnswered = Boolean(queue.error)
     || (!queue.loading && (queue.appliedSearch || '').trim().toLowerCase() === needle);
+  // [1.123.0] A visit that is already PAID does not stop another one: a paid visit's tests are
+  // final, so extra tests can only go on a second visit with its own bill. The rule this guards,
+  // no second ticket and second bill by mistake, is about unpaid visits.
   const inQueue = new Set(
     queue.visits
-      .filter((v) => v.visit_status === 'Pending' || v.visit_status === 'Processing')
+      .filter((v) => (v.visit_status === 'Pending' || v.visit_status === 'Processing') && !v.is_paid)
       .map((v) => v.patient_id)
   );
+  const paidToday = new Set(queue.visits.filter((v) => v.is_paid).map((v) => v.patient_id));
   const bookedToday = new Set(arrivals.bookings.map((b) => b.patient_id));
   const found = typed && !isReference && queueAnswered && Array.isArray(lookup.results) ? lookup.results : null;
   const records = found ? found.filter((p) => !inQueue.has(p.id) && !bookedToday.has(p.id)) : [];
@@ -212,6 +216,11 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
                           ? `${p.visit_count} prior visit${Number(p.visit_count) === 1 ? '' : 's'} · last ${new Date(p.last_visit_at).toLocaleDateString()}`
                           : 'No prior visits'}
                       </span>
+                      {paidToday.has(p.id) && (
+                        <span className="mt-1 block text-fine text-slate-600">
+                          Already has a paid visit today. This starts another visit, with its own bill.
+                        </span>
+                      )}
                       {/* A returning patient's unpaid balance, visible before they are admitted again. */}
                       {unpaid > 0 && (
                         <span className="mt-1 inline-block rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-micro font-bold text-rose-700">
@@ -221,7 +230,7 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
                     </span>
                     {can.startVisit && (
                       <Button type="button" size="sm" variant="outline" onClick={() => checkIn.request('walkin', p)}>
-                        Start visit
+                        {paidToday.has(p.id) ? 'Start another visit' : 'Start visit'}
                       </Button>
                     )}
                   </li>
@@ -368,7 +377,8 @@ function BookingCard({ booking, checkIn, disposition, can }) {
             {showRequest ? "Hide doctor's request / notes" : "View doctor's request / notes"}
           </Button>
         )}
-        {can.checkIn && (
+        {/* A paid booking is moved, not written off as a no-show. [1.123.0] */}
+        {can.checkIn && !booking.is_paid && (
           <Button
             type="button"
             variant="ghost"

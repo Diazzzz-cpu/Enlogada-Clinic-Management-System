@@ -7,6 +7,9 @@ const visitService = require('./visitService');
 const visitRepository = require('../repositories/visitRepository');
 const patientRepository = require('../repositories/patientRepository');
 const auditService = require('./auditService');
+const hmoRepository = require('../repositories/hmoRepository');
+const appointmentRepository = require('../repositories/appointmentRepository');
+const paymentSubmissionRepository = require('../repositories/paymentSubmissionRepository');
 
 // There is no reversal path. [1.121.0] 'Refunded' and a paid 'Cancelled' are statuses that only
 // receipts from before then carry; nothing sets them now. A paid receipt is final.
@@ -84,6 +87,7 @@ class PaymentService {
     // system owes them is the fact that it is a decision at all.
     const undecided = items.filter((item) => item.hmo_approval_status === 'Pending');
     const hmoPendingAmount = undecided.reduce((sum, item) => sum + parseFloat(item.price_at_time), 0);
+    const pendingProof = await paymentSubmissionRepository.findPendingForVisit(visitId);
 
     return {
       visitId,
@@ -98,6 +102,8 @@ class PaymentService {
       hmoCoverage: hmoCoverage.toFixed(2),
       // How much of this bill is riding on a claim nobody has answered yet.
       hmoPendingCount: undecided.length,
+      // [1.123.0] An online payment the patient has sent and nobody has checked yet.
+      pendingProof: pendingProof ? { reference: pendingProof.reference_number, submittedAt: pendingProof.submitted_at } : null,
       hmoPendingAmount: hmoPendingAmount.toFixed(2),
       discountAmount: discountAmount.toFixed(2),
       // Zero unless a statutory discount applies at a VAT-registered clinic. The receipt has to
@@ -147,7 +153,18 @@ class PaymentService {
    * modality release commit together or not at all — a released visit with no receipt is work the
    * clinic cannot bill for.
    */
-  async processPayment({ patientVisitId, processedBy, paymentMethod, referenceNumber, amount }) {
+  /**
+   * [1.123.0] Two refusals before any money is taken, because a paid receipt is final:
+   *   - an online proof still waiting to be checked: taking money here as well charges the patient
+   *     twice, and checking the proof afterwards would record only one of the two payments.
+   *     `fromSubmissionId` is that proof being approved, the one caller allowed past it.
+   *   - a test still waiting on an HMO decision, unless `withdrawPendingClaims`: the cashier has
+   *     chosen to charge it in full, and the claim for it is withdrawn in the same transaction.
+   */
+  async processPayment({
+    patientVisitId, processedBy, paymentMethod, referenceNumber, amount,
+    fromSubmissionId = null, withdrawPendingClaims = false,
+  }) {
     // Recompute the authoritative bill server-side — also serves as the visit-exists check —
     // rather than trusting the client-submitted amount outright.
     const bill = await this.getBillingSummary(patientVisitId);
@@ -155,6 +172,24 @@ class PaymentService {
     const alreadyPaid = await paymentRepository.hasPaidPayment(patientVisitId);
     if (alreadyPaid) {
       const error = new Error('This visit has already been paid. Refresh the billing queue.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const proof = await paymentSubmissionRepository.findPendingForVisit(patientVisitId);
+    if (proof && String(proof.id) !== String(fromSubmissionId)) {
+      const error = new Error(
+        `This patient has already sent an online payment (reference ${proof.reference_number}) that has not been checked. Check it in Online Payments first: taking money here as well would charge them twice.`
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const undecided = Number(bill.hmoPendingCount) || 0;
+    if (undecided > 0 && !withdrawPendingClaims) {
+      const error = new Error(
+        `${undecided} test${undecided > 1 ? 's are' : ' is'} still waiting for the HMO's decision. Wait for it, or charge in full and withdraw the claim for ${undecided > 1 ? 'them' : 'it'}.`
+      );
       error.statusCode = 409;
       throw error;
     }
@@ -210,6 +245,19 @@ class PaymentService {
       // for this visit — otherwise an abandoned GCash/Maya session would linger as a 'Pending'
       // payment row against an already-settled visit.
       await paymentRepository.cancelPendingGatewayPayments(patientVisitId);
+
+      // Paid, so a booking that was holding its slot takes it for good. [1.123.0] Counter and proof
+      // payments never cleared the hold before: only the gateway did, so a booking paid at the desk
+      // would have stopped occupying its slot when the window ran out.
+      await appointmentRepository.confirmHold(patientVisitId);
+
+      // Charged in full, so the claim for those tests is withdrawn with the payment. [1.123.0]
+      if (undecided > 0 && withdrawPendingClaims) {
+        await hmoRepository.withdrawPendingForVisit(patientVisitId, {
+          decidedBy: processedBy,
+          reason: 'Paid in full at the counter; the claim for this test was withdrawn.',
+        });
+      }
 
       // Payment is one of the two release conditions. Attempting the release here — server-side,
       // in the same call that took the money — replaces the CashierDashboard's separate follow-up

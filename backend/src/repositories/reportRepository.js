@@ -390,7 +390,8 @@ class ReportRepository {
                -- in schema.sql, whose predicate is approval_status <> 'Rejected' -- it treats a
                -- rejected test as no longer a live claim on that work.
                CASE
-                 WHEN hr.status = 'Rejected' OR hrt.approval_status = 'Rejected' THEN 'Rejected'
+                 -- A withdrawn claim ('Cancelled') is the patient's to settle too. [1.123.0]
+                 WHEN hr.status IN ('Rejected', 'Cancelled') OR hrt.approval_status = 'Rejected' THEN 'Rejected'
                  WHEN hr.status = 'Approved'                                     THEN 'Approved'
                  ELSE 'Pending'
                END AS effective_status

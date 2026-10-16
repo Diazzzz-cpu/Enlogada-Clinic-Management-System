@@ -69,6 +69,8 @@ async function main() {
     LEFT JOIN tests t ON vt.test_id = t.id
     WHERE a.reminder_sent_at IS NULL
       AND a.status = 'Pending'
+      -- Not a booking whose payment window ran out: its slot is gone. [1.123.0]
+      AND (a.held_until IS NULL OR a.held_until > CURRENT_TIMESTAMP)
       AND a.scheduled_date = CURRENT_DATE + $1::int
     GROUP BY a.id, pv.queue_number, p.first_name, p.last_name, u.email
     ORDER BY a.scheduled_time

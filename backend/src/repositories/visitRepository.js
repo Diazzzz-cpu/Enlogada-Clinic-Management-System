@@ -89,7 +89,11 @@ class VisitRepository {
     if (search) {
       params.push(`%${search}%`);
       const idx = params.length;
-      filters.push(`(p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx} OR pv.queue_number ILIKE $${idx})`);
+      // [1.123.0] The full name as well: the Desk's "Who's here?" sends what was typed, and
+      // "Teresita Gatchalian" matched neither name alone, so the queue answered "nobody" for a
+      // patient standing in it and the box offered them a second visit.
+      filters.push(`(p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx}
+                     OR (p.first_name || ' ' || p.last_name) ILIKE $${idx} OR pv.queue_number ILIKE $${idx})`);
     }
     const whereClause = filters.join(' AND ');
 
@@ -213,7 +217,8 @@ class VisitRepository {
     if (search) {
       params.push(`%${search}%`);
       const idx = params.length;
-      filters.push(`(p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx} OR pv.queue_number ILIKE $${idx})`);
+      filters.push(`(p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx}
+                     OR (p.first_name || ' ' || p.last_name) ILIKE $${idx} OR pv.queue_number ILIKE $${idx})`);
     }
 
     // Filtered in SQL, not in the page of rows already fetched. This list is paged at the

@@ -1,5 +1,65 @@
 # Database Migration & Schema History
 
+## [1.123.0] - 2026-10-16 (Processes that did not make sense once a receipt became final)
+
+No schema change; nothing to run. One new optional setting: `BOOKING_PAYMENT_MINUTES` (default 60,
+allowed 15–1440), how long a patient has to pay for a booking made online.
+
+Steven asked for a review of the whole system for processes that do not make sense. With
+[1.121.0] and [1.122.0] a paid receipt is final, which turned several older gaps into money or
+patients going missing. Nine were found; all nine are fixed here, and `process-fixes.spec.js`
+holds each one.
+
+1. **An HMO claim approved after the patient paid in full.** The till allowed charging a test
+   whose HMO decision was still pending, and the HMO could then approve it, so the patient paid and
+   the insurer was billed for the same test. `POST /payments` now refuses (409) while a test on
+   the visit waits on its HMO, unless the cashier ticks "charge in full and withdraw the claim":
+   the pending lines are then closed in the same transaction as the payment
+   (`withdrawPendingForVisit`: each line `Rejected`, which every report already reads as "the
+   patient settles it", with the reason recorded; a claim left with nothing approved `Cancelled`). Approving a claim, or a line, on a paid visit
+   is refused. The HMO report counts a `Cancelled` claim with the refused.
+2. **Paying online and at the counter.** A patient could send a GCash proof and then pay cash at
+   the counter, and the second payment had nowhere to go: one settled payment per visit. The till
+   now refuses while a proof waits to be checked, names its reference and sends the cashier to
+   Online Payments (the bill carries `pendingProof`, and Billing Queue shows it).
+3. **Closing a date with bookings on it.** A closure, or new hours, left the bookings it no longer
+   fits where they were, and nobody was told. `PUT /schedule/overrides` now answers with
+   `affectedBookings` (everyone on a closed day; on an open one, everyone outside the new hours),
+   and each patient with an address is emailed that the day changed and that the clinic will help
+   them move. Clinic Schedule lists them (`GET /schedule/overrides/:date/bookings`,
+   `AffectedBookingsDialog`) so the Desk can move each one. A lower capacity moves nobody: the
+   bookings already taken stay, and it limits new ones.
+4. **A paid booking marked No Show.** With no refunds, that kept the money and closed the booking
+   for good. It is refused (409); a paid booking is moved to another day. The Desk hides No Show
+   on it.
+5. **"Open a new visit" that nobody could open.** Since [1.55.0] a paid visit's message said to open
+   a new visit for extra tests, and the Desk refused a second visit to anyone already in today's
+   queue. A PAID visit no longer blocks one: Who's here? says "Already has a paid visit today" and
+   offers "Start another visit", with its own bill. An unpaid visit still blocks a second. The
+   queue's search also matches a full name now: "Teresita Gatchalian" matched neither name on its
+   own, so the box could offer a second visit to someone waiting.
+6. **A walk-in who later signs up.** Nothing connected their record to their new account, so they
+   added themselves again, never saw their earlier results online and appeared twice on Patient
+   Records. Reception links the record to the account by the email the patient signed up with
+   (`PUT /patients/:id/link-account`, `patients:update`, staff only), from the patient's file.
+   Refused for a staff account and for a record already linked; audited
+   (`patient.account_linked`). It does not merge two records that already exist.
+7. **A Word or Excel report released silently.** A patient's copy must be marked DIGITAL COPY
+   ([1.114.0]), and an Office file cannot be, so the portal refused it and Email to patient could
+   not attach it, with nothing said when it was attached. The upload dialog now says so, while a
+   PDF can still be attached instead.
+8. **Archiving a patient who is in the building or booked.** Archiving takes a record off the
+   roster and out of the Desk's search, which hid the patient from the people about to look for
+   them. It is refused while they have a visit in progress, an unpaid walk-in today, or a booking
+   from today on; the message says which.
+9. **An unpaid online booking held its slot for good.** The clinic's rule is payment first, and
+   only the PayMongo gateway's 15-minute hold ever released a slot, and the gateway is off. A
+   self-pay booking a patient makes now holds its slot for the payment window whenever the clinic
+   publishes a payment account. A proof sent in time keeps the slot until a cashier checks it; a
+   proof sent after the window is refused ("wasn't paid in time"); a rejected proof gives the window
+   again. The portal shows "Pay by …" and, once lapsed, that the slot was released. The day-before
+   reminder skips a lapsed booking. Staff and HMO bookings still take their slot outright.
+
 ## [1.122.0] - 2026-10-16 (No void; the tests are confirmed before the money)
 
 No schema change; nothing to run.

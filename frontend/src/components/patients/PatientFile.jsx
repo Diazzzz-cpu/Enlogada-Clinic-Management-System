@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlertCircle, ArrowRight, CalendarClock } from 'lucide-react';
 import { Button } from '../ui/button';
 import EmptyState from '../ui/empty-state';
@@ -6,6 +6,7 @@ import DataBadge from '../ui/data-badge';
 import { StatusBadge } from '../ui/status-badge';
 import { SkeletonList } from '../ui/skeleton';
 import { formatDate } from '../../lib/date';
+import LinkAccountDialog from './LinkAccountDialog';
 
 const VISITS_SHOWN = 8;
 
@@ -21,7 +22,8 @@ const VISITS_SHOWN = 8;
  * here, because the Desk is where a visit is started safely: it will not offer a second visit to
  * someone already in today's queue. Someone already in it gets "Find at the Desk" instead.
  */
-export default function PatientFile({ id, entry, patientName, archived, canStartVisit, onStartVisit, onRetry }) {
+export default function PatientFile({ id, entry, patientName, archived, canStartVisit, onStartVisit, canLinkAccount, onRetry }) {
+  const [linking, setLinking] = useState(false);
   if (!entry || entry.status === 'loading') {
     return <div id={id} className="p-4"><SkeletonList rows={3} /></div>;
   }
@@ -64,6 +66,20 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
             </React.Fragment>
           ))}
         </dl>
+
+        {/* A walk-in who has since signed up: put this record in their portal. [1.123.0] */}
+        {canLinkAccount && !patient.user_id && !archived && (
+          <Button size="sm" variant="outline" onClick={() => setLinking(true)} data-testid="patient-file-link">
+            Link to a portal account
+          </Button>
+        )}
+        <LinkAccountDialog
+          open={linking}
+          onOpenChange={setLinking}
+          patientId={patient.id}
+          patientName={patientName}
+          onLinked={onRetry}
+        />
 
         {canStartVisit && !archived && (
           <div className="space-y-1.5 pt-1">

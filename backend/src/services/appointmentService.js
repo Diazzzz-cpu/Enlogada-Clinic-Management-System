@@ -1,3 +1,4 @@
+const paymentMethodRepository = require('../repositories/paymentMethodRepository');
 const paymentRepository = require('../repositories/paymentRepository');
 const db = require('../config/database');
 const { formatTime12 } = require('../constants/clockFormat');
@@ -374,9 +375,14 @@ class AppointmentService {
         //   no gateway    — with no online payment configured the instruction is "pay at the
         //                   counter", and a slot that expires while the patient travels to the
         //                   clinic would be a worse bug than the one being fixed
-        const payingOnline = !isStaffUser(requestingUser)
-          && !hmo
-          && paymentGatewayService.isConfigured();
+        // [1.123.0] Payment first: the clinic's own GCash/bank details count as paying online too.
+        // A self-pay booking a patient makes now holds its slot for the payment window whenever
+        // the clinic takes payment online at all; before, only the (switched-off) gateway did,
+        // so an unpaid booking held its slot for good.
+        const selfPayOnline = !isStaffUser(requestingUser) && !hmo;
+        const gatewayOn = paymentGatewayService.isConfigured();
+        const manualOn = selfPayOnline && !gatewayOn && (await paymentMethodRepository.findActive()).length > 0;
+        const payingOnline = (selfPayOnline && gatewayOn) ? true : manualOn ? 'manual' : false;
 
         const appointment = await appointmentRepository.createAppointment({
           patientVisitId: visit.id,
@@ -767,6 +773,16 @@ class AppointmentService {
     }
     // The same rule as cancelAppointment, on the route that can also set Cancelled. [1.122.0]
     if (status === 'Cancelled') await assertNotPaid(appointment);
+    // A paid booking is moved, not written off as a no-show. [1.123.0] With no refunds, No Show
+    // on a paid booking kept the money and closed the booking for good, since a no-show cannot be
+    // moved. The patient paid for the test; they get another day.
+    if (status === 'No Show' && await paymentRepository.hasPaidPayment(appointment.patient_visit_id)) {
+      const error = new Error(
+        "This booking has already been paid, so it isn't marked a no-show. Move it to another day instead."
+      );
+      error.statusCode = 409;
+      throw error;
+    }
     // Checking a patient in is only meaningful against the booking the receptionist just looked
     // at. Passing the status they read makes this a compare-and-swap against a reschedule landing
     // in the same instant — without it, a move that commits while this call waits on the row lock

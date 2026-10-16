@@ -280,6 +280,20 @@ export default function CheckoutTerminal({ checkout, queue }) {
                       provider. [1.121.0] There are no refunds, so money taken for a test the HMO
                       then approves cannot be given back: the warning says so. Not a block — some
                       providers take days, and the patient cannot always wait for one. */}
+                  {/* [1.123.0] An online payment the patient sent, not yet checked. Taking money here as
+                      well would charge them twice, so the sale waits for the check. */}
+                  {checkout.bill?.pendingProof && (
+                    <div role="alert" data-testid="pending-proof" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-600" aria-hidden="true" />
+                      <span>
+                        <strong>This patient has already sent an online payment</strong> (reference{' '}
+                        <span className="font-mono">{checkout.bill.pendingProof.reference}</span>) that has not been checked.
+                        <span className="mt-0.5 block font-normal">
+                          Check it in Online Payments first. Taking money here as well would charge them twice.
+                        </span>
+                      </span>
+                    </div>
+                  )}
                   {(checkout.bill?.hmoPendingCount ?? 0) > 0 && (
                     <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 flex items-start space-x-2 text-xs">
                       <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -289,8 +303,8 @@ export default function CheckoutTerminal({ checkout, queue }) {
                           awaiting an HMO decision — {formatCurrency(checkout.bill.hmoPendingAmount)}
                         </strong>
                         <span className="block font-normal mt-0.5">
-                          That amount is billed in full here, and a payment cannot be refunded. If
-                          the HMO may still approve it, wait for its decision before taking payment.
+                          Wait for the HMO's decision if you can. Charging it in full now withdraws
+                          the claim for {checkout.bill.hmoPendingCount > 1 ? 'those tests' : 'that test'}, and a payment cannot be refunded.
                         </span>
                       </span>
                     </div>

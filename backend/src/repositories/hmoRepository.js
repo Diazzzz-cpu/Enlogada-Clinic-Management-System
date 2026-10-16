@@ -192,6 +192,59 @@ class HmoRepository {
     return result.rows[0];
   }
 
+  /**
+   * The patient paid in full at the counter for tests still waiting on the HMO. [1.123.0]
+   *
+   * Each such line is closed as paid by the patient (approval_status 'Rejected', which every report
+   * already reads as "the patient settles it", with the reason saying what really happened), and a
+   * claim left with nothing approved on it is withdrawn ('Cancelled'), so it leaves the decision
+   * queue. Without this, an approval landing later would bill the insurer for a test the patient
+   * had already paid for, and there is no refund to put that right.
+   *
+   * @returns {Promise<number>} how many lines were closed
+   */
+  async withdrawPendingForVisit(visitId, { decidedBy = null, reason }) {
+    const lines = await db.query(
+      `UPDATE hmo_request_tests hrt
+          SET approval_status = 'Rejected', decision_reason = $2, decided_by = $3,
+              decided_at = CURRENT_TIMESTAMP
+         FROM visit_tests vt, hmo_requests hr
+        WHERE vt.id = hrt.visit_test_id AND hr.id = hrt.hmo_request_id
+          AND vt.patient_visit_id = $1
+          AND hrt.approval_status = 'Pending'
+          AND hr.status NOT IN ('Rejected', 'Cancelled')
+        RETURNING hrt.hmo_request_id`,
+      [visitId, reason, decidedBy]
+    );
+    const requestIds = [...new Set(lines.rows.map((r) => r.hmo_request_id))];
+    if (requestIds.length) {
+      await db.query(
+        `UPDATE hmo_requests hr
+            SET status = 'Cancelled', decision_reason = $2, decided_by = $3,
+                approved_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE hr.id = ANY($1::int[]) AND hr.status = 'Pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM hmo_request_tests x
+               WHERE x.hmo_request_id = hr.id AND x.approval_status = 'Approved'
+            )`,
+        [requestIds, reason, decidedBy]
+      );
+    }
+    return lines.rowCount;
+  }
+
+  /** One claimed test, with its claim's visit, for deciding whether it may still be decided. */
+  async findRequestTestContext(hmoRequestTestId) {
+    const { rows } = await db.query(
+      `SELECT hrt.id, hrt.approval_status, vt.patient_visit_id
+         FROM hmo_request_tests hrt
+         JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+        WHERE hrt.id = $1`,
+      [hmoRequestTestId]
+    );
+    return rows[0];
+  }
+
   async updateRequestStatus(id, status) {
     const queryText = `
       UPDATE hmo_requests

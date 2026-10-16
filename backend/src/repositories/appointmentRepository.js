@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { OCCUPIES_SLOT, HOLD_EXPIRY_SQL } = require('../constants/slotHold');
+const { OCCUPIES_SLOT, HOLD_EXPIRY_SQL, PAY_WINDOW_EXPIRY_SQL } = require('../constants/slotHold');
 const { inTodaysQueue } = require('../constants/queueMembership');
 const db = require('../config/database');
 
@@ -18,7 +18,7 @@ class AppointmentRepository {
 
     const queryText = `
       INSERT INTO appointments (patient_visit_id, appointment_reference, scheduled_date, scheduled_time, notes, held_until)
-      VALUES ($1, $2, $3, $4, $5, ${provisional ? HOLD_EXPIRY_SQL : 'NULL'})
+      VALUES ($1, $2, $3, $4, $5, ${provisional === 'manual' ? PAY_WINDOW_EXPIRY_SQL : provisional ? HOLD_EXPIRY_SQL : 'NULL'})
       RETURNING *
     `;
     const result = await client.query(queryText, [patientVisitId, appointmentReference, scheduledDate, scheduledTime, notes]);
@@ -39,6 +39,42 @@ class AppointmentRepository {
       `UPDATE appointments SET held_until = NULL, updated_at = CURRENT_TIMESTAMP
         WHERE patient_visit_id = $1 AND held_until IS NOT NULL
         RETURNING *`,
+      [patientVisitId]
+    );
+    return rows[0];
+  }
+
+  /** The booking on a visit, with its hold: whether it is still waiting on payment, and until when. */
+  async findHoldByVisitId(patientVisitId, client = db) {
+    const { rows } = await client.query(
+      `SELECT id, status, held_until, held_until IS NOT NULL AND held_until <= CURRENT_TIMESTAMP AS lapsed
+         FROM appointments WHERE patient_visit_id = $1`,
+      [patientVisitId]
+    );
+    return rows[0];
+  }
+
+  /**
+   * A rejected proof starts the payment window again. [1.123.0] Only for a booking the patient made
+   * themselves and pays themselves (not staff-made, not HMO), which is the one kind that holds rather
+   * than takes its slot; the patient has the same time again to send a proof that can be accepted.
+   */
+  async reholdForPayment(patientVisitId, client = db) {
+    const { rows } = await client.query(
+      `UPDATE appointments a SET held_until = ${PAY_WINDOW_EXPIRY_SQL}, updated_at = CURRENT_TIMESTAMP
+        WHERE a.patient_visit_id = $1 AND a.status IN ('Pending', 'Confirmed')
+          AND EXISTS (
+            SELECT 1 FROM patient_visits pv
+              JOIN user_roles ur ON ur.user_id = pv.created_by
+              JOIN roles r ON r.id = ur.role_id
+             WHERE pv.id = a.patient_visit_id AND r.name = 'Client'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM hmo_request_tests hrt
+              JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+             WHERE vt.patient_visit_id = a.patient_visit_id
+          )
+        RETURNING a.*`,
       [patientVisitId]
     );
     return rows[0];

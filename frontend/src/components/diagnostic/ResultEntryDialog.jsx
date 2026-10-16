@@ -152,10 +152,21 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
                 className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-600 hover:file:bg-brand-100 file:cursor-pointer cursor-pointer"
               />
               {entry.resultFile ? (
-                <p className="text-fine font-semibold text-slate-700 m-0 flex items-center gap-1.5">
-                  <Paperclip className="w-3 h-3 flex-shrink-0" />
-                  {entry.resultFile.name} ({(entry.resultFile.size / 1024).toFixed(0)} KB)
-                </p>
+                <>
+                  <p className="text-fine font-semibold text-slate-700 m-0 flex items-center gap-1.5">
+                    <Paperclip className="w-3 h-3 flex-shrink-0" />
+                    {entry.resultFile.name} ({(entry.resultFile.size / 1024).toFixed(0)} KB)
+                  </p>
+                  {/* [1.123.0] Patients receive a marked DIGITAL COPY, and a Word or Excel file
+                      cannot be marked: the portal tells the patient to visit the clinic and Email
+                      to patient refuses it. Said here, while a PDF can still be attached instead. */}
+                  {!/\.(pdf|jpe?g|png)$/i.test(entry.resultFile.name) && (
+                    <p role="note" data-testid="office-report-warning" className="m-0 rounded-lg border border-amber-200 bg-amber-50 p-2 text-fine text-amber-800">
+                      Patients can&apos;t open a Word or Excel report in their portal, and it can&apos;t be
+                      emailed to them. Attach a PDF if you can.
+                    </p>
+                  )}
+                </>
               ) : entry.activeTest?.file_path ? (
                 <p className="text-fine text-slate-600 m-0 flex items-center gap-1.5">
                   <Paperclip className="w-3 h-3 flex-shrink-0" />

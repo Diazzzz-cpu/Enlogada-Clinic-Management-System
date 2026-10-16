@@ -25,5 +25,7 @@ router.put('/week/:dayOfWeek', verifyToken, authorizeRoles('SuperAdmin', 'Admin'
 router.get('/overrides', verifyToken, authorizeStaff, scheduleController.listOverrides);
 router.put('/overrides', verifyToken, authorizeRoles('SuperAdmin', 'Admin'), scheduleController.setOverride);
 router.delete('/overrides/:date', verifyToken, authorizeRoles('SuperAdmin', 'Admin'), scheduleController.removeOverride);
+// [1.123.0] The bookings a closed or shortened day leaves without a slot, so each can be moved.
+router.get('/overrides/:date/bookings', verifyToken, authorizeRoles('SuperAdmin', 'Admin'), scheduleController.listAffectedBookings);
 
 module.exports = router;

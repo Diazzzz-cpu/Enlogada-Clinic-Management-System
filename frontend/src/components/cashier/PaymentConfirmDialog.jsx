@@ -15,10 +15,14 @@ import { formatCurrency } from '../../lib/currency';
  */
 export default function PaymentConfirmDialog({ open, onOpenChange, bill, method, onConfirm, loading, error }) {
   const [confirmed, setConfirmed] = useState(false);
+  const [withdraw, setWithdraw] = useState(false);
 
   // Each opening asks again: a tick left over from a cancelled attempt is not a confirmation.
   useEffect(() => {
-    if (open) setConfirmed(false);
+    if (open) {
+      setConfirmed(false);
+      setWithdraw(false);
+    }
   }, [open]);
 
   const items = bill?.items || [];
@@ -33,8 +37,8 @@ export default function PaymentConfirmDialog({ open, onOpenChange, bill, method,
         ? `Ask ${bill.patientName} to confirm the tests below. Once paid, tests can't be added or removed, and the payment can't be refunded.`
         : ''}
       confirmLabel={bill ? `Take ${formatCurrency(bill.totalAmount)}` : 'Take Payment'}
-      confirmDisabled={!confirmed}
-      onConfirm={onConfirm}
+      confirmDisabled={!confirmed || (pending > 0 && !withdraw)}
+      onConfirm={() => onConfirm({ withdrawPendingClaims: pending > 0 && withdraw })}
       loading={loading}
       error={error}
     >
@@ -51,11 +55,23 @@ export default function PaymentConfirmDialog({ open, onOpenChange, bill, method,
         </li>
       </ul>
 
+      {/* [1.123.0] A test still waiting on the HMO is charged in full here. Taking that money
+          means the claim for it is withdrawn, or an approval landing later would bill the insurer
+          for what the patient paid. Said, and ticked, rather than done quietly. */}
       {pending > 0 && (
-        <p className="m-0 flex items-start gap-1.5 text-fine text-amber-800">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-          {pending} test{pending > 1 ? 's are' : ' is'} still waiting for an HMO decision and charged in full.
-        </p>
+        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-fine font-medium text-amber-900">
+          <input
+            type="checkbox"
+            checked={withdraw}
+            onChange={(e) => setWithdraw(e.target.checked)}
+            disabled={loading}
+            className="mt-0.5 rounded text-brand-600 focus:ring-brand-500"
+          />
+          <span>
+            <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden="true" />
+            Charge the {pending} test{pending > 1 ? 's' : ''} still waiting for the HMO in full, and withdraw the HMO claim for {pending > 1 ? 'them' : 'it'}.
+          </span>
+        </label>
       )}
 
       <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-line bg-surface p-2.5 text-fine font-medium text-ink">

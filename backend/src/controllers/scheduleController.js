@@ -43,6 +43,15 @@ class ScheduleController {
     }
   }
 
+  async listAffectedBookings(req, res, next) {
+    try {
+      const bookings = await scheduleService.listAffectedBookings(req.params.date);
+      return res.status(200).json({ status: 'success', data: { bookings } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async setOverride(req, res, next) {
     try {
       const { override, affectedBookings } = await scheduleService.setOverride(req.body, req.user);

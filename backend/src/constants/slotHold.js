@@ -52,4 +52,20 @@ const HOLD_MINUTES = 15;
 /** `now + HOLD_MINUTES`, computed in SQL so the database's clock is the only one that counts. */
 const HOLD_EXPIRY_SQL = `CURRENT_TIMESTAMP + INTERVAL '${HOLD_MINUTES} minutes'`;
 
-module.exports = { OCCUPIES_SLOT, HOLD_MINUTES, HOLD_EXPIRY_SQL };
+/**
+ * How long a patient has to pay for a booking made online, when the clinic is paid by GCash or
+ * bank transfer and a cashier checks the proof. [1.123.0]
+ *
+ * The clinic's rule is payment first: an online booking is the patient's once it is paid. Before
+ * this, a booking only expired through the PayMongo gateway's 15-minute hold, which is switched
+ * off, so an unpaid booking held its slot for good. Longer than the gateway's, because the patient
+ * leaves the page to pay in their banking app and then comes back to upload the proof; a proof that
+ * arrives in time keeps the slot until a cashier checks it. BOOKING_PAYMENT_MINUTES overrides it.
+ */
+const PAY_WINDOW_MINUTES = (() => {
+  const n = Number(process.env.BOOKING_PAYMENT_MINUTES);
+  return Number.isFinite(n) && n >= 15 && n <= 1440 ? Math.round(n) : 60;
+})();
+const PAY_WINDOW_EXPIRY_SQL = `CURRENT_TIMESTAMP + INTERVAL '${PAY_WINDOW_MINUTES} minutes'`;
+
+module.exports = { OCCUPIES_SLOT, HOLD_MINUTES, HOLD_EXPIRY_SQL, PAY_WINDOW_MINUTES, PAY_WINDOW_EXPIRY_SQL };

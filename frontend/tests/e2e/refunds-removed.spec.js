@@ -69,7 +69,7 @@ test.describe('No refunds', () => {
     expect(matrix.permissions.map((p) => p.name), 'and so is its permission').not.toContain('billing:refund');
   });
 
-  test('a paid visit says to open a new visit, not to reverse the payment', async () => {
+  test('a paid visit says to start another visit, not to reverse the payment', async () => {
     const extra = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .filter((t) => t.category_name === 'Laboratory' && t.is_active)[1];
     const res = await ctx.post(`${API}/tests/visit-tests`, {
@@ -77,7 +77,7 @@ test.describe('No refunds', () => {
     });
     expect(res.status()).toBe(409);
     const { message } = await res.json();
-    expect(message).toContain('Open a new visit');
+    expect(message).toContain('Start another visit');
     expect(message).not.toMatch(/reverse|refund/i);
   });
 

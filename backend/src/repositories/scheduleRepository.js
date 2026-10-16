@@ -124,6 +124,36 @@ class ScheduleRepository {
     return result.rows[0].cnt;
   }
 
+  /**
+   * The bookings still holding a slot on a date, outside the given hours (or all of them when the
+   * day is closed). [1.123.0] The people a closure or a shortened day affects, by name, with what
+   * the Move dialog and the email need.
+   */
+  async findBookingsOnDate(date, { openTime = null, closeTime = null } = {}, client = db) {
+    const params = [date];
+    let outside = '';
+    if (openTime && closeTime) {
+      params.push(openTime, closeTime);
+      outside = 'AND (a.scheduled_time < $2::time OR a.scheduled_time >= $3::time)';
+    }
+    const { rows } = await client.query(
+      `SELECT a.id, a.appointment_reference, a.scheduled_date, a.scheduled_time, a.status,
+              p.first_name, p.last_name,
+              COALESCE(NULLIF(p.email, ''), u.email) AS email,
+              EXISTS (SELECT 1 FROM payments pay
+                       WHERE pay.patient_visit_id = a.patient_visit_id AND pay.payment_status = 'Paid') AS is_paid
+         FROM appointments a
+         JOIN patient_visits pv ON pv.id = a.patient_visit_id
+         JOIN patients p ON p.id = pv.patient_id
+         LEFT JOIN users u ON u.id = p.user_id
+        WHERE a.scheduled_date = $1 AND a.status IN ('Pending', 'Confirmed') AND ${OCCUPIES_SLOT('a')}
+              ${outside}
+        ORDER BY a.scheduled_time`,
+      params
+    );
+    return rows;
+  }
+
   async countBookingsByTimeForDate(date, client = db) {
     const queryText = `
       SELECT scheduled_time, COUNT(*)::int AS cnt

@@ -84,6 +84,8 @@ export default function AppointmentsTab({ bookings }) {
     const heldUntil = appt.held_until ? new Date(appt.held_until) : null;
     const isHeld = Boolean(heldUntil) && heldUntil.getTime() > Date.now();
     const heldUntilClock = isHeld ? heldUntil.toTimeString().slice(0, 5) : null;
+    // Payment first [1.123.0]: an unpaid booking whose time to pay ran out has released its slot.
+    const lapsed = Boolean(heldUntil) && !isHeld && !appt.is_paid;
 
     return (
       <div
@@ -192,13 +194,29 @@ export default function AppointmentsTab({ bookings }) {
             paragraph that could only say "settle at the counter on arrival" — which
             was true when there was no way to pay in advance, and is now the fallback
             this panel itself shows when no payment method is configured. */}
-        {showPayPanel && (
-          <PayBookingPanel
-            visitId={appt.patient_visit_id}
-            amountDue={appt.amount_due}
-            tests={appt.booked_tests || []}
-            onSettled={bookings.reload}
-          />
+        {/* Payment first. [1.123.0] The deadline is said beside the payment, and once it has
+            passed the booking says so rather than inviting a payment for a slot it no longer has. */}
+        {showPayPanel && lapsed && (
+          <p data-testid="booking-lapsed" className="m-0 rounded-lg border border-line bg-slate-100 p-2.5 text-fine text-slate-700">
+            <strong>This booking wasn&apos;t paid in time</strong>, so its slot was released. Book again
+            to choose a time.
+          </p>
+        )}
+        {showPayPanel && !lapsed && (
+          <>
+            {isHeld && (
+              <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 p-2 text-fine text-amber-800">
+                <strong>Pay by {formatTime12(heldUntilClock)} to keep this slot.</strong> After that it goes
+                back on offer to other patients.
+              </p>
+            )}
+            <PayBookingPanel
+              visitId={appt.patient_visit_id}
+              amountDue={appt.amount_due}
+              tests={appt.booked_tests || []}
+              onSettled={bookings.reload}
+            />
+          </>
         )}
 
         {/* Reschedule sits before Cancel, and only while the booking is still

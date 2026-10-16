@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const hmoRepository = require('../repositories/hmoRepository');
+const paymentRepository = require('../repositories/paymentRepository');
 const db = require('../config/database');
 const auditService = require('./auditService');
 const notificationService = require('./notificationService');
@@ -345,6 +346,19 @@ class HmoService {
     }
     assertUndecided(request);
 
+    // Not on a visit already paid with tests still undecided. [1.123.0] Those tests were charged
+    // in full at the counter; approving now would bill the insurer for what the patient paid.
+    if (await paymentRepository.hasPaidPayment(request.patient_visit_id)) {
+      const tests = await hmoRepository.findTestsByRequestId(id);
+      if (tests.some((t) => t.approval_status === 'Pending')) {
+        const error = new Error(
+          'This visit was already paid in full at the counter, so this claim can no longer be approved: the insurer would be billed for tests the patient paid for.'
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
     const approved = await hmoRepository.approveRequest(id, {
       approvalCode,
       decidedBy: requestingUser?.userId ?? null,
@@ -470,6 +484,16 @@ class HmoService {
           'and the patient may query it days later.'
       );
       error.statusCode = 400;
+      throw error;
+    }
+
+    // A test the patient already paid for in full is not the insurer's to decide. [1.123.0]
+    const line = await hmoRepository.findRequestTestContext(hmoRequestTestId);
+    if (line && line.approval_status === 'Pending' && await paymentRepository.hasPaidPayment(line.patient_visit_id)) {
+      const error = new Error(
+        'This test was already paid in full at the counter, so the HMO\'s decision no longer changes what anyone owes.'
+      );
+      error.statusCode = 409;
       throw error;
     }
 

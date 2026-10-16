@@ -160,6 +160,8 @@ const BookingDialog = ({ selectedProfileId, selectedProfile, testCatalog, packag
         // patient to Appointments to find it. Present on both branches — the INSERT is
         // `RETURNING *`, and the already-booked branch returns the existing row.
         visitId: appt.patient_visit_id,
+        // When the slot is released if it is not paid for. [1.123.0]
+        heldUntil: appt.held_until || null,
         referenceCode: appt.appointment_reference,
         queueNumber: appt.queue_number,
         patientName: selectedProfile ? `${selectedProfile.first_name} ${selectedProfile.last_name}` : '',

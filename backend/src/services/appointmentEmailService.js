@@ -190,6 +190,30 @@ class AppointmentEmailService {
     });
   }
 
+  /**
+   * Sent when the clinic closes a day, or shortens it, under a patient's booking. [1.123.0]
+   * Their booking still stands, so they are asked to choose a new time rather than told it is
+   * cancelled: a paid booking is moved, never written off.
+   */
+  async sendScheduleChangeNotice({ to, patientName, reference, date, time, closed }) {
+    if (!to) return { skipped: true };
+
+    return sendEmail({
+      to,
+      subject: `Please choose a new time for your appointment on ${readableDate(date)}`,
+      html: shell(`Hello ${patientName},`, `
+        <p>${closed
+          ? `The clinic will be <strong>closed on ${esc(readableDate(date))}</strong>.`
+          : `The clinic's hours on <strong>${esc(readableDate(date))}</strong> have changed.`}
+           Your appointment at <strong>${esc(readableTime(time))}</strong> (reference ${esc(reference)})
+           needs a new time.</p>
+        <p>Please choose another date in your patient portal under <strong>Appointments</strong>, or
+           contact the clinic and we will move it for you. Your booking, and any payment on it,
+           stays as it is.</p>
+      `),
+    });
+  }
+
   /** Sent when a booking is cancelled, so the patient has a record that it really was. */
   async sendCancellationNotice({ to, patientName, reference, date, time }) {
     if (!to) return { skipped: true };

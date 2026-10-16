@@ -76,6 +76,44 @@ class PatientRepository {
     return result.rows[0];
   }
 
+  /**
+   * What is still open for a patient, which archiving must not hide. [1.123.0]
+   *   in_progress   a visit being worked on (Processing: paid, results not all released)
+   *   unpaid_today  a walk-in opened today and not yet paid
+   *   next_booking  the first booking from today on that still holds its slot
+   * An unpaid walk-in left over from an earlier day is not counted: it would block archiving for
+   * good, over a visit nobody is coming back to.
+   */
+  async findOpenWork(patientId) {
+    const { rows } = await db.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM patient_visits pv
+                  WHERE pv.patient_id = $1 AND pv.status = 'Processing') AS in_progress,
+         EXISTS (SELECT 1 FROM patient_visits pv
+                  WHERE pv.patient_id = $1 AND pv.status = 'Pending'
+                    AND pv.created_at >= CURRENT_DATE AND pv.created_at < CURRENT_DATE + 1
+                    AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.patient_visit_id = pv.id)) AS unpaid_today,
+         (SELECT TO_CHAR(MIN(a.scheduled_date), 'YYYY-MM-DD')
+            FROM appointments a JOIN patient_visits pv ON pv.id = a.patient_visit_id
+           WHERE pv.patient_id = $1 AND a.status IN ('Pending', 'Confirmed')
+             AND a.scheduled_date >= CURRENT_DATE
+             AND (a.held_until IS NULL OR a.held_until > CURRENT_TIMESTAMP)) AS next_booking`,
+      [patientId]
+    );
+    return rows[0];
+  }
+
+  /** Connect a walk-in record to a patient's portal account. Only a record not yet connected. [1.123.0] */
+  async linkToUser(patientId, userId) {
+    const { rows } = await db.query(
+      `UPDATE patients SET user_id = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND user_id IS NULL
+        RETURNING *`,
+      [patientId, userId]
+    );
+    return rows[0];
+  }
+
   async updatePatient(id, { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact, email = null }) {
     const queryText = `
       UPDATE patients

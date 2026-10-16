@@ -1,3 +1,4 @@
+const appointmentEmailService = require('./appointmentEmailService');
 const scheduleRepository = require('../repositories/scheduleRepository');
 const auditService = require('./auditService');
 
@@ -192,7 +193,26 @@ class ScheduleService {
       createdBy: actor?.userId ?? null,
     });
 
-    const affected = await scheduleRepository.countBookingsOnDate(date);
+    // Who this leaves without a slot: everyone booked on a closed day, or booked outside the new
+    // hours on an open one. [1.123.0] Named, so they can be moved, and each is emailed, so nobody
+    // turns up to a closed clinic. It used to be a count and nothing more.
+    // An open day with its hours unchanged (only capacity or the slot length) leaves nobody out.
+    const bookings = !isOpen
+      ? await scheduleRepository.findBookingsOnDate(date)
+      : openTime && closeTime
+        ? await scheduleRepository.findBookingsOnDate(date, { openTime, closeTime })
+        : [];
+    const affected = bookings.length;
+    for (const b of bookings) {
+      appointmentEmailService.sendScheduleChangeNotice({
+        to: b.email,
+        patientName: `${b.first_name} ${b.last_name}`,
+        reference: b.appointment_reference,
+        date: b.scheduled_date,
+        time: b.scheduled_time,
+        closed: !isOpen,
+      }).catch(() => {});
+    }
 
     await auditService.log({
       actorId: actor?.userId,
@@ -202,7 +222,17 @@ class ScheduleService {
       description: `${date}: ${isOpen ? 'open' : 'CLOSED'}${override.note ? ` — ${override.note}` : ''}${affected ? ` (${affected} booking(s) already on this date)` : ''}`,
     });
 
-    return { override, affectedBookings: affected };
+    return { override, affectedBookings: affected, bookings };
+  }
+
+  /** The bookings a date's override leaves without a slot, for moving them one by one. [1.123.0] */
+  async listAffectedBookings(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) bad('Give a date as YYYY-MM-DD.');
+    const override = await scheduleRepository.findOverrideForDate(date);
+    if (!override) return [];
+    if (!override.is_open) return scheduleRepository.findBookingsOnDate(date);
+    if (!override.open_time || !override.close_time) return [];
+    return scheduleRepository.findBookingsOnDate(date, { openTime: override.open_time, closeTime: override.close_time });
   }
 
   async removeOverride(date, actor) {

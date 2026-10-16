@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, AlertCircle, AlertTriangle, Upload, Copy, Check, QrCode, FileText, X, ScanLine } from 'lucide-react';
+import { Clock, AlertCircle, AlertTriangle, Upload, Copy, Check, QrCode, FileText, X, ScanLine, Download, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { formatCurrency } from '../../lib/currency';
@@ -20,10 +20,31 @@ import api from '../../config/api';
  * until it did not arrive. A copy button removes the retyping entirely.
  */
 
-/** The QR image, fetched with the session's auth header rather than as a bare <img src>. */
-function MethodQr({ methodId, label }) {
-  const [src, setSrc] = useState('');
-  const [failed, setFailed] = useState(false);
+/** A phone, where the QR on screen cannot be scanned by the same phone. */
+const ON_PHONE = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const ON_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
+/**
+ * Opens the GCash app. [1.126.0] Only the app: a personal QR cannot be handed to GCash with the
+ * amount filled in (that needs a payment gateway, which this clinic has switched off), so the
+ * patient pays the saved QR from inside the app. Android's intent link falls back to the Play
+ * Store when the app is missing; iPhone tries the app's own scheme.
+ */
+const GCASH_APP_LINK = ON_ANDROID
+  ? 'intent://#Intent;scheme=gcash;package=com.globe.gcash.android;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.globe.gcash.android;end'
+  : 'gcash://';
+
+/**
+ * The QR image, fetched with the session's auth header rather than as a bare <img src>.
+ *
+ * [1.126.0] Shown at its own shape (the clinic's QR is a card with the account name under the
+ * code, not a bare square), and on a phone with a way to pay from the same phone: GCash's own
+ * instruction is to save the QR and upload it in the app, so Save QR comes first and Open GCash
+ * second.
+ */
+function MethodQr({ methodId, label, kind }) {
+  const [state, setState] = useState({ src: '', blob: null, failed: false });
+  const [saved, setSaved] = useState(false);
 
   React.useEffect(() => {
     let revoked = false;
@@ -34,18 +55,76 @@ function MethodQr({ methodId, label }) {
       .then((res) => {
         if (revoked) return;
         objectUrl = URL.createObjectURL(res.data);
-        setSrc(objectUrl);
+        setState({ src: objectUrl, blob: res.data, failed: false });
       })
-      .catch(() => setFailed(true));
+      .catch(() => setState({ src: '', blob: null, failed: true }));
     return () => {
       revoked = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [methodId]);
 
-  if (failed) return null;
-  if (!src) return <div className="h-36 w-36 animate-pulse rounded-lg bg-skeleton" aria-hidden="true" />;
-  return <img src={src} alt={`${label} QR code`} className="h-36 w-36 rounded-lg border border-line bg-[#ffffff] p-2 object-contain" />;
+  // The phone's share sheet where it can take a file ("Save Image" on an iPhone), a download
+  // otherwise. A cancelled share is not a failure.
+  const saveQr = async () => {
+    const name = `Enlogada-${kind || 'payment'}-QR.png`;
+    try {
+      const file = new File([state.blob], name, { type: state.blob.type || 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: label });
+        setSaved(true);
+        return;
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+    const link = document.createElement('a');
+    link.href = state.src;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setSaved(true);
+  };
+
+  if (state.failed) return null;
+  if (!state.src) return <div className="h-48 w-40 animate-pulse rounded-lg bg-skeleton" aria-hidden="true" />;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <img
+        src={state.src}
+        alt={`${label} QR code`}
+        data-testid="payment-qr"
+        className="h-auto w-44 rounded-lg border border-line bg-[#ffffff] p-1.5 sm:w-48"
+      />
+      {ON_PHONE ? (
+        <div className="flex w-full flex-col gap-1.5" data-testid="pay-on-phone">
+          <Button type="button" size="sm" variant="outline" onClick={saveQr}>
+            {saved ? <Check className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+            {saved ? 'QR saved' : 'Save QR'}
+          </Button>
+          {kind === 'GCash' && (
+            <Button asChild size="sm">
+              <a href={GCASH_APP_LINK}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open GCash
+              </a>
+            </Button>
+          )}
+          <p className="m-0 text-center text-micro leading-snug text-slate-500">
+            {kind === 'GCash'
+              ? 'In GCash, tap QR, then Upload, and choose the saved QR.'
+              : 'Open your banking app and pay the saved QR.'}
+          </p>
+        </div>
+      ) : (
+        <span className="flex items-center gap-1 text-micro font-semibold text-slate-500">
+          <QrCode className="h-3 w-3" aria-hidden="true" />
+          Scan with your phone to pay
+        </span>
+      )}
+    </div>
+  );
 }
 
 /** `display` is what is shown when it differs from what is copied: "₱4,000.00" on screen, "4000" into a banking app. */
@@ -393,12 +472,8 @@ export default function PayBookingPanel({ visitId, amountDue, tests = [], onSett
           {selected && (
             <div className="flex flex-col gap-3 sm:flex-row">
               {selected.has_qr && (
-                <div className="flex flex-shrink-0 flex-col items-center gap-1">
-                  <MethodQr methodId={selected.id} label={selected.label} />
-                  <span className="flex items-center gap-1 text-micro font-semibold text-slate-500">
-                    <QrCode className="h-3 w-3" aria-hidden="true" />
-                    Scan to pay
-                  </span>
+                <div className="flex flex-shrink-0 flex-col items-center">
+                  <MethodQr methodId={selected.id} label={selected.label} kind={selected.kind} />
                 </div>
               )}
               <div className="min-w-0 flex-1 space-y-1.5">

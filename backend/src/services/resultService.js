@@ -10,6 +10,7 @@ const { UPLOAD_ROOT } = require('../config/upload');
 const auditService = require('./auditService');
 const logger = require('../config/logger');
 const { digitalCopy, digitalCopyName, isMarkable } = require('../utils/digitalCopy');
+const { generateCode, formatCode, stampFor } = require('../utils/verificationCode');
 const env = require('../config/environment');
 const {
   escapeHtml, wrapEmail, reportTable, findingsBlock, resolveReportAttachment,
@@ -419,7 +420,9 @@ class ResultService {
       }
       let buffer;
       try {
-        buffer = await digitalCopy(await fs.promises.readFile(absolutePath), result.file_mime_type);
+        buffer = await digitalCopy(await fs.promises.readFile(absolutePath), result.file_mime_type, {
+          verification: stampFor(result.verification_code, env.FRONTEND_URL),
+        });
       } catch (err) {
         logger.error(`Could not mark ${result.file_path} as a digital copy for the portal:`, err);
         throw refuse('This report could not be prepared for viewing online. Please visit the clinic and ask for it.');
@@ -540,6 +543,11 @@ class ResultService {
              The attached report is a <strong>digital copy</strong>, marked DIGITAL COPY on every page.
              The original, with the clinic's official seal, is kept at the clinic: please visit and ask
              for it if you need it.
+           </p>` : ''}
+        ${patientInfo.verification_code ? `<p style="margin:12px 0 0;color:#334155;">
+             Verification code <strong style="font-family:monospace;">${formatCode(patientInfo.verification_code)}</strong>.
+             Anyone you show this report to can check it is genuine on
+             <a href="${escapeHtml(stampFor(patientInfo.verification_code, env.FRONTEND_URL).url)}" style="color:#0a71a9;">the clinic's verification page</a>.
            </p>` : ''}
         <p style="margin:20px 0 0;font-size:13px;color:#475569;">
           These findings are for your doctor to interpret. If anything here is unclear, or if you
@@ -702,6 +710,7 @@ class ResultService {
     //
     // The transaction also serialises two staff releasing the same result at once — the second
     // waits for the first's row lock rather than interleaving with it.
+    let released;
     await db.withTransaction(async () => {
       await testRepository.updateVisitTestStatus(visitTestId, 'Completed');
 
@@ -710,7 +719,10 @@ class ResultService {
       // — i.e. the author, not the authoriser. Whenever those are two different people, which is
       // the entire reason 'Waiting for Release' exists as a separate state, the record named the
       // wrong one.
-      await resultRepository.markReleased(visitTestId, releasedBy);
+      // [1.126.0] Issued here, at the moment the version becomes the clinic's word, and printed on
+      // every copy the patient receives. 50 random bits against the UNIQUE constraint: a clash is a
+      // one-in-a-trillion 409, not something worth a retry loop.
+      released = await resultRepository.markReleased(visitTestId, releasedBy, generateCode());
 
       // Once nothing on the visit is outstanding, the visit itself is done — otherwise it would
       // sit in 'Processing' forever, permanently inflating the front desk's active queue and the
@@ -742,7 +754,12 @@ class ResultService {
     }
 
     // Whether there is an address to send it to, so the screen can offer the email or say why not.
-    return { ...result, isAmendment, patientEmail: patientInfo?.email || null };
+    return {
+      ...result,
+      isAmendment,
+      patientEmail: patientInfo?.email || null,
+      verificationCode: released?.verification_code ? formatCode(released.verification_code) : null,
+    };
   }
 
   // Lets the modality re-open a ticket that is already 'Waiting for Release' and edit the

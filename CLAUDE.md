@@ -104,6 +104,7 @@ node src/scripts/migrateRemoveResultForms.js  # [1.109.0] drop the five typed re
 # ResultSignatureMode) and seedResultFieldSets.js were deleted with it: they only built what [1.109.0] removes.
 node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at, which every report now reads as "released" (--rollback reverses it)
 node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 tables, 6 visit columns, 2 permissions, the paper form's 4 questions (--rollback reverses it)
+node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code per released report version; backfills released ones (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -169,8 +170,8 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 **There are now two test tiers, and they answer different questions.** `[1.63.0]`
 
 ```bash
-cd backend  && npm test        # 81 unit tests, node:test, ZERO dependencies, ~0.4s
-cd frontend && npm run test:unit # 107 unit tests, vitest, ~1.5s
+cd backend  && npm test        # 129 unit tests, node:test, ZERO dependencies, ~0.7s
+cd frontend && npm run test:unit # 126 unit tests, vitest, ~1.5s
 cd frontend && npm test        # 425 Playwright E2E, ~12m, needs both dev servers
 ```
 
@@ -236,6 +237,11 @@ constrained to **Cash/GCash/Bank** because those are the cash-up buckets `paymen
 clinic's own naming goes in `label`. Publishing an account number is **SuperAdmin only and audited**
 — it is where a patient's money is sent. Everything below about PayMongo still applies if the clinic
 ever wants a real gateway; the two paths coexist.
+`[1.126.0]` On a phone the pay panel offers **Save QR** and **Open GCash** (`pay-on-phone`): the
+QR on a phone's screen cannot be scanned by that phone, and GCash's own way is QR → Upload of a
+saved image. Open GCash only OPENS the app (an Android intent with a Play Store fallback,
+`gcash://` on iPhone); nothing can hand GCash the amount and recipient from a personal QR. That
+takes the gateway. The published QR is the clinic's real InstaPay card, shown at its own shape.
 
 **Payment first: an unpaid online booking holds its slot only for the payment window.** `[1.123.0]`
 Whenever the clinic publishes a payment account, a self-pay booking a patient makes is provisional
@@ -1235,6 +1241,17 @@ Services Catalogue.
   never add a fallback to the original. A label, not a lock: pdf-lib cannot encrypt. Spec fixtures
   must be real PDFs (`helpers/reportFile.js` `pdfReport`); a fake `%PDF-1.4` buffer is refused for a
   patient, as a damaged upload should be. `digital-copy.spec.js` holds it.
+- **Every released report carries a verification code, and anyone can check it.** `[1.126.0]`
+  `markReleased` issues `test_results.verification_code` (ten Crockford base32 characters, printed
+  ABCDE-12345, `utils/verificationCode.js`) per AUTHORISED version, kept if released again; an
+  amendment's release issues a new one. The digital copy's strip carries the code and a QR to
+  `FRONTEND_URL/?verify=CODE` (vector-drawn, clickable in a PDF viewer), and the result email
+  names it. `GET /api/verify/:code` is PUBLIC and answers genuine / replaced / not found with only
+  the clinic, test, department, patient INITIALS, release date and version. Never add a finding,
+  a full name or the file to it: a verification link gets forwarded. Its limiter counts only
+  misses. The original staff print is not stamped. `FRONTEND_URL` must be the address a
+  stranger's phone can reach, or every QR printed meanwhile points nowhere.
+  `report-verification.spec.js` holds it.
 - **The typed result forms are gone, tables and all.** `[1.109.0]` `result_field_sets`,
   `result_fields`, `result_field_set_tests`, `result_measurements` and `clinic_signatories` were
   dropped by `migrateRemoveResultForms.js`, which writes every typed value

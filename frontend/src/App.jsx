@@ -25,6 +25,7 @@ const ServicesCatalog = lazyScreen(() => import('./pages/admin/ServicesCatalog')
 const StaffAccountSettings = lazyScreen(() => import('./pages/StaffAccountSettings'));
 const Today = lazyScreen(() => import('./pages/Today'));
 const ReceiptView = lazyScreen(() => import('./pages/ReceiptView'));
+const VerifyReport = lazyScreen(() => import('./pages/public/VerifyReport'));
 
 // An emailed password-reset LINK, from before [1.73.0] replaced links with a 6-digit code. Some are
 // still sitting in inboxes. One opens the forgot-password card with a word of explanation, and its
@@ -54,6 +55,20 @@ const getInitialReceipt = () => {
   return new URLSearchParams(window.location.search).get('receipt');
 };
 
+/**
+ * `?verify=ABCDE-12345` — is this report genuine? [1.126.0]
+ *
+ * The QR on a patient's copy opens this, usually on a stranger's phone: an employer, a school, an
+ * HMO. Open to everyone, signed in or not, and it takes the whole page for the same reason the
+ * receipt does. An empty string (the footer's "Verify a report") opens the page with no code yet;
+ * null means the page is not open.
+ */
+const getInitialVerify = () => {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.has('verify') ? params.get('verify') || '' : null;
+};
+
 // The one loading screen: while the session is checked, and while a screen's code arrives the
 // first time it is opened. [1.87.0]
 const AppLoading = () => (
@@ -67,6 +82,7 @@ const MainApp = () => {
   const { user, loading } = useAuth();
   const [legacyResetLink] = useState(hadLegacyResetLink);
   const [receiptNumber, setReceiptNumber] = useState(getInitialReceipt);
+  const [verifyCode, setVerifyCode] = useState(getInitialVerify);
   const [currentTab, setCurrentTab] = useState(() => (hadLegacyResetLink() ? 'forgot-password' : 'home')); // 'home', 'services', 'about', 'login', 'register', 'forgot-password', 'dashboard', 'account'
   const [activeNav, setActiveNav] = useState(null); // Active nav in staff/admin sidebar
   // A section of the destination page to scroll to on arrival — the header's FAQ link sends a
@@ -128,6 +144,15 @@ const MainApp = () => {
   }
 
   const handleNavigate = (tab, { section = null } = {}) => {
+    // Into the verification page, or out of it: leaving takes its code out of the address bar.
+    if (tab === 'verify') {
+      setVerifyCode('');
+      return;
+    }
+    if (verifyCode !== null) {
+      setVerifyCode(null);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     startTransition(() => {
       setCurrentTab(tab);
       setPendingSection(section);
@@ -149,6 +174,10 @@ const MainApp = () => {
    * Closing clears the param as well as the state, so a refresh of a tab the reader has closed
    * out of does not silently reopen the receipt.
    */
+  if (verifyCode !== null) {
+    return <VerifyReport initialCode={verifyCode} onNavigate={handleNavigate} />;
+  }
+
   if (receiptNumber && user) {
     return (
       <ReceiptView

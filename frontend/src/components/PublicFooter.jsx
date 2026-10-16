@@ -99,6 +99,11 @@ const PublicFooter = ({ onNavigate }) => {
               </li>
             )}
             <li>
+              <button type="button" onClick={() => go('verify')} className={linkClass}>
+                Verify a report
+              </button>
+            </li>
+            <li>
               <button type="button" onClick={() => go('privacy')} className={linkClass}>
                 Privacy Policy
               </button>

@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PDFDocument } = require('pdf-lib');
 
-const { digitalCopy, digitalCopyName, isMarkable, STRIP } = require('../../src/utils/digitalCopy');
+const { PDFName } = require('pdf-lib');
+const { digitalCopy, digitalCopyName, isMarkable, STRIP, STRIP_VERIFIED } = require('../../src/utils/digitalCopy');
 
 /**
  * The patient's copy is marked; nothing unmarked gets out. [1.114.0]
@@ -35,6 +36,28 @@ test('every page of a PDF is marked, and grows a strip below for the note', asyn
     assert.equal(box.height, 842 + STRIP);
   }
   assert.match(marked.getSubject() || '', /Digital copy/);
+});
+
+test('with a verification code, every page carries it, with a link to the page that checks it [1.126.0]', async () => {
+  const url = 'https://clinic.example/?verify=ABCDE-12345';
+  const marked = await PDFDocument.load(await digitalCopy(await twoPagePdf(), 'application/pdf', {
+    verification: { code: 'ABCDE-12345', url },
+  }));
+  assert.equal(marked.getPageCount(), 2);
+  for (const page of marked.getPages()) {
+    const box = page.getMediaBox();
+    // A taller strip, so the note keeps its size beside the QR [1.115.0]; still all below the report.
+    assert.equal(box.y, -STRIP_VERIFIED);
+    assert.equal(box.height, 842 + STRIP_VERIFIED);
+    const annots = page.node.Annots();
+    assert.ok(annots, 'the QR is clickable');
+    const link = marked.context.lookup(annots.get(0));
+    const action = link.lookup(PDFName.of('A'));
+    assert.equal(action.lookup(PDFName.of('URI')).decodeText(), url);
+    // The link sits inside the strip, never over the report.
+    const rect = link.lookup(PDFName.of('Rect')).asRectangle();
+    assert.ok(rect.y >= -STRIP_VERIFIED && rect.y + rect.height <= 0);
+  }
 });
 
 test('an image report becomes a one-page marked PDF', async () => {

@@ -4,6 +4,7 @@ const env = require('../config/environment');
 const logger = require('../config/logger');
 const { UPLOAD_ROOT } = require('../config/upload');
 const { digitalCopy, digitalCopyName, isMarkable } = require('../utils/digitalCopy');
+const { stampFor } = require('../utils/verificationCode');
 
 /**
  * The released-result email: its letterhead, its report table, and its attachment. [1.61.0]
@@ -240,7 +241,9 @@ async function resolveReportAttachment(info) {
 
     let content;
     try {
-      content = await digitalCopy(await fs.promises.readFile(absolutePath), info.file_mime_type);
+      content = await digitalCopy(await fs.promises.readFile(absolutePath), info.file_mime_type, {
+        verification: stampFor(info.verification_code, env.FRONTEND_URL),
+      });
     } catch (err) {
       logger.error(`Could not mark ${info.file_path} as a digital copy; nothing was sent:`, err);
       const error = new Error('This report could not be prepared as a digital copy.');

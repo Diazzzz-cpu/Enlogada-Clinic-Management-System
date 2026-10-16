@@ -1450,20 +1450,27 @@ body.printing-report {
    * WARNING, and it is not obvious: after this the ramp is NO LONGER MONOTONIC. `-50` is dark and
    * `-800` is light, which is the inverse of every mental model of a Tailwind scale. Writing
    * `text-rose-50` in a new component will produce dark-on-dark. Use the tint/ink pairing the
-   * rest of the app uses and it stays correct. */
+   * rest of the app uses and it stays correct.
+   *
+   * [1.126.0] `-900` is remapped too, for the hues that use it as a HEADING ink on their own tint
+   * (29 places: "This booking is paid", "Payment sent for checking", the verification answer).
+   * Left on its light value it was near-black on the dark tint, and the heading all but vanished. */
   html[data-theme="dark"] {
     --color-rose-50: #2a1215;    --color-rose-100: #3b181d;   --color-rose-200: #4c1d24;
     --color-rose-600: #fb7185;   --color-rose-700: #fda4af;   --color-rose-800: #fecdd3;
+    --color-rose-900: #ffe4e6;
     --color-red-50: #2a1215;     --color-red-100: #3b181d;    --color-red-200: #4c1d24;
     --color-red-500: #f87171;    --color-red-600: #fb7185;    --color-red-700: #fda4af;
 
     --color-emerald-50: #0d231b; --color-emerald-100: #123024; --color-emerald-200: #14532d;
     --color-emerald-600: #34d399; --color-emerald-700: #6ee7b7; --color-emerald-800: #a7f3d0;
+    --color-emerald-900: #d1fae5;
     --color-green-50: #0d231b;   --color-green-100: #123024;   --color-green-200: #14532d;
     --color-green-700: #6ee7b7;  --color-green-800: #a7f3d0;
 
     --color-amber-50: #2a1f0b;   --color-amber-100: #3a2b0e;  --color-amber-200: #4a3410;
     --color-amber-600: #fbbf24;  --color-amber-700: #fcd34d;  --color-amber-800: #fde68a;
+    --color-amber-900: #fef3c7;
 
     --color-indigo-50: #171b3a;  --color-indigo-100: #1e2450; --color-indigo-200: #272f6b;
     --color-indigo-600: #a5b4fc; --color-indigo-700: #c7d2fe; --color-indigo-800: #e0e7ff;

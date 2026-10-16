@@ -161,6 +161,26 @@ app.post('/api/auth/register', codeLimiter);
 app.post('/api/auth/codes/resend', codeLimiter);
 app.post('/api/auth/forgot-password', codeLimiter);
 
+// A fourth, for the public report check. [1.126.0]
+//
+// Anyone may ask whether a code is real, and a code is a report's only key there, so guessing them
+// has to be slow. Like authLimiter it counts only what FAILS: an employer checking ten genuine
+// reports never touches it, while someone trying codes misses on almost every try. 30 misses per
+// 15 minutes against 2^50 codes makes guessing hopeless; generous outside production, where the
+// suite asks for codes that do not exist on purpose.
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 30 : 2000,
+  skipSuccessfulRequests: true,
+  message: {
+    status: 'error',
+    message: 'Too many codes that did not match. Please wait 15 minutes, or call the clinic to confirm the report.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/verify', verifyLimiter);
+
 // 5. Health Check Endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -191,6 +211,7 @@ const feedbackRoutes = require('./routes/feedbackRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const clinicRoutes = require('./routes/clinicRoutes');
 const discountRoutes = require('./routes/discountRoutes');
+const verificationRoutes = require('./routes/verificationRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
@@ -212,6 +233,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/clinic', clinicRoutes);
+app.use('/api/verify', verificationRoutes);
 
 // 6. Global Catch-all Error Handling Middleware
 app.use(errorHandler);

@@ -206,6 +206,8 @@ const CONSTRAINT_MESSAGES = {
   chk_schedule_override_interval: 'Slots must be between 5 and 240 minutes long.',
   chk_schedule_override_capacity: 'Capacity cannot be negative.',
   chk_discount_percentage: 'A discount must be between 0 and 100 percent.',
+  uq_test_results_verification_code: 'That verification code is already in use. Release the report again.',
+  chk_results_verification_code: 'Only a released report carries a verification code.',
 };
 
 /**

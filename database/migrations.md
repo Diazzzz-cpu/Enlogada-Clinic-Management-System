@@ -1,5 +1,48 @@
 # Database Migration & Schema History
 
+## [1.126.0] - 2026-10-16 (Anyone can check a report is genuine; paying GCash from the same phone)
+
+Run on an existing database: `node src/scripts/migrateReportVerification.js` (`--rollback`
+reverses it). One column, `test_results.verification_code`, with `uq_test_results_verification_code`
+and `chk_results_verification_code`; the script gives a code to every version already released
+(259 on the dev database) and never replaces one already issued. Folded into `schema.sql`. One new
+backend dependency, `qrcode` (the frontend already used it).
+
+Steven's pick from the feature ideas (the "Now Serving" TV board was dropped: the clinic has no
+screen for it).
+
+- **A code per released report.** Releasing a version issues it a code of ten Crockford base32
+  characters (no I, L, O or U), printed ABCDE-12345 (`utils/verificationCode.js`, unit-tested). An
+  amendment's release issues a new one; the old version keeps its own.
+- **On every copy the patient receives.** The digital copy's strip ([1.114.0]) now carries a QR and
+  the code, with the note at its old size beside them (the strip is 88pt rather than 56pt). The QR is
+  drawn as vector squares, so it is sharp in print and at any zoom, and clicking it in a PDF viewer
+  opens the page. Checked by scanning the rendered page. The emailed report's body names the code
+  too. The clinic's own original is untouched: staff are still served the stored file byte for byte.
+- **`GET /api/verify/:code`, public.** It answers genuine, replaced (a correction was released after
+  it, with the date) or not found, and states only the clinic, the test and department, the
+  patient's INITIALS, the release date and the version. Never a finding or the file: a verification
+  link gets forwarded. Misses are rate-limited (30 per 15 minutes in production, counting only
+  failures, like the sign-in limiter), against 2^50 possible codes. Typing is forgiven: lower case,
+  spaces, O for 0, I or L for 1, or a whole pasted link.
+- **The page: `?verify=CODE`**, or "Verify a report" in the public footer. Open signed in or out.
+  Not found says to call the clinic, not "forgery": a code misread off a creased print reads the
+  same way.
+
+**Paying with GCash from the phone it is on.** The QR on a phone screen cannot be scanned by that
+phone. The pay panel now offers, on a phone, **Save QR** (the share sheet's "Save Image" where the
+phone has one, a download otherwise) and **Open GCash** (an Android intent that falls back to the
+Play Store when the app is missing; `gcash://` on an iPhone), with GCash's own instruction: tap QR,
+then Upload, and choose the saved QR. A computer still says to scan with the phone. Opening GCash
+with the amount and the clinic already filled in is only possible through a payment gateway; the
+PayMongo path is built and switched off (see CLAUDE.md). The clinic's real GCash QR card is now
+the published one (it was a 1x1 placeholder).
+
+**A dark-mode heading that vanished.** The dark theme remaps each status ramp up to `-800`; 29
+headings use `-900` (amber, emerald, rose) as their ink on their own tint, and those stayed
+near-black on the dark tint: "This booking is paid", "Payment sent for checking", the verification
+answer. `-900` is now remapped too, to the lightest ink of each.
+
 ## [1.125.0] - 2026-10-16 (Demo data that reads like the clinic's)
 
 No schema change; nothing to run. One new optional setting: `DEMO_KEEP_ACCOUNTS` (backend `.env`).

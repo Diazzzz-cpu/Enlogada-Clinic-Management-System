@@ -1,4 +1,5 @@
-const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const { PDFDocument, PDFString, StandardFonts, rgb, degrees } = require('pdf-lib');
+const QRCode = require('qrcode');
 
 /**
  * The patient's copy of a report: the clinic's own document, marked DIGITAL COPY. [1.114.0]
@@ -26,6 +27,14 @@ const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
  * a patient's copy is always a PDF. A Word document or spreadsheet cannot be marked without
  * converting it, and an unmarked, editable file is the one thing a copy must not be — so those
  * throw NOT_MARKABLE and the caller decides what to say.
+ *
+ * ── The verification code [1.126.0] ────────────────────────────────────────────────────────────
+ *
+ * Given the version's verification code, the strip also carries a QR and the code itself, so
+ * whoever the patient shows the copy to can check the clinic issued it (utils/verificationCode.js).
+ * The QR sits at the strip's right and the note moves into the space beside it, at the same sizes;
+ * the strip is taller rather than the note smaller [1.115.0]. The QR is drawn as vector squares, so
+ * it stays sharp at any zoom and in print, and a link over it opens the same page from a PDF viewer.
  */
 
 const WATERMARK = 'DIGITAL COPY';
@@ -34,7 +43,10 @@ const WATERMARK = 'DIGITAL COPY';
 const NOTE_TITLE = 'DIGITAL COPY';
 const NOTE = 'For the original with the official seal, please visit the clinic and ask for it.';
 const STRIP = 56;            // points added below each page for the note
+const STRIP_VERIFIED = 88;   // the same, with room for the QR and the verification code [1.126.0]
+const QR_SIZE = 66;          // points: about 23 mm, which a phone reads off a screen or a print
 const IMAGE_WIDTH = 595;     // an image report is laid out at A4 width, so the text sizes match a PDF's
+const VERIFY_HINT = 'Scan the QR, or enter the code under Verify a Report on the clinic\'s website, to check this report is genuine.';
 
 const MARKABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
@@ -50,15 +62,55 @@ const notMarkable = () => {
 /** The largest size, up to `max`, at which `text` fits in `width`. */
 const fitSize = (font, text, width, max) => Math.min(max, width / font.widthOfTextAtSize(text, 1));
 
-function markPage(page, { bold, regular }) {
+/**
+ * The QR as squares, one rectangle per run of dark modules in a row. Runs rather than single
+ * modules keep the page's drawing short, and each overlaps the next row by a hair so no viewer
+ * anti-aliases a pale seam between rows, which can stop a scanner.
+ */
+function drawQr(page, { url, left, bottom, size }) {
+  const { modules } = QRCode.create(url, { errorCorrectionLevel: 'M' });
+  const n = modules.size;
+  const unit = size / n;
+  const top = bottom + size;
+  for (let row = 0; row < n; row += 1) {
+    let col = 0;
+    while (col < n) {
+      if (!modules.get(row, col)) { col += 1; continue; }
+      const start = col;
+      while (col < n && modules.get(row, col)) col += 1;
+      page.drawRectangle({
+        x: left + start * unit,
+        y: top - (row + 1) * unit - 0.02,
+        width: (col - start) * unit,
+        height: unit + 0.04,
+        color: rgb(0, 0, 0),
+      });
+    }
+  }
+}
+
+/** A clickable area over the QR, so the copy opened in a PDF viewer can be checked with one click. */
+function linkArea(pdf, page, { url, left, bottom, size }) {
+  const annotation = pdf.context.register(pdf.context.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [left, bottom, left + size, bottom + size],
+    Border: [0, 0, 0],
+    A: { Type: 'Action', S: 'URI', URI: PDFString.of(url) },
+  }));
+  page.node.addAnnot(annotation);
+}
+
+function markPage(pdf, page, { bold, regular }, verification) {
   const { x, y, width, height } = page.getMediaBox();
+  const strip = verification ? STRIP_VERIFIED : STRIP;
 
   // The note's strip, below the page. A rotated page has no single "below", so the note goes inside
   // its bottom margin instead; every report the clinic has produced so far is upright.
   const upright = page.getRotation().angle % 360 === 0;
   if (upright) {
-    page.setMediaBox(x, y - STRIP, width, height + STRIP);
-    page.setCropBox(x, y - STRIP, width, height + STRIP);
+    page.setMediaBox(x, y - strip, width, height + strip);
+    page.setCropBox(x, y - strip, width, height + strip);
   }
 
   // The watermark, as a staggered pattern across the ORIGINAL page, every word at the page's own
@@ -87,7 +139,7 @@ function markPage(page, { bold, regular }) {
   // The strip is cleared AFTER the pattern, which runs into it, so the note sits on plain white,
   // under a hairline that separates it from the report.
   if (upright) {
-    page.drawRectangle({ x, y: y - STRIP, width, height: STRIP, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x, y: y - strip, width, height: strip, color: rgb(1, 1, 1) });
     page.drawLine({
       start: { x: x + 18, y: y - 1 },
       end: { x: x + width - 18, y: y - 1 },
@@ -95,29 +147,49 @@ function markPage(page, { bold, regular }) {
       color: rgb(0.7, 0.7, 0.7),
     });
   }
-  const base = upright ? y - STRIP : y;
+  const base = upright ? y - strip : y;
+
+  // With a code, the QR takes the strip's right end and the lines are centred in what is left.
+  const qr = verification
+    ? { url: verification.url, left: x + width - 18 - QR_SIZE, bottom: base + (strip - QR_SIZE) / 2, size: QR_SIZE }
+    : null;
+  const textLeft = x + 18;
+  const lineWidth = qr ? qr.left - 14 - textLeft : width - 36;
   const centred = (text, font, max, lineY, color) => {
-    const size = fitSize(font, text, width - 36, max);
+    const size = fitSize(font, text, lineWidth, max);
     page.drawText(text, {
-      x: x + (width - font.widthOfTextAtSize(text, size)) / 2,
+      x: textLeft + (lineWidth - font.widthOfTextAtSize(text, size)) / 2,
       y: lineY,
       size,
       font,
       color,
     });
   };
-  centred(NOTE_TITLE, bold, 16, base + 32, rgb(0.1, 0.1, 0.1));
-  centred(NOTE, regular, 12, base + 12, rgb(0.15, 0.15, 0.15));
+
+  if (!qr) {
+    centred(NOTE_TITLE, bold, 16, base + 32, rgb(0.1, 0.1, 0.1));
+    centred(NOTE, regular, 12, base + 12, rgb(0.15, 0.15, 0.15));
+    return;
+  }
+  centred(NOTE_TITLE, bold, 16, base + 64, rgb(0.1, 0.1, 0.1));
+  centred(NOTE, regular, 12, base + 46, rgb(0.15, 0.15, 0.15));
+  centred(`Verification code: ${verification.code}`, bold, 12, base + 27, rgb(0.1, 0.1, 0.1));
+  centred(VERIFY_HINT, regular, 9, base + 12, rgb(0.3, 0.3, 0.3));
+  drawQr(page, qr);
+  linkArea(pdf, page, qr);
 }
 
 /**
  * @param {Buffer} buffer    the stored report, exactly as uploaded
  * @param {string} mimeType  its validated type
+ * @param {object} [options]
+ * @param {{code: string, url: string}} [options.verification]  the version's code, as printed
+ *   (ABCDE-12345), and the page that checks it [1.126.0]
  * @returns {Promise<Buffer>} a PDF, marked on every page
  * @throws NOT_MARKABLE for a Word document or spreadsheet; pdf-lib's own error for a PDF it
  *   cannot read (encrypted or damaged) — the caller must never fall back to the original.
  */
-async function digitalCopy(buffer, mimeType) {
+async function digitalCopy(buffer, mimeType, { verification = null } = {}) {
   const type = String(mimeType || '').split(';')[0].trim().toLowerCase();
   if (!MARKABLE.has(type)) throw notMarkable();
 
@@ -136,7 +208,7 @@ async function digitalCopy(buffer, mimeType) {
     bold: await pdf.embedFont(StandardFonts.HelveticaBold),
     regular: await pdf.embedFont(StandardFonts.Helvetica),
   };
-  for (const page of pdf.getPages()) markPage(page, fonts);
+  for (const page of pdf.getPages()) markPage(pdf, page, fonts, verification);
   pdf.setSubject('Digital copy. The original is kept at the clinic.');
 
   return Buffer.from(await pdf.save());
@@ -149,4 +221,6 @@ async function digitalCopy(buffer, mimeType) {
 const digitalCopyName = (name) =>
   `${String(name || 'report').replace(/\.[a-z0-9]{1,5}$/i, '')} (Digital Copy).pdf`;
 
-module.exports = { digitalCopy, digitalCopyName, isMarkable, WATERMARK, NOTE_TITLE, NOTE, STRIP };
+module.exports = {
+  digitalCopy, digitalCopyName, isMarkable, WATERMARK, NOTE_TITLE, NOTE, STRIP, STRIP_VERIFIED,
+};

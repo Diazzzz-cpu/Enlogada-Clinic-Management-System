@@ -595,6 +595,18 @@ CREATE TABLE test_results (
     emailed_to VARCHAR(255),
     email_count INT NOT NULL DEFAULT 0,
 
+    -- The code on the patient's copy that lets anyone check it is genuine. [1.126.0] Issued when a
+    -- version is AUTHORISED, one per version, so a report replaced by a correction can be told
+    -- apart from the correction. Ten characters of Crockford base32 (utils/verificationCode.js),
+    -- stored without the dash it is printed with. The UNIQUE is also the index the public lookup
+    -- uses.
+    verification_code VARCHAR(10),
+
+    CONSTRAINT uq_test_results_verification_code UNIQUE (verification_code),
+    CONSTRAINT chk_results_verification_code CHECK (
+        verification_code IS NULL
+        OR (authorised_at IS NOT NULL AND verification_code ~ '^[0-9A-HJKMNP-TV-Z]{10}$')
+    ),
     CONSTRAINT fk_results_superseded_by FOREIGN KEY (superseded_by) REFERENCES test_results(id),
     CONSTRAINT fk_results_visit_test FOREIGN KEY (visit_test_id) REFERENCES visit_tests(id),
     CONSTRAINT fk_results_released_by FOREIGN KEY (released_by) REFERENCES users(id),

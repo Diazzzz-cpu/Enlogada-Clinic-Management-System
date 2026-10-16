@@ -346,18 +346,21 @@ class ResultRepository {
    * releasing user's id — but nothing ever persisted it. The ticket flipped to 'Completed' and
    * the actor was dropped, leaving released_by holding whoever had typed the findings.
    */
-  async markReleased(visitTestId, releasedBy) {
+  async markReleased(visitTestId, releasedBy, verificationCode) {
     const queryText = `
       UPDATE test_results
       SET released_by = $2,
-          authorised_at = CURRENT_TIMESTAMP
+          authorised_at = CURRENT_TIMESTAMP,
+          -- [1.126.0] The version keeps the code it was first given: a copy carrying it may
+          -- already be in someone's hands.
+          verification_code = COALESCE(verification_code, $3)
       -- is_current: without it this would stamp the releasing user onto every superseded
       -- version too, rewriting the attribution of reports that were authorised by someone else
       -- at an earlier time — destroying the very history versioning was added to keep.
       WHERE visit_test_id = $1 AND is_current
       RETURNING *
     `;
-    const result = await db.query(queryText, [visitTestId, releasedBy]);
+    const result = await db.query(queryText, [visitTestId, releasedBy, verificationCode]);
     return result.rows[0];
   }
 
@@ -379,12 +382,48 @@ class ResultRepository {
    */
   async findLatestAuthorisedByVisitTestId(visitTestId) {
     const { rows } = await db.query(
-      `SELECT id, file_path, file_original_name, file_mime_type, version, authorised_at
+      `SELECT id, file_path, file_original_name, file_mime_type, version, authorised_at, verification_code
          FROM test_results
         WHERE visit_test_id = $1 AND authorised_at IS NOT NULL
         ORDER BY version DESC
         LIMIT 1`,
       [visitTestId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * The released report a verification code was issued for, and what has happened to it since.
+   * [1.126.0] Public: the caller is whoever holds the paper, so this selects only what the
+   * verification page states — never findings, remarks or the file.
+   *
+   * `replaced_at` is the first LATER version that was authorised: the correction that replaced
+   * this report. A later draft still being written does not count; until it is released, this
+   * report is still the one the clinic stands behind.
+   */
+  async findByVerificationCode(code) {
+    const { rows } = await db.query(
+      `SELECT tr.id, tr.version, tr.authorised_at,
+              t.name AS test_name, tc.name AS category_name,
+              p.first_name, p.last_name,
+              replaced.authorised_at AS replaced_at
+         FROM test_results tr
+         JOIN visit_tests vt     ON vt.id = tr.visit_test_id
+         JOIN tests t            ON t.id = vt.test_id
+         JOIN test_categories tc ON tc.id = t.category_id
+         JOIN patient_visits pv  ON pv.id = vt.patient_visit_id
+         JOIN patients p         ON p.id = pv.patient_id
+         LEFT JOIN LATERAL (
+           SELECT n.authorised_at
+             FROM test_results n
+            WHERE n.visit_test_id = tr.visit_test_id
+              AND n.authorised_at IS NOT NULL
+              AND n.version > tr.version
+            ORDER BY n.version
+            LIMIT 1
+         ) replaced ON TRUE
+        WHERE tr.verification_code = $1 AND tr.authorised_at IS NOT NULL`,
+      [code]
     );
     return rows[0] || null;
   }
@@ -497,7 +536,8 @@ class ResultRepository {
              pv.created_at as visit_date, pv.queue_number,
              pv.referring_physician, pv.referring_physician_prc,
              tr.findings, tr.remarks, tr.released_at, tr.version,
-             tr.file_path, tr.file_original_name, tr.file_mime_type, tr.file_size_bytes
+             tr.file_path, tr.file_original_name, tr.file_mime_type, tr.file_size_bytes,
+             tr.verification_code
       FROM visit_tests vt
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id

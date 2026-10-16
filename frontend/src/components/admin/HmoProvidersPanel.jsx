@@ -63,16 +63,23 @@ export default function HmoProvidersPanel({ hmoAdmin }) {
                   <TableRow key={provider.id}>
                     <TableCell className="font-semibold text-xs text-slate-800">{provider.name}</TableCell>
                     <TableCell>
-                      <Badge
+                      {/* A real button around the badge, as Packages and Payment Methods do, so the
+                          switch is reachable by keyboard. [1.128.0] */}
+                      <button
+                        type="button"
                         onClick={() => hmoAdmin.requestToggle(provider)}
-                        className={`cursor-pointer text-meta font-bold px-2.5 py-0.5 rounded-full ${
-                          provider.is_active
-                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-200'
-                            : 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200'
-                        }`}
+                        className="cursor-pointer rounded-full border-0 bg-transparent p-0"
                       >
-                        {provider.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
+                        <Badge
+                          className={`text-meta font-bold px-2.5 py-0.5 rounded-full ${
+                            provider.is_active
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-200'
+                              : 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          {provider.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </button>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

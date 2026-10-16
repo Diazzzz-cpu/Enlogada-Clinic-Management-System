@@ -1003,6 +1003,24 @@ with a link to the printable document.
   independently and its department groups collapse (remembered in `localStorage`, but the group
   holding the current screen always opens). The top bar is a **breadcrumb**, not a second page
   title — the screen's own `PageHeader` carries the heading, so don't add a title to both.
+- **One shell for the whole staff session.** `[1.128.0]` Steven: clicking the sidebar "reload like
+  move". Every console drew its own `SidebarLayout`, so moving between consoles rebuilt the shell:
+  the rail's scroll jumped to the top, the counts vanished and came back, the page slid up. App now
+  mounts `StaffShellHost` once (lazy, `components/StaffShellHost.jsx`) around whichever console is
+  open, My Account included; a console's `<SidebarLayout railActions>` is only a SLOT under it (its
+  content keyed on the screen, its rail actions portalled into the rail). Rules that keep it smooth:
+  - A new staff screen renders inside the host, through App's `screen` map. Never key the host's
+    content on the screen: that rebuilds the whole console (the Desk's and the till's state) on
+    every click between its own screens. The slot keys the console's content instead.
+  - A screen opens at its top (`main` is reset on `activeNav`) and fades in by opacity only
+    (`animate-screen-in`; the portal tabs too). `animate-fade-in` rises 6px and is for popovers.
+  - A click in the rail records where the list sits and puts it back once the next screen is
+    in place, so a rail action appearing above the list never moves the item under the mouse.
+  - **Never declare a component inside another component's render.** It is a new type on every
+    render, so React replaces it each time: the rail's `NavButton` lost hover and focus mid-click
+    on every minute tick and count refresh. Declare it at module level and pass what it needs.
+  `smooth-navigation.spec.js` holds the rail (same element across consoles, the clicked item does
+  not move, a screen opens at its top, rail actions come and go with their console).
 - **The rail earns its space.** `[1.76.0]` This is the "Useful" rail Steven chose.
   - **Clinic status:** from `lib/clinicStatus.js`, which reads `GET /schedule/public` and its date
     overrides. A failed read shows nothing, never "Closed".
@@ -1083,6 +1101,15 @@ with a link to the printable document.
   below it. The one exception is the Desk queue, whose toolbar count shows only while a filter is
   narrowing it. A panel on a screen whose `RefreshButton` already reloads it gets none of its own,
   and a page heading carries no eyebrow that renames the sidebar group it sits in.
+- **A list that grows with the clinic pages at the server.** `[1.128.0]` Patient Records, Visit
+  History, Transaction History, Service Requests, Appointments and the Activity Log always did;
+  a department's History (`/results/released/:category?page=`, with `total` and a server search)
+  and Cashier Monitoring (`?page=&limit=&byCashier=true`, its per-cashier figures in the
+  `summary`) do now. Each had fetched more than it showed and paged it in the browser, and History
+  silently stopped at 200 reports. Paging in the browser is fine only for a list bounded by
+  something else: today's queue, a catalogue, one patient's own records (the portal's Results,
+  Appointments and Payments), or a capped report (Patient Feedback's forms). A money figure never
+  comes from the rows on a page. `server-paging.spec.js` holds both.
 - **The patient portal is layout A2, in the Flat colouring.** `[1.81.0]` Steven's pick from the
   gallery.
   - **The shell:** `components/portal/PortalLayout` holds a solid header pill (`PortalHeader`: the

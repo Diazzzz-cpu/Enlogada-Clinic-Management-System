@@ -20,11 +20,17 @@ import { Button } from './ui/button';
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, resetKey: props.resetKey };
   }
 
   static getDerivedStateFromError(error) {
     return { error };
+  }
+
+  // A boundary that outlives the screens under it [1.128.0] clears when the screen changes.
+  static getDerivedStateFromProps(props, state) {
+    if (props.resetKey !== state.resetKey) return { error: null, resetKey: props.resetKey };
+    return null;
   }
 
   componentDidCatch(error, info) {

@@ -12,7 +12,6 @@ import Pagination from '../../components/ui/pagination';
 import api from '../../config/api';
 import { todayStr, formatDateTime } from '../../lib/date';
 import { formatCurrency } from '../../lib/currency';
-import { settled } from '../../lib/collections';
 import { METHOD_FILTERS, METHOD_FILTER_ALL } from '../../lib/paymentMethods';
 import { ExternalLink, Receipt, RefreshCw, Banknote, Hash, UserCircle2, Undo2 } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
@@ -43,11 +42,15 @@ const CashierMonitoring = () => {
   const [applied, setApplied] = useState({ from: todayStr(), to: todayStr() });
   const [method, setMethod] = useState(METHOD_FILTER_ALL);
   const [page, setPage] = useState(1);
+  // Paged at the server [1.128.0]: this downloaded every receipt in the range to show twenty.
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const fetchTransactions = useCallback(async (from, to, forMethod = METHOD_FILTER_ALL) => {
-    setLoading(true);
+  const fetchTransactions = useCallback(async (from, to, forMethod = METHOD_FILTER_ALL, nextPage = 1) => {
+    // The skeleton for a new range or method; a new page keeps the rows until the next arrive.
+    if (nextPage === 1) setLoading(true);
     setLoadError('');
-    setPage(1);
+    setPage(nextPage);
     setApplied({ from, to });
     try {
       // The filter is applied SERVER-side so the summary and the rows describe the same set.
@@ -55,10 +58,12 @@ const CashierMonitoring = () => {
       // the whole range — showing every method beside per-cashier cards showing one, which is the
       // contradiction lib/collections.js records as having already shipped on this screen.
       // 'All' means send nothing, never send the string.
-      const params = { startDate: from, endDate: to };
+      const params = { startDate: from, endDate: to, page: nextPage, limit: PAGE_SIZE, byCashier: 'true' };
       if (forMethod !== METHOD_FILTER_ALL) params.method = forMethod;
       const res = await api.get('/payments/transactions', { params });
       setTransactions(res.data.data.transactions || []);
+      setTotal(res.data.data.total ?? 0);
+      setTotalPages(res.data.data.totalPages || 1);
       setSummary(res.data.data.summary || null);
     } catch (err) {
       // Recorded, not just logged: a swallowed failure renders as an empty list.
@@ -79,20 +84,18 @@ const CashierMonitoring = () => {
   const reversals = Number(summary?.reversals || 0);
   const reversed = Number(summary?.reversed || 0);
 
-  // Per-cashier is a breakdown the summary does not carry, so it is reduced here — over settled
-  // rows explicitly. This fetch is unpaged, so the rows in hand are the whole range.
-  const byCashier = settled(transactions).reduce((acc, t) => {
-    const name = t.processed_by_first_name ? `${t.processed_by_first_name} ${t.processed_by_last_name}` : 'Unknown';
-    acc[name] = (acc[name] || 0) + parseFloat(t.amount || 0);
-    return acc;
-  }, {});
+  // Per member of staff, from the server's summary on the same basis as `collected` [1.128.0].
+  // It was reduced here from the rows, which needed every receipt in the range downloaded.
+  const byCashier = Object.fromEntries((summary?.byCashier || []).map((c) => [
+    c.first_name ? `${c.first_name} ${c.last_name}` : 'Unknown',
+    Number(c.collected || 0),
+  ]));
   // Capped so the strip never exceeds four cards: two fixed, a reversals card when there is
   // something to report, and the rest per-cashier. The count also decides how many columns the
   // grid draws, so an unfilled cell never renders as a grey box where a figure should be.
   const cashierCards = Object.entries(byCashier).slice(0, reversals > 0 ? 1 : 2);
   const cardCount = 2 + (reversals > 0 ? 1 : 0) + cashierCards.length;
-  const totalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE));
-  const pagedTransactions = transactions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pagedTransactions = transactions;
 
   return (
     <div className="space-y-5">
@@ -300,8 +303,8 @@ const CashierMonitoring = () => {
           <Pagination
             page={page}
             totalPages={totalPages}
-            onPageChange={setPage}
-            totalLabel={(loadError || loading) ? '' : `${transactions.length} transaction${transactions.length === 1 ? '' : 's'}`}
+            onPageChange={(next) => fetchTransactions(applied.from, applied.to, method, next)}
+            totalLabel={(loadError || loading) ? '' : `${total} transaction${total === 1 ? '' : 's'}`}
           />
         </Panel>
       </div>

@@ -319,7 +319,7 @@ class PaymentService {
    * Rejected rather than ignored when unrecognised. Silently returning everything for a method
    * that does not exist reads, on a money screen, as "the clinic took nothing by that method".
    */
-  async getTransactions({ startDate, endDate, page, limit, method, search }) {
+  async getTransactions({ startDate, endDate, page, limit, method, search, byCashier = false }) {
     const limitNum = limit ? Math.min(Math.max(parseInt(limit, 10) || 0, 1), 100) : null;
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
 
@@ -348,6 +348,12 @@ class PaymentService {
       // money figure untrustworthy.
       paymentRepository.findTransactionSummary({ startDate, endDate, method }),
     ]);
+
+    // Per member of staff, when the caller asks [1.128.0] (Cashier Monitoring). On the summary,
+    // beside `collected`, because it is a money figure and never comes from the rows.
+    if (byCashier) {
+      summary.byCashier = await paymentRepository.findCollectionsByCashier({ startDate, endDate, method });
+    }
 
     // Unpaged callers are handed the array they have always been handed, with the figures
     // riding along as properties — same trick as `total`, so no existing consumer changes shape.

@@ -95,7 +95,7 @@ class ResultRepository {
    * @param {string} categoryName
    * @param {{days?: number, limit?: number, offset?: number}} options
    */
-  async findReleasedByCategory(categoryName, { days = 90, delivery = null, limit = 200, offset = 0 } = {}) {
+  async findReleasedByCategory(categoryName, { days = 90, delivery = null, search = null, limit = 200, offset = 0 } = {}) {
     // Half-open range on the raw column so idx_test_results_released_at applies — a ::date cast
     // here would put the planner straight back on a sequential scan. See [1.18.0].
     const windowClause =
@@ -119,6 +119,18 @@ class ResultRepository {
           : '';
     const params = [categoryName];
     if (days > 0) params.push(days);
+
+    // [1.128.0] A search runs at the server once History pages there: filtering the page in hand
+    // would only ever search ten rows. Patient name (either order), test, or queue ticket.
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const i = params.length;
+      searchClause = `AND ((p.first_name || ' ' || p.last_name) ILIKE $${i}
+                        OR (p.last_name || ' ' || p.first_name) ILIKE $${i}
+                        OR t.name ILIKE $${i}
+                        OR pv.queue_number ILIKE $${i})`;
+    }
     params.push(limit, offset);
 
     const queryText = `
@@ -149,7 +161,9 @@ class ResultRepository {
              -- Two different answers here and there is a button that promises one address and
              -- uses another.
              COALESCE(NULLIF(p.email, ''), pu.email) as patient_email,
-             u.first_name as released_by_first_name, u.last_name as released_by_last_name
+             u.first_name as released_by_first_name, u.last_name as released_by_last_name,
+             -- Every row that matched, before LIMIT, so a paged screen can say how many there are.
+             COUNT(*) OVER()::int AS total_count
       FROM visit_tests vt
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
@@ -166,6 +180,7 @@ class ResultRepository {
         AND vt.status = 'Completed'
         ${windowClause}
         ${deliveryClause}
+        ${searchClause}
       ORDER BY tr.released_at DESC NULLS LAST, pv.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `;

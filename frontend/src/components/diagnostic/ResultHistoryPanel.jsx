@@ -14,8 +14,7 @@ import { SkeletonRows } from '../ui/skeleton';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { TurnaroundPanel } from '../reports/OperationsPanels';
 import { useAuth } from '../../contexts/AuthContext';
-
-const PAGE_SIZE = 10;
+import { HISTORY_PAGE_SIZE } from '../../hooks/useDiagnosticWorklist';
 
 /**
  * Reports this department has already released, and its throughput beside them.
@@ -37,20 +36,10 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
   const canSend = hasPermission('results:release');
   const canAmend = hasPermission('results:write');
 
-  // Client-side, because the worklist a department holds at once is small — a handful of
-  // tickets, not the payments table. Filtering here keeps the search instant while the polling
-  // in useDiagnosticWorklist keeps the underlying list fresh.
-  const filtered = worklist.released.filter((t) => {
-    const term = worklist.search.toLowerCase();
-    const matchesSearch = !worklist.search ||
-      `${t.first_name} ${t.last_name}`.toLowerCase().includes(term) ||
-      t.test_name.toLowerCase().includes(term) ||
-      (t.queue_number && t.queue_number.toLowerCase().includes(term));
-    return matchesSearch;
-  });
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((worklist.historyPage - 1) * PAGE_SIZE, worklist.historyPage * PAGE_SIZE);
+  // One page, searched and counted at the server. [1.128.0] History used to filter and page the
+  // last 90 days in hand; a department's released reports are not a handful of tickets.
+  const paged = worklist.released;
+  const totalPages = worklist.releasedPages;
 
   return (
       <>
@@ -248,7 +237,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
           page={worklist.historyPage}
           totalPages={totalPages}
           onPageChange={worklist.setHistoryPage}
-          total={filtered.length} pageSize={PAGE_SIZE}
+          total={worklist.releasedTotal} pageSize={HISTORY_PAGE_SIZE}
         />
       </Panel>
 

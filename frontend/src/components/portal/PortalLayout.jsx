@@ -57,9 +57,9 @@ export default function PortalLayout({ tab, onTabChange, profiles, onNavigate, s
           wide ? 'pb-12' : 'pb-28'
         )}
       >
-        {/* Keyed on the screen, as the staff shell does, so it plays on navigation and not on the
-            portal's own refreshes. */}
-        <div key={screen} className="animate-fade-in">
+        {/* Keyed on the screen, so it plays on navigation and not on the portal's own refreshes.
+            Opacity only [1.128.0], like the staff shell: the old rise moved the page on every tab. */}
+        <div key={screen} className="animate-screen-in">
           {children}
         </div>
       </main>

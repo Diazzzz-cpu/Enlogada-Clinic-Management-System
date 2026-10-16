@@ -25,16 +25,19 @@ class ResultController {
       // days/limit/offset are optional; the service clamps them. Defaults to the last 90 days,
       // which is what the screen actually shows — this list used to return every completed test
       // in the clinic's history, findings text included, on every load.
-      const { days, limit, offset, delivery } = req.query;
-      const released = await resultService.getReleasedByCategory(category, req.user, {
+      // `page` opts into server paging [1.128.0]: the answer then carries total and totalPages.
+      const { days, limit, offset, delivery, search, page } = req.query;
+      const data = await resultService.getReleasedByCategory(category, req.user, {
         days,
         delivery,
+        search,
         limit,
-        offset
+        offset,
+        page,
       });
       return res.status(200).json({
         status: 'success',
-        data: { released }
+        data
       });
     } catch (err) {
       next(err);

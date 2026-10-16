@@ -26,6 +26,7 @@ const StaffAccountSettings = lazyScreen(() => import('./pages/StaffAccountSettin
 const Today = lazyScreen(() => import('./pages/Today'));
 const ReceiptView = lazyScreen(() => import('./pages/ReceiptView'));
 const VerifyReport = lazyScreen(() => import('./pages/public/VerifyReport'));
+const StaffShellHost = lazyScreen(() => import('./components/StaffShellHost'));
 
 // An emailed password-reset LINK, from before [1.73.0] replaced links with a 6-digit code. Some are
 // still sitting in inboxes. One opens the forgot-password card with a word of explanation, and its
@@ -252,8 +253,15 @@ const MainApp = () => {
   // Every SidebarLayout-based role can reach a shared, self-service account page via the
   // sidebar's user-info block — see StaffAccountSettings.jsx. Checked before the nav routing
   // below since it applies uniformly and is not a role-gated destination.
+  //
+  // Every staff screen, My Account included, renders inside ONE StaffShellHost at this same
+  // position, so React keeps the sidebar mounted from one screen to the next. [1.128.0]
   if (activeNav === 'account') {
-    return <StaffAccountSettings onSelectNav={selectNav} />;
+    return (
+      <StaffShellHost activeNav="account" onSelectNav={selectNav}>
+        <StaffAccountSettings onSelectNav={selectNav} />
+      </StaffShellHost>
+    );
   }
 
   if (roles.includes('SuperAdmin') || roles.includes('Admin')) {
@@ -275,21 +283,20 @@ const MainApp = () => {
   const resolvedNav = consoleForNav(activeNav, roles, permissions, departments) ? activeNav : landingNavForRoles(roles, permissions, departments);
   const targetConsole = consoleForNav(resolvedNav, roles, permissions, departments);
 
-  switch (targetConsole) {
-    case CONSOLE.TODAY:
-      return <Today onSelectNav={selectNav} />;
-    case CONSOLE.RECEPTION:
-      return <ReceptionistDashboard activeNav={resolvedNav} onSelectNav={selectNav} intent={navIntent} />;
-    case CONSOLE.CASHIER:
-      return <CashierDashboard activeNav={resolvedNav} onSelectNav={selectNav} />;
-    case CONSOLE.DIAGNOSTIC:
-      return <DiagnosticDashboard activeNav={resolvedNav} onSelectNav={selectNav} intent={navIntent} />;
-    case CONSOLE.SERVICES_CATALOG:
-      return <ServicesCatalog activeNav={resolvedNav} onSelectNav={selectNav} />;
-    case CONSOLE.ADMIN:
-      return <AdminDashboard activeNav={resolvedNav} onSelectNav={selectNav} />;
-    default:
-      break;
+  const screen = {
+    [CONSOLE.TODAY]: () => <Today onSelectNav={selectNav} />,
+    [CONSOLE.RECEPTION]: () => <ReceptionistDashboard activeNav={resolvedNav} onSelectNav={selectNav} intent={navIntent} />,
+    [CONSOLE.CASHIER]: () => <CashierDashboard activeNav={resolvedNav} onSelectNav={selectNav} />,
+    [CONSOLE.DIAGNOSTIC]: () => <DiagnosticDashboard activeNav={resolvedNav} onSelectNav={selectNav} intent={navIntent} />,
+    [CONSOLE.SERVICES_CATALOG]: () => <ServicesCatalog activeNav={resolvedNav} onSelectNav={selectNav} />,
+    [CONSOLE.ADMIN]: () => <AdminDashboard activeNav={resolvedNav} onSelectNav={selectNav} />,
+  }[targetConsole];
+  if (screen) {
+    return (
+      <StaffShellHost activeNav={resolvedNav} onSelectNav={selectNav}>
+        {screen()}
+      </StaffShellHost>
+    );
   }
 
   // Fallback for unauthorized roles

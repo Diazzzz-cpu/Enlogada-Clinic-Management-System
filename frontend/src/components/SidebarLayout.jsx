@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, {
+  Suspense, createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Logo from './Logo';
 import ErrorBoundary from './ErrorBoundary';
@@ -18,7 +21,7 @@ import {
   BellOff,
   Eye,
 } from 'lucide-react';
-import { TODAY_ITEM, canSee, visibleMainNavItems, visibleOpsGroups, nativeRoleForNav, isBorrowedScreen } from '../config/navigation';
+import { TODAY_ITEM, canSee, findNavItem, visibleMainNavItems, visibleOpsGroups, nativeRoleForNav, isBorrowedScreen } from '../config/navigation';
 import { useClinicHours } from '../hooks/useClinicHours';
 import { useNavCounts } from '../hooks/useNavCounts';
 import { clinicStatus } from '../lib/clinicStatus';
@@ -66,7 +69,78 @@ const readCollapsedGroups = () => {
  *   screen that passes an action here keeps its own copy for phones only (`lg:hidden`) — one visible
  *   at every width, never two.
  */
-const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, railActions, children }) => {
+/**
+ * One shell for the whole staff session. [1.128.0]
+ *
+ * Every console rendered its own SidebarLayout, so moving between consoles (Today, Patient
+ * Records, Services Catalog, the Desk, the till, a worklist) threw the whole shell away and built
+ * a new one: the rail's scroll jumped back to the top, taking the item just clicked out from
+ * under the mouse, the counts beside each screen vanished and came back, and the page faded up
+ * as if it had reloaded. Steven: "it reload like move". Measured on a SuperAdmin, 7 of 10 sidebar
+ * clicks did it.
+ *
+ * App now mounts `StaffShellHost` once, around whichever console is open. A console still writes
+ * `<SidebarLayout railActions={…}>`; under the host that is only a slot: its content goes into
+ * the host's main area, its rail actions are portalled into the rail, and nothing else is drawn.
+ * Outside a host (nothing does that today) it is the whole shell, as before.
+ */
+const ShellContext = createContext(null);
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * One screen in the rail. [1.128.0] Declared out here, not inside the shell: a component defined
+ * inside another's render is a NEW type on every render, so React replaced every rail button each
+ * time the shell re-rendered (a click, the minute tick, a count refresh). The button under the
+ * mouse lost its hover and focus mid-click.
+ */
+const NavButton = ({ item, isActive, count, onSelect }) => {
+  const Icon = item.icon;
+  return (
+    <button
+      onClick={() => onSelect(item.id)}
+      aria-current={isActive ? 'page' : undefined}
+      // Addressed by id rather than by label, so a sweep across every role's sidebar does not
+      // break when a screen is renamed.
+      data-testid="nav-item"
+      data-nav-id={item.id}
+      className={cn(
+        'group relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 py-2 pl-3 pr-2.5 text-left text-note font-medium transition-colors',
+        isActive
+          ? 'bg-brand-500/[0.16] font-semibold text-white'
+          : 'bg-transparent text-rail-ink-muted hover:bg-white/[0.05] hover:text-rail-ink'
+      )}
+    >
+      {isActive && (
+        <span aria-hidden="true" className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-brand-400" />
+      )}
+      <Icon
+        className={cn(
+          'h-[15px] w-[15px] flex-shrink-0 transition-colors',
+          isActive ? 'text-brand-400' : 'text-rail-ink-faint group-hover:text-rail-ink-soft'
+        )}
+      />
+      <span className="min-w-0 truncate">{item.label}</span>
+      {/* The screen's own figure, beside its name. aria-hidden, so the button's accessible name
+          stays exactly its label: every spec and every screen reader addresses it by that. */}
+      {count > 0 && (
+        <span
+          aria-hidden="true"
+          data-nav-count
+          className={cn(
+            'ml-auto flex-shrink-0 rounded-md px-1.5 py-px text-micro font-bold tabular-nums',
+            isActive ? 'bg-brand-400/25 text-white' : 'bg-white/[0.07] text-rail-ink-soft'
+          )}
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+  );
+};
+
+const StaffShell = ({ title = 'Today', activeNav = 'today', onSelectNav, railActions, railSlotRef, children }) => {
   const { user, logout } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -269,53 +343,63 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
 
   const initials = `${user?.firstName?.charAt(0) || ''}${user?.lastName?.charAt(0) || ''}`.toUpperCase() || 'U';
 
-  const NavButton = ({ item, isActive, count }) => {
-    const Icon = item.icon;
-    return (
-      <button
-        onClick={() => {
-          onSelectNav?.(item.id);
-          setMobileOpen(false);
-        }}
-        aria-current={isActive ? 'page' : undefined}
-        // Addressed by id rather than by label, so a sweep across every role's sidebar does not
-        // break when a screen is renamed.
-        data-testid="nav-item"
-        data-nav-id={item.id}
-        className={cn(
-          'group relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 py-2 pl-3 pr-2.5 text-left text-note font-medium transition-colors',
-          isActive
-            ? 'bg-brand-500/[0.16] font-semibold text-white'
-            : 'bg-transparent text-rail-ink-muted hover:bg-white/[0.05] hover:text-rail-ink'
-        )}
-      >
-        {isActive && (
-          <span aria-hidden="true" className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-brand-400" />
-        )}
-        <Icon
-          className={cn(
-            'h-[15px] w-[15px] flex-shrink-0 transition-colors',
-            isActive ? 'text-brand-400' : 'text-rail-ink-faint group-hover:text-rail-ink-soft'
-          )}
-        />
-        <span className="min-w-0 truncate">{item.label}</span>
-        {/* The screen's own figure, beside its name. aria-hidden, so the button's accessible name
-            stays exactly its label: every spec and every screen reader addresses it by that. */}
-        {count > 0 && (
-          <span
-            aria-hidden="true"
-            data-nav-count
-            className={cn(
-              'ml-auto flex-shrink-0 rounded-md px-1.5 py-px text-micro font-bold tabular-nums',
-              isActive ? 'bg-brand-400/25 text-white' : 'bg-white/[0.07] text-rail-ink-soft'
-            )}
-          >
-            {count > 99 ? '99+' : count}
-          </span>
-        )}
-      </button>
-    );
+  // A new screen opens at its top, and fades in without moving. [1.128.0] The content pane is the
+  // one thing that scrolls, and it outlives the screens now, so without this a screen opened from
+  // halfway down a long list opened halfway down itself. The fade is opacity alone: the old one
+  // also rose 6px, which is the "move" on every click. Not on the first paint, and not for anyone
+  // who has asked for less motion.
+  const mainRef = useRef(null);
+  const screenRef = useRef(null);
+  const firstScreen = useRef(true);
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+    if (firstScreen.current) {
+      firstScreen.current = false;
+      return;
+    }
+    if (!prefersReducedMotion()) {
+      screenRef.current?.animate?.([{ opacity: 0.4 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
+    }
+  }, [activeNav]);
+
+  // The rail holds still when a screen's own action comes or goes. [1.128.0] The action sits above
+  // the scrolling list, so moving between a screen that has one (the Desk, the till) and one that
+  // has none pushed every item 54px up or down, under the mouse that had just clicked.
+  //
+  // So a click in the rail records where the list sits on the screen, and once the next screen is
+  // in place, before it is painted, the list is put back there. Recorded at the click, not read
+  // after the change: by then the browser may already have pulled a list sitting at its bottom
+  // back by itself, and correcting that again moved it twice. A scroll while the next screen
+  // loads re-records it, so it never undoes the person's own scrolling.
+  const navScrollRef = useRef(null);
+  const railAnchor = useRef(null);
+  const listTop = () => {
+    const nav = navScrollRef.current;
+    return nav ? nav.getBoundingClientRect().top - nav.scrollTop : null;
   };
+  useEffect(() => {
+    const nav = navScrollRef.current;
+    if (!nav) return undefined;
+    const onScroll = () => {
+      if (railAnchor.current !== null) railAnchor.current = listTop();
+    };
+    nav.addEventListener('scroll', onScroll, { passive: true });
+    return () => nav.removeEventListener('scroll', onScroll);
+  }, []);
+  useLayoutEffect(() => {
+    const nav = navScrollRef.current;
+    if (nav && railAnchor.current !== null) {
+      nav.scrollTop = nav.getBoundingClientRect().top - railAnchor.current;
+    }
+    railAnchor.current = null;
+  }, [activeNav]);
+
+  // One handler for every rail button, stable across renders. [1.128.0]
+  const selectFromRail = useCallback((id) => {
+    railAnchor.current = listTop();
+    onSelectNav?.(id);
+    setMobileOpen(false);
+  }, [onSelectNav]);
 
   const renderNavContent = ({ withActions = false } = {}) => (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -351,16 +435,20 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
         </div>
       )}
 
-      {/* The screen's own most-used actions — desktop rail only; see `railActions`. */}
-      {withActions && railActions && (
+      {/* The screen's own most-used actions — desktop rail only; see `railActions`. Under the
+          host it is an empty slot the open console portals into, hidden while it is empty. */}
+      {withActions && railSlotRef && (
+        <div ref={railSlotRef} className="mb-3 flex flex-shrink-0 flex-col gap-2 empty:hidden" />
+      )}
+      {withActions && !railSlotRef && railActions && (
         <div className="mb-3 flex flex-shrink-0 flex-col gap-2">{railActions}</div>
       )}
 
       {/* The only scrolling region in the rail. */}
-      <div className="scroll-dark min-h-0 flex-1 space-y-5 overflow-y-auto pb-2 pr-0.5">
+      <div ref={withActions ? navScrollRef : undefined} className="scroll-dark min-h-0 flex-1 space-y-5 overflow-y-auto pb-2 pr-0.5">
         {todayItem && (
           <nav className="space-y-0.5">
-            <NavButton item={todayItem} isActive={activeNav === todayItem.id} />
+            <NavButton item={todayItem} isActive={activeNav === todayItem.id} onSelect={selectFromRail} />
           </nav>
         )}
 
@@ -371,7 +459,7 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
             </span>
             <nav className="space-y-0.5">
               {managementItems.map((item) => (
-                <NavButton key={item.id} item={item} isActive={activeNav === item.id} count={navCounts[item.id]} />
+                <NavButton key={item.id} item={item} isActive={activeNav === item.id} count={navCounts[item.id]} onSelect={selectFromRail} />
               ))}
             </nav>
           </div>
@@ -401,7 +489,7 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
               {!collapsed && (
                 <nav className="space-y-0.5">
                   {group.items.map((item) => (
-                    <NavButton key={item.id} item={item} isActive={activeNav === item.id} count={navCounts[item.id]} />
+                    <NavButton key={item.id} item={item} isActive={activeNav === item.id} count={navCounts[item.id]} onSelect={selectFromRail} />
                   ))}
                 </nav>
               )}
@@ -698,7 +786,7 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
         </header>
 
         {/* Dynamic screen view content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-7 lg:py-6">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-7 lg:py-6">
           {/* The mobile counterpart of the header chip — there is no room for it up there below
               `md`, and it is the one piece of context a borrowed screen must not lose. */}
           {isActingOutsideOwnRole && (
@@ -711,19 +799,60 @@ const SidebarLayout = ({ title = 'Today', activeNav = 'today', onSelectNav, rail
           )}
           {/* Scoped to the console body only. A crash in a dashboard leaves the sidebar and top
               bar mounted, so staff can navigate to another screen instead of reloading — which,
-              with no router, would drop them back at the default tab. Keyed on the active screen
-              so navigating away from a broken console clears the error rather than sticking. */}
-          {/* The screen fades up as it arrives. Keyed on `activeNav`, which is what makes this
-              safe: a CSS animation replays on mount, and this subtree mounts on navigation and
-              only on navigation. Four of these consoles poll every few seconds — hanging the
-              animation off a re-render instead would strobe the whole page at the poll interval.
-              Anyone who has asked the OS for less motion gets the rule in index.css instead. */}
-          <ErrorBoundary key={activeNav}>
-            <div className="animate-fade-in">{children}</div>
-          </ErrorBoundary>
+              with no router, would drop them back at the default tab. Navigating clears the
+              error (`resetKey`) rather than leaving it stuck.
+
+              NOT keyed on the screen any more [1.128.0]: under the host the children are the
+              whole console, and a key here would rebuild the Desk or the till on every click
+              between its own screens. The slot keys the console's CONTENT instead, exactly as
+              this boundary used to.
+
+              Suspense here, inside the shell, so a screen opened for the first time loads under
+              the rail rather than replacing the whole app with the loading page. */}
+          <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-skeleton" aria-hidden="true" />}>
+            <ErrorBoundary key={railSlotRef ? undefined : activeNav} resetKey={activeNav}>
+              <div ref={screenRef}>{children}</div>
+            </ErrorBoundary>
+          </Suspense>
         </main>
       </div>
     </div>
+  );
+};
+
+/**
+ * The shell App mounts once for a signed-in member of staff, around the open console. [1.128.0]
+ * The screen's name comes from the sidebar, which is what every console's heading already says
+ * [1.79.0]; My Account is the one screen that is not in it.
+ */
+export function StaffShellHost({ activeNav, onSelectNav, children }) {
+  const [railSlot, setRailSlot] = useState(null);
+  const title = findNavItem(activeNav)?.label || (activeNav === 'account' ? 'My Account' : TODAY_ITEM.label);
+  const value = useMemo(() => ({ railSlot }), [railSlot]);
+  return (
+    <ShellContext.Provider value={value}>
+      <StaffShell title={title} activeNav={activeNav} onSelectNav={onSelectNav} railSlotRef={setRailSlot}>
+        {children}
+      </StaffShell>
+    </ShellContext.Provider>
+  );
+}
+
+/**
+ * What every console writes. Under the host: its content, keyed on the screen so a screen still
+ * opens fresh (the console around it, and its data, stay), and its rail actions portalled into the
+ * rail. Anywhere else: the whole shell.
+ */
+const SidebarLayout = ({ activeNav, railActions, children, ...rest }) => {
+  const host = useContext(ShellContext);
+  if (!host) {
+    return <StaffShell activeNav={activeNav} railActions={railActions} {...rest}>{children}</StaffShell>;
+  }
+  return (
+    <React.Fragment key={activeNav}>
+      {children}
+      {railActions && host.railSlot ? createPortal(railActions, host.railSlot) : null}
+    </React.Fragment>
   );
 };
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Activity, Calendar, CheckCircle, Clock, Eye, FileText, FlaskConical, Scan, Search, Stethoscope } from 'lucide-react';
 
 // The mark a patient recognises their own report by. Elements rather than components because
@@ -18,6 +18,9 @@ import { SearchInput } from '../ui/search-input';
 import { Dialog, DialogContent, DialogTrigger } from '../ui/dialog';
 import { StatusBadge } from '../ui/status-badge';
 import ResultReport from '../ResultReport';
+import Pagination from '../ui/pagination';
+
+const LIST_PAGE_SIZE = 8;
 
 /**
  * The diagnostic reports this patient can read.
@@ -33,6 +36,14 @@ import ResultReport from '../ResultReport';
  * name ("Diagnostic History" beneath "Results").
  */
 export default function ResultsTab({ profiles, results, onPreviewDocument }) {
+  // A patient's tests accumulate visit after visit, so the list pages like Appointments and
+  // Payments do [1.128.0], and goes back to the first page when the search or department changes.
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [results.search, results.category]);
+  const totalPages = Math.max(1, Math.ceil(results.filtered.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = results.filtered.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE);
+
   const patientName = `${profiles.selected?.first_name || ''} ${profiles.selected?.last_name || ''}`.trim();
 
   return (
@@ -97,7 +108,7 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                 />
               ) : (
                 <ul className="m-0 list-none divide-y divide-line p-0">
-                  {results.filtered.map(item => (
+                  {paged.map(item => (
                     <li
                       key={item.visit_test_id}
                       className="flex flex-col items-start justify-between gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
@@ -194,6 +205,15 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                 </ul>
               )}
             </PanelBody>
+            {!results.error && results.filtered.length > 0 && (
+              <Pagination
+                page={safePage}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                total={results.filtered.length}
+                pageSize={LIST_PAGE_SIZE}
+              />
+            )}
           </Panel>
         </div>
   );

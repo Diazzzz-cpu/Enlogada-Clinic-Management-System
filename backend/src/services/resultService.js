@@ -157,16 +157,33 @@ class ResultService {
     // rows it controls carry full clinical narrative in unbounded TEXT columns. An unclamped
     // limit would let any authenticated staff member pull the department's entire result history
     // in one request — the exact unbounded response this window exists to prevent.
-    const days = Math.min(Math.max(parseInt(options.days, 10) || 90, 0), 3650);
-    const limit = Math.min(Math.max(parseInt(options.limit, 10) || 200, 1), 500);
-    const offset = Math.max(parseInt(options.offset, 10) || 0, 0);
-
     // Allow-listed. Anything unrecognised is dropped rather than passed to SQL, where it could
     // only match nothing — and an empty worklist reads as "no work", which is a claim.
     const delivery = ['sent', 'unsent'].includes(options.delivery) ? options.delivery : null;
+    const search = String(options.search || '').trim().slice(0, 100) || null;
 
-    const rows = await resultRepository.findReleasedByCategory(categoryName, { days, delivery, limit, offset });
-    return rows;
+    // Paged at the server when a page is asked for. [1.128.0] History fetched the last 90 days,
+    // up to 200 reports, and paged those in the browser: a laboratory releasing more than that
+    // lost its older reports from History without a word, and the footer's "total" was only what
+    // had been fetched. A paged request reaches every report the department ever released (no
+    // window unless `days` asks for one), ten at a time, with the true total and a search that
+    // runs across all of it. Without `page` this answers exactly as before.
+    if (options.page !== undefined) {
+      const page = Math.max(parseInt(options.page, 10) || 1, 1);
+      const limit = Math.min(Math.max(parseInt(options.limit, 10) || 10, 1), 50);
+      const days = Math.min(Math.max(parseInt(options.days, 10) || 0, 0), 3650);
+      const rows = await resultRepository.findReleasedByCategory(categoryName, {
+        days, delivery, search, limit, offset: (page - 1) * limit,
+      });
+      const total = rows[0]?.total_count ?? 0;
+      return { released: rows, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) };
+    }
+
+    const days = Math.min(Math.max(parseInt(options.days, 10) || 90, 0), 3650);
+    const limit = Math.min(Math.max(parseInt(options.limit, 10) || 200, 1), 500);
+    const offset = Math.max(parseInt(options.offset, 10) || 0, 0);
+    const rows = await resultRepository.findReleasedByCategory(categoryName, { days, delivery, search, limit, offset });
+    return { released: rows };
   }
 
   // A modality may move its own ticket to 'Waiting for Release' (exam done, findings pending

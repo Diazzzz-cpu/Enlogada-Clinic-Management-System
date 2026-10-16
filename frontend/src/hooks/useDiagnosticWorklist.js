@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import api from '../config/api';
 import { usePolling } from './usePolling';
 
@@ -10,6 +10,9 @@ const NAV_TO_CATEGORY = {
   'xray-ops': 'Xray',
   'xray-history': 'Xray',
 };
+
+/** Reports per page on a department's History. [1.128.0] Paged at the server now. */
+export const HISTORY_PAGE_SIZE = 10;
 
 const ROLE_TO_CATEGORY = [
   ['Laboratory Staff', 'Laboratory'],
@@ -50,6 +53,9 @@ const categoriesFor = (category) => [category];
 export function useDiagnosticWorklist({ activeNav, roles, mode, paused = false } = {}) {
   const [pending, setPending] = useState([]);
   const [released, setReleased] = useState([]);
+  // What the server says matched, before paging. [1.128.0]
+  const [releasedTotal, setReleasedTotal] = useState(0);
+  const [releasedPages, setReleasedPages] = useState(1);
   const [loading, setLoading] = useState(true);
 
   // Two errors, not one: a failed worklist fetch and a failed history fetch are shown on
@@ -77,6 +83,14 @@ export function useDiagnosticWorklist({ activeNav, roles, mode, paused = false }
    */
   const [deliveryFilter, setDeliveryFilter] = useState('all');
 
+  // History searches at the server [1.128.0], so it waits for a pause in typing rather than
+  // asking once per keystroke. The worklist still filters the tickets in hand, instantly.
+  const [historySearch, setHistorySearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setHistorySearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const fetchPending = useCallback(async (catName) => {
     setWorklistError('');
     try {
@@ -93,19 +107,34 @@ export function useDiagnosticWorklist({ activeNav, roles, mode, paused = false }
     }
   }, []);
 
-  const fetchReleased = useCallback(async (catName, delivery = 'all') => {
+  /**
+   * One page of the department's released reports. [1.128.0]
+   *
+   * It fetched the last 90 days, at most 200 reports, and paged those here: a laboratory that
+   * released more lost its older reports from History without a word. The server pages now, so
+   * every report is reachable, the total is the real one, and the search covers all of it.
+   */
+  const fetchReleased = useCallback(async (catName, { delivery = 'all', page = 1, term = '' } = {}) => {
     setHistoryError('');
     try {
-      const responses = await Promise.all(
-        categoriesFor(catName).map((c) => api.get(`/results/released/${c}`, {
-          params: delivery === 'all' ? undefined : { delivery },
-        }))
-      );
-      setReleased(responses.flatMap((r) => r.data.data.released || []));
+      const res = await api.get(`/results/released/${categoriesFor(catName)[0]}`, {
+        params: {
+          page,
+          limit: HISTORY_PAGE_SIZE,
+          ...(delivery === 'all' ? {} : { delivery }),
+          ...(term ? { search: term } : {}),
+        },
+      });
+      const data = res.data.data;
+      setReleased(data.released || []);
+      setReleasedTotal(data.total ?? (data.released || []).length);
+      setReleasedPages(data.totalPages || 1);
     } catch (err) {
       console.error('Failed to fetch released diagnostics:', err);
       setHistoryError('Could not load result history. Please try again.');
       setReleased([]);
+      setReleasedTotal(0);
+      setReleasedPages(1);
     } finally {
       setLoading(false);
     }
@@ -128,12 +157,21 @@ export function useDiagnosticWorklist({ activeNav, roles, mode, paused = false }
   /** Re-read whichever list the current mode is showing. */
   const refresh = useCallback(() => {
     if (!category || !categoryResolved) return;
-    return mode === 'history' ? fetchReleased(category, deliveryFilter) : fetchPending(category);
-  }, [category, categoryResolved, mode, deliveryFilter, fetchPending, fetchReleased]);
+    return mode === 'history'
+      ? fetchReleased(category, { delivery: deliveryFilter, page: historyPage, term: historySearch })
+      : fetchPending(category);
+  }, [category, categoryResolved, mode, deliveryFilter, historyPage, historySearch, fetchPending, fetchReleased]);
 
+  // The skeleton only when the department or the mode changes. A new page, search or filter keeps
+  // the rows on screen until the next ones arrive [1.128.0], so paging does not blink.
+  const loadedScope = useRef('');
   useEffect(() => {
     if (category && categoryResolved) {
-      setLoading(true);
+      const scope = `${category}|${mode}`;
+      if (scope !== loadedScope.current) {
+        loadedScope.current = scope;
+        setLoading(true);
+      }
       refresh();
     }
   }, [category, categoryResolved, mode, refresh]);
@@ -152,12 +190,13 @@ export function useDiagnosticWorklist({ activeNav, roles, mode, paused = false }
     setWorklistPage(1);
   }, [category, search, status]);
 
+  // On the search the server is asked, not on each keystroke, so a page reset and its fetch are one.
   useEffect(() => {
     setHistoryPage(1);
-  }, [category, search]);
+  }, [category, historySearch]);
 
   return {
-    pending, released, loading,
+    pending, released, releasedTotal, releasedPages, loading,
     worklistError, historyError,
     category, categoryResolved,
     search, setSearch,

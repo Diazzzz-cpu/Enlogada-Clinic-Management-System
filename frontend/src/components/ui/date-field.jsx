@@ -195,7 +195,7 @@ const DateField = React.forwardRef(({
         aria-label="Open calendar"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-r-lg text-slate-400 transition-colors hover:text-brand-600 disabled:pointer-events-none disabled:opacity-60"
+        className="absolute right-0 top-0 grid h-9 w-9 cursor-pointer place-items-center rounded-r-lg text-slate-400 transition-colors hover:text-brand-600 disabled:pointer-events-none disabled:opacity-60"
       >
         <CalendarDays className="h-4 w-4" />
       </button>

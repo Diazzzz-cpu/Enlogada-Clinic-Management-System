@@ -21,6 +21,9 @@ import { todayStr } from '../../lib/date';
  * An account owns several profiles — a parent booking for a dependent is the ordinary case — which
  * is why patients are plural everywhere they appear.
  */
+/** The mark on a required field. Declared outside the dialog, so it is one component type. */
+const Required = () => <span className="text-rose-600">*</span>;
+
 export default function ProfileFormDialog({ profiles, reference, mode }) {
   const editing = mode === 'edit';
   const open = editing ? profiles.showEdit : profiles.showAdd;
@@ -34,7 +37,6 @@ export default function ProfileFormDialog({ profiles, reference, mode }) {
   // Ids carry the mode, so the two dialogs never share one even if both are mounted.
   const id = (field) => `${mode}-profile-${field}`;
   const set = (field) => (value) => setDraft({ ...draft, [field]: value });
-  const Required = () => <span className="text-rose-600">*</span>;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

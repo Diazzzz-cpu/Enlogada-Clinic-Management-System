@@ -7,6 +7,7 @@ import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import EmptyState from '../../components/ui/empty-state';
+import Pagination from '../../components/ui/pagination';
 import { SkeletonList } from '../../components/ui/skeleton';
 import { Textarea } from '../../components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
@@ -18,6 +19,8 @@ import { printReport } from '../../lib/reportPrint';
 import { FeedbackPrint } from '../../components/reports/ReportPrints';
 import { toastSuccess, toastError } from '../../lib/toast';
 import { RATINGS, ratingLabel } from '../../lib/feedback';
+
+const FORMS_PAGE_SIZE = 10;
 
 /**
  * Patient Feedback: what patients said, and what they are asked. [1.112.0]
@@ -90,6 +93,10 @@ function FeedbackOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [onlyPoor, setOnlyPoor] = useState(false);
+  // Forms accumulate with every finished visit, up to 500 in a range, so the screen pages them
+  // [1.128.0]. The printed report still lists every form in the period.
+  const [formsPage, setFormsPage] = useState(1);
+  useEffect(() => { setFormsPage(1); }, [onlyPoor, report]);
   // The range the figures are FOR, for the printed period.
   const [period, setPeriod] = useState({ startDate, endDate });
 
@@ -114,6 +121,8 @@ function FeedbackOverview() {
   const number = new Map(questions.map((q, i) => [String(q.id), i + 1]));
   const forms = (report?.forms || []).filter((f) => !onlyPoor || Object.values(f.answers || {}).includes(1));
   const poorForms = (report?.forms || []).filter((f) => Object.values(f.answers || {}).includes(1)).length;
+  const formPages = Math.max(1, Math.ceil(forms.length / FORMS_PAGE_SIZE));
+  const shownForms = forms.slice((Math.min(formsPage, formPages) - 1) * FORMS_PAGE_SIZE, Math.min(formsPage, formPages) * FORMS_PAGE_SIZE);
 
   return (
     <div className="space-y-4">
@@ -187,7 +196,7 @@ function FeedbackOverview() {
                   description="A form appears here when a patient answers in the portal, or reception types in a paper one." />
               ) : (
                 <ul className="m-0 list-none divide-y divide-line p-0">
-                  {forms.map((f) => (
+                  {shownForms.map((f) => (
                     <li key={f.visit_id} data-testid="feedback-form" className="space-y-1.5 px-5 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-note font-semibold text-slate-900">
@@ -218,6 +227,15 @@ function FeedbackOverview() {
                 </ul>
               )}
             </PanelBody>
+            {forms.length > 0 && (
+              <Pagination
+                page={Math.min(formsPage, formPages)}
+                totalPages={formPages}
+                onPageChange={setFormsPage}
+                total={forms.length}
+                pageSize={FORMS_PAGE_SIZE}
+              />
+            )}
           </Panel>
         </div>
       )}

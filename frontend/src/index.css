@@ -657,6 +657,17 @@ select:focus-visible {
   animation: fadeIn 0.25s ease-out forwards;
 }
 
+/* A screen arriving: opacity only, short. [1.128.0] The rise in fadeIn suits a popover opening by
+   the control that opened it; on a whole screen it read as the page moving on every click. */
+@keyframes screenIn {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+.animate-screen-in {
+  animation: screenIn 0.14s ease-out;
+}
+
 /* ── Sign-in motion ──────────────────────────────────────────────────────────────────────────
  * Two movements [1.72.0]. The card TURNS OVER between Sign In and Create Account (`.auth-flip`,
  * 850ms), and each side's contents rise into place one after another as it arrives

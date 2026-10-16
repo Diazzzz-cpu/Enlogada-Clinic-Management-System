@@ -1,5 +1,42 @@
 # Database Migration & Schema History
 
+## [1.128.0] - 2026-10-17 (Clicks that stay put; lists that page where the data is)
+
+No schema change; nothing to run. Steven: clicking the sidebar as an admin "reload like move", and
+"make sure the whole system frontend side clicking make sense", and paging wherever data grows.
+
+**The sidebar.** Measured on a SuperAdmin, 7 of 10 sidebar clicks rebuilt the whole shell: every
+console drew its own, so crossing consoles threw it away. The rail's scroll jumped to the top (the
+item just clicked moved out from under the mouse), the counts vanished and came back, and the page
+slid up 6px. App now mounts one shell for the session (`StaffShellHost`); a console only fills its
+content and its rail action. Also:
+- a new screen opens at its top and fades in by opacity alone, staff and portal alike;
+- a rail action coming or going above the list (the Desk's Register Walk-In, the till's) no longer
+  shifts the list 54px under the mouse;
+- the rail's buttons were a component declared inside the shell's render, so React replaced every
+  one on every re-render (each click, the minute tick, each count refresh) and the button under the
+  mouse lost its hover and focus. Two more such components (a report's patient rows, the profile
+  form's required mark) were moved out too.
+
+**Clicks, crawled.** Every staff screen as SuperAdmin, every portal tab and the public pages,
+checked through React's own props for anything that reacts to a click without looking or acting
+like a control, looks clickable and does nothing, has no name, or nests a button in a button. Two
+found: the Active / Inactive switches on Services and HMO Providers were bare badges (now buttons,
+as Packages and Payment Methods already were), and every date field's calendar button showed an
+arrow cursor.
+
+**Paging.**
+- A department's **History** fetched the last 90 days, at most 200 reports, and paged those in the
+  browser: a laboratory releasing more lost older reports from the screen without a word, and the
+  footer's total was only what had been fetched. It pages at the server now (`page`), reaches
+  every report, counts them all, and its search runs across all of them. Without `page` the
+  endpoint answers as before.
+- **Cashier Monitoring** downloaded every receipt in the chosen range to draw twenty, and added up
+  each cashier's takings from them. It pages at the server; the per-cashier figures come from the
+  summary (`byCashier=true`), on the same basis as Collected, so they still add up to it.
+- The portal's **Results** tab and **Patient Feedback**'s forms (up to 500 in a range) now page on
+  screen, like Appointments and Payments. The feedback printout still lists every form.
+
 ## [1.127.0] - 2026-10-17 (Which tests the HMO work was)
 
 No schema change; nothing to run. Steven: the HMO Claims report could not say which tests were

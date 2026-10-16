@@ -282,6 +282,39 @@ class PaymentRepository {
     return result.rows[0];
   }
 
+  /**
+   * What each member of staff took in the range, on exactly the basis of `collected`. [1.128.0]
+   *
+   * Cashier Monitoring added this up in the browser from the receipt list, which only worked
+   * because it downloaded every receipt in the range: a month of them, or a year, to draw a page
+   * of twenty. Aggregated here instead, the list pages like every other list, and the cards still
+   * sum to `collected` because they are the same rows under the same rule.
+   */
+  async findCollectionsByCashier({ startDate, endDate, method = null }) {
+    const params = [];
+    const hasDates = Boolean(startDate && endDate);
+    if (hasDates) params.push(startDate, endDate);
+    let methodText = '';
+    if (method) {
+      params.push(method);
+      methodText = ` AND pay.payment_method = $${params.length}`;
+    }
+    const queryText = `
+      SELECT pay.processed_by,
+             u.first_name, u.last_name,
+             SUM(pay.amount)::numeric(12,2) AS collected,
+             COUNT(*)::int AS receipts
+        FROM payments pay
+        LEFT JOIN users u ON u.id = pay.processed_by
+      ${ISSUED_RECEIPT}
+        AND ${ISSUED_IN_RANGE(hasDates)}${methodText}
+       GROUP BY pay.processed_by, u.first_name, u.last_name
+       ORDER BY collected DESC
+    `;
+    const result = await db.query(queryText, params);
+    return result.rows;
+  }
+
   async getBillingSummary(patientVisitId) {
     const visitQuery = `
       SELECT pv.id, p.first_name, p.last_name, pt.name as patient_type_name,

@@ -123,16 +123,23 @@ export default function ServicesTablePanel({ catalogue }) {
                     <TableCell className="text-xs text-gray-600 font-medium">{test.category_name}</TableCell>
                     <TableCell className="font-bold text-xs text-slate-900">{formatCurrency(test.price)}</TableCell>
                     <TableCell>
-                      <Badge
+                      {/* A real button around the badge, as Packages and Payment Methods do, so the
+                          switch is reachable by keyboard. [1.128.0] */}
+                      <button
+                        type="button"
                         onClick={() => catalogue.requestToggle(test)}
-                        className={`cursor-pointer text-meta font-bold px-2.5 py-0.5 rounded-full ${
-                          test.is_active
-                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-200'
-                            : 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200'
-                        }`}
+                        className="cursor-pointer rounded-full border-0 bg-transparent p-0"
                       >
-                        {test.is_active ? 'Active (Live)' : 'Inactive'}
-                      </Badge>
+                        <Badge
+                          className={`text-meta font-bold px-2.5 py-0.5 rounded-full ${
+                            test.is_active
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-200'
+                              : 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          {test.is_active ? 'Active (Live)' : 'Inactive'}
+                        </Badge>
+                      </button>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

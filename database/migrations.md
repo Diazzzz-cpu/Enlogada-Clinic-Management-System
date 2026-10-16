@@ -1,5 +1,18 @@
 # Database Migration & Schema History
 
+## [1.127.0] - 2026-10-17 (Which tests the HMO work was)
+
+No schema change; nothing to run. Steven: the HMO Claims report could not say which tests were
+sold under an HMO. It grouped by provider only (tests claimed, approved / pending / refused), and
+Departments' sales by service mixes a covered test in with paid ones.
+
+The report now carries a **By test** section on screen, in print, and in the Excel and CSV
+exports: provider, test, department, times claimed, and approved / pending / refused. It reads the
+same claim lines as the provider rows (`CLAIM_LINES` in `reportRepository`, one CTE body shared by
+both queries), so a provider's tests always add up to its row; `hmo-claim-value.spec.js` checks
+that. No counter takings per test: a payment belongs to a visit, not to one test on it. The
+printed report still fits one A4 page.
+
 ## [1.126.0] - 2026-10-16 (Anyone can check a report is genuine; paying GCash from the same phone)
 
 Run on an existing database: `node src/scripts/migrateReportVerification.js` (`--rollback`

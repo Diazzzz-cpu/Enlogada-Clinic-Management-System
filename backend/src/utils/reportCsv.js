@@ -82,6 +82,16 @@ const HMO_PROVIDERS = [
   { key: 'collected', header: 'Collected at Counter (PHP)', format: f.money },
 ];
 
+const HMO_TESTS = [
+  { key: 'provider_name', header: 'HMO Provider', format: f.text },
+  { key: 'test_name', header: 'Test', format: f.text },
+  { key: 'category_name', header: 'Department', format: f.text },
+  { key: 'tests_claimed', header: 'Times Claimed', format: f.integer },
+  { key: 'approved', header: 'Approved / Billable (PHP)', format: f.money },
+  { key: 'pending', header: 'Pending Decision (PHP)', format: f.money },
+  { key: 'refused', header: 'Refused / Patient Pays (PHP)', format: f.money },
+];
+
 const STAFF_RECEPTION = [
   { key: 'first_name', header: 'First Name', format: f.text },
   { key: 'last_name', header: 'Last Name', format: f.text },
@@ -203,6 +213,7 @@ function hmoClaimsCsv(report, startDate, endDate) {
   const t = report.totals || {};
   return toCsvSections([
     { title: 'Claims by Provider', rows: report.providers, columns: HMO_PROVIDERS },
+    { title: 'Claims by Test', rows: report.tests || [], columns: HMO_TESTS },
     {
       title: 'Totals',
       pairs: [

@@ -21,6 +21,43 @@ const FIRST_RELEASE = `tr.authorised_at IS NOT NULL
                           WHERE earlier.visit_test_id = tr.visit_test_id
                             AND earlier.authorised_at < tr.authorised_at)`;
 
+/**
+ * One row per test on an HMO claim, with its EFFECTIVE decision, for visits in [$1, $2]. [1.127.0]
+ * The body of a `claim_lines` CTE, shared by the per-provider totals and the per-test breakdown,
+ * so the two tables on the HMO Claims report are always the same lines added up two ways.
+ * The reasoning for each part is on getHmoClaimTotals.
+ */
+const CLAIM_LINES = `
+        SELECT hp.name                AS provider_name,
+               t.name                 AS test_name,
+               tc.name                AS category_name,
+               vt.price_at_time,
+               pv.id                  AS patient_visit_id,
+               -- The effective decision on ONE test, read from BOTH levels.
+               --
+               -- A claim and its tests are decided independently and can legitimately disagree:
+               -- approveRequest sets hmo_requests.status alone, and PUT /hmo/request-test/:id
+               -- sets each test. That is not a bug — an HMO routinely clears a claim while
+               -- refusing one line on it — but it means a report reading either column BY ITSELF
+               -- misstates the money. Reading only the per-test column reported an approved claim
+               -- as ₱0 approved and its full value still Pending; reading only the claim column
+               -- would report a refused test as billable.
+               --
+               -- A refusal at either level wins, matching the partial unique index on this table
+               -- in schema.sql, whose predicate is approval_status <> 'Rejected' -- it treats a
+               -- rejected test as no longer a live claim on that work.
+               -- One rule with the bill and the worklist [1.125.0]: constants/hmoEffectiveStatus.
+               ${hmoEffectiveStatus('hr', 'hrt')} AS effective_status
+          FROM hmo_requests hr
+          JOIN hmo_providers hp     ON hp.id = hr.hmo_provider_id
+          JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id
+          JOIN visit_tests vt       ON vt.id = hrt.visit_test_id
+          JOIN tests t              ON t.id = vt.test_id
+          JOIN test_categories tc   ON tc.id = t.category_id
+          JOIN patient_visits pv    ON pv.id = vt.patient_visit_id
+         WHERE pv.created_at >= $1::date AND pv.created_at < ($2::date + 1)
+`;
+
 class ReportRepository {
   /**
    * Money taken in per day. [1.30.0]
@@ -394,31 +431,7 @@ class ReportRepository {
   async getHmoClaimTotals(startDate, endDate) {
     const queryText = `
       WITH claim_lines AS (
-        SELECT hp.name                AS provider_name,
-               vt.price_at_time,
-               pv.id                  AS patient_visit_id,
-               -- The effective decision on ONE test, read from BOTH levels.
-               --
-               -- A claim and its tests are decided independently and can legitimately disagree:
-               -- approveRequest sets hmo_requests.status alone, and PUT /hmo/request-test/:id
-               -- sets each test. That is not a bug — an HMO routinely clears a claim while
-               -- refusing one line on it — but it means a report reading either column BY ITSELF
-               -- misstates the money. Reading only the per-test column reported an approved claim
-               -- as ₱0 approved and its full value still Pending; reading only the claim column
-               -- would report a refused test as billable.
-               --
-               -- A refusal at either level wins, matching the partial unique index on this table
-               -- in schema.sql, whose predicate is approval_status <> 'Rejected' -- it treats a
-               -- rejected test as no longer a live claim on that work.
-               -- One rule with the bill and the worklist [1.125.0]: constants/hmoEffectiveStatus.
-               ${hmoEffectiveStatus('hr', 'hrt')} AS effective_status
-          FROM hmo_requests hr
-          JOIN hmo_providers hp     ON hp.id = hr.hmo_provider_id
-          JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id
-          JOIN visit_tests vt       ON vt.id = hrt.visit_test_id
-          JOIN patient_visits pv    ON pv.id = vt.patient_visit_id
-         WHERE pv.created_at >= $1::date AND pv.created_at < ($2::date + 1)
-      ),
+${CLAIM_LINES}      ),
       -- Counter takings per visit, resolved BEFORE the join so a visit carrying three claimed
       -- tests contributes its receipt once rather than three times. Summing payments alongside
       -- the lines is how a two-test claim reports double the money that was actually taken.
@@ -447,6 +460,33 @@ class ReportRepository {
         FROM claim_lines cl
        GROUP BY cl.provider_name
        ORDER BY approved DESC, cl.provider_name
+    `;
+    const result = await db.query(queryText, [startDate, endDate]);
+    return result.rows;
+  }
+
+  /**
+   * Which tests the HMO work was, per provider. [1.127.0]
+   *
+   * The totals above say what each provider owes and not what for, so "which tests did our HMO
+   * patients have" had no answer, and Departments' sales by service mixes a covered test in with
+   * paid ones. The same claim lines, grouped by provider AND test: each row's money is that test's
+   * share of the provider's row, and the rows of one provider add up to it exactly.
+   *
+   * No counter takings here: a payment belongs to a visit, not to one test on it.
+   */
+  async getHmoClaimTests(startDate, endDate) {
+    const queryText = `
+      WITH claim_lines AS (
+${CLAIM_LINES}      )
+      SELECT cl.provider_name, cl.test_name, cl.category_name,
+             COUNT(*)::int AS tests_claimed,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Approved'), 0)::numeric(12,2) AS approved,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Rejected'), 0)::numeric(12,2) AS refused,
+             COALESCE(SUM(cl.price_at_time) FILTER (WHERE cl.effective_status = 'Pending'),  0)::numeric(12,2) AS pending
+        FROM claim_lines cl
+       GROUP BY cl.provider_name, cl.test_name, cl.category_name
+       ORDER BY cl.provider_name, tests_claimed DESC, approved DESC, cl.test_name
     `;
     const result = await db.query(queryText, [startDate, endDate]);
     return result.rows;

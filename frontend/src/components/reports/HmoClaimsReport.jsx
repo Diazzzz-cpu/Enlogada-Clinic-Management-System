@@ -13,7 +13,7 @@ import { formatCurrency } from '../../lib/currency';
 // were correct (built from local getters, not toISOString), but a second correct copy is still a
 // second place for the toISOString bug to come back — see the dates note in CLAUDE.md.
 import { todayStr, daysAgoStr } from '../../lib/date';
-import { Info, RefreshCw, ShieldCheck, DollarSign, Clock, AlertTriangle, Printer } from 'lucide-react';
+import { Info, RefreshCw, ShieldCheck, DollarSign, Clock, AlertTriangle, Printer, FlaskConical } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 
 // --- HMO claim value, per provider. -----------------------------------------------------------
@@ -57,6 +57,7 @@ const HmoClaimsReport = () => {
 
   const t = report?.totals;
   const providers = report?.providers || [];
+  const tests = report?.tests || [];
 
   return (
     <div className="space-y-5">
@@ -64,8 +65,8 @@ const HmoClaimsReport = () => {
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-slate-900 m-0">HMO Claim Value</h3>
           <p className="text-xs text-gray-500 m-0">
-            What the clinic&apos;s HMO work is worth, by provider. Counted on the date of the visit,
-            so a claim decided later never moves money out of a period already reported.
+            What the clinic&apos;s HMO work is worth, by provider and by test. Counted on the date of
+            the visit, so a claim decided later never moves money out of a period already reported.
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -184,6 +185,45 @@ const HmoClaimsReport = () => {
                         <TableCell className="text-right tabular-nums text-slate-600">{formatCurrency(p.pending)}</TableCell>
                         <TableCell className="text-right tabular-nums text-slate-600">{formatCurrency(p.refused)}</TableCell>
                         <TableCell className="text-right tabular-nums text-slate-600">{formatCurrency(p.collected)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Which tests the claims were for. [1.127.0] The provider rows say what is owed and not
+              what for, and Departments' sales by service mixes a covered test in with paid ones. */}
+          <Card className="border-line rounded-xl bg-surface overflow-hidden" data-testid="hmo-by-test">
+            <CardHeader className="flex flex-row items-center gap-2.5 border-b border-line px-5 py-3.5">
+              <FlaskConical className="w-4 h-4 text-brand-600" />
+              <CardTitle className="text-note font-semibold text-slate-900">By Test</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Provider</TableHead>
+                      <TableHead>Test</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead className="text-right">Claimed</TableHead>
+                      <TableHead className="text-right">Approved</TableHead>
+                      <TableHead className="text-right">Pending</TableHead>
+                      <TableHead className="text-right">Refused</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tests.map((r) => (
+                      <TableRow key={`${r.provider_name}|${r.test_name}|${r.category_name}`}>
+                        <TableCell className="text-slate-600">{r.provider_name}</TableCell>
+                        <TableCell className="font-semibold text-slate-900">{r.test_name}</TableCell>
+                        <TableCell className="text-slate-600">{r.category_name}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.tests_claimed}</TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums text-emerald-700">{formatCurrency(r.approved)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">{formatCurrency(r.pending)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">{formatCurrency(r.refused)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

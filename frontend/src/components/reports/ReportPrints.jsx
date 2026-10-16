@@ -178,10 +178,11 @@ export const TrendsPrint = forwardRef(function TrendsPrint({ report, startDate, 
   );
 });
 
-/** HMO Claims: what each provider owes, decided and undecided, beside what was paid at the counter. */
+/** HMO Claims: what each provider owes, decided and undecided, beside what was paid at the counter, and for which tests. */
 export const HmoClaimsPrint = forwardRef(function HmoClaimsPrint({ report, startDate, endDate }, ref) {
   const t = report?.totals || {};
   const providers = report?.providers || [];
+  const tests = report?.tests || [];
   return (
     <ReportDocument ref={ref} title="HMO Claims Report" startDate={startDate} endDate={endDate}>
       <ReportSection
@@ -217,6 +218,29 @@ export const HmoClaimsPrint = forwardRef(function HmoClaimsPrint({ report, start
             pending: formatCurrency(t.pending),
             refused: formatCurrency(t.refused),
             collected: formatCurrency(t.collected),
+          }}
+          empty="No HMO claim in this period."
+        />
+      </ReportSection>
+
+      <ReportSection number={3} title="By test" note="Which tests the claims were for. A provider's rows add up to its row above.">
+        <ReportTable
+          columns={[
+            { key: 'provider_name', label: 'Provider' },
+            { key: 'test_name', label: 'Test' },
+            { key: 'category_name', label: 'Department' },
+            { key: 'tests_claimed', label: 'Claimed', align: 'right' },
+            { key: 'approved', label: 'Approved', align: 'right', render: (r) => formatCurrency(r.approved) },
+            { key: 'pending', label: 'Pending', align: 'right', render: (r) => formatCurrency(r.pending) },
+            { key: 'refused', label: 'Refused', align: 'right', render: (r) => formatCurrency(r.refused) },
+          ]}
+          rows={tests}
+          total={{
+            provider_name: 'Total',
+            tests_claimed: tests.reduce((s, r) => s + num(r.tests_claimed), 0),
+            approved: formatCurrency(t.approved),
+            pending: formatCurrency(t.pending),
+            refused: formatCurrency(t.refused),
           }}
           empty="No HMO claim in this period."
         />

@@ -129,4 +129,26 @@ test.describe('HMO claim value report', () => {
 
     await ctx.dispose();
   });
+
+  // [1.127.0] Which tests the HMO work was. The same claim lines as the provider rows, grouped by
+  // test too, so each provider's tests must add up to its row exactly: a breakdown that does not
+  // reconcile with the total beside it is two numbers for one thing.
+  test('the claims by test add up to each provider row', async () => {
+    const ctx = await request.newContext();
+    const report = await totals(ctx, await login(ctx, 'admin@enlogada.com'));
+    expect(Array.isArray(report.tests)).toBe(true);
+
+    for (const p of report.providers) {
+      const rows = report.tests.filter((t) => t.provider_name === p.provider_name);
+      expect(rows.length, `${p.provider_name} has tests behind its total`).toBeGreaterThan(0);
+      for (const t of rows) expect(t.test_name).toBeTruthy();
+      const sum = (key) => rows.reduce((n, t) => n + money(t[key]), 0);
+      expect(rows.reduce((n, t) => n + t.tests_claimed, 0)).toBe(p.tests_claimed);
+      for (const key of ['approved', 'pending', 'refused']) {
+        expect(Math.abs(sum(key) - money(p[key])), `${p.provider_name} ${key}`).toBeLessThan(0.01);
+      }
+    }
+
+    await ctx.dispose();
+  });
 });

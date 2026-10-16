@@ -121,5 +121,13 @@ test('Departments is takings and sales only: no front desk, no turnaround', () =
 test('every report builds', () => {
   assert.ok(sheetOf(summaryXlsx({ revenueTrend: [{ day: '2026-10-10', total: '980' }], serviceVolume: [], visitStatusBreakdown: [{ status: 'Completed', visit_count: 2 }], paymentMethodBreakdown: [], hourlyArrivals: [{ hour: 8, walk_in: 1, online: 0, total: 1 }] }, '2026-10-10', '2026-10-16')).includes('Arrivals by hour'));
   assert.ok(sheetOf(hmoClaimsXlsx({ totals: { approved: 0, pending: 700, refused: 0, collected: 0 }, providers: [{ provider_name: '1CoopHealth', visits: 1, tests_claimed: 1, approved: 0, pending: 700, refused: 0, collected: 0 }] }, '2026-09-16', '2026-10-15')).includes('money still owed'));
+  // [1.127.0] Which tests the claims were for, as its own section.
+  const hmo = sheetOf(hmoClaimsXlsx({
+    totals: { approved: 1080, pending: 0, refused: 0, collected: 0 },
+    providers: [{ provider_name: '1CoopHealth', visits: 6, tests_claimed: 6, approved: 1080, pending: 0, refused: 0, collected: 0 }],
+    tests: [{ provider_name: '1CoopHealth', test_name: 'Complete Blood Count (CBC)', category_name: 'Laboratory', tests_claimed: 6, approved: 1080, pending: 0, refused: 0 }],
+  }, '2026-09-16', '2026-10-15'));
+  assert.match(hmo, /3\. By test/);
+  assert.match(hmo, /Complete Blood Count \(CBC\)/);
   assert.ok(sheetOf(staffWorkloadXlsx({ receptionWorkload: [{ first_name: 'Maria', last_name: 'Santos', visit_count: 33 }], diagnosticWorkload: [] }, '2026-10-10', '2026-10-16')).includes('Maria Santos'));
 });

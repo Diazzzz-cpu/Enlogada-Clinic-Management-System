@@ -637,6 +637,10 @@ The Departments report's sales by service reads it too: a covered test is gross 
 the breakdown sums to the cash collected (`operations-report.spec.js` holds the reconciliation).
 Bucketed by the VISIT date, so a claim decided three weeks later never moves money out of a period already
 reported — the closed-day restatement [1.30.0] exists to prevent, arriving by another door.
+`[1.127.0]` The report also breaks the claims down BY TEST (`tests` in the response, a section on
+screen, in print and in both exports). Both queries read one `CLAIM_LINES` CTE body in
+`reportRepository`, so a provider's tests always add up to its row; never give either query its
+own copy of the claim lines.
 
 **A report exports as Excel via `?format=xlsx`** `[1.119.0]`, which is what the Reports tabs' "Export
 Excel" downloads: `utils/xlsxWriter.js` (no dependency) + `utils/reportXlsx.js`, laid out like the

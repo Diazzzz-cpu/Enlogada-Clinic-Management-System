@@ -87,7 +87,7 @@ class ReportService {
   }
 
   /**
-   * HMO claim value per provider for a date range.
+   * HMO claim value per provider for a date range, and which tests it was. [1.127.0]
    *
    * Returns the providers plus a `totals` row the caller does not have to re-derive, and a
    * `note` naming the one thing a reader can get wrong: `approved` is billable to the insurer,
@@ -97,7 +97,10 @@ class ReportService {
   async getHmoClaims(startDate, endDate) {
     assertValidRange(startDate, endDate);
 
-    const providers = await reportRepository.getHmoClaimTotals(startDate, endDate);
+    const [providers, tests] = await Promise.all([
+      reportRepository.getHmoClaimTotals(startDate, endDate),
+      reportRepository.getHmoClaimTests(startDate, endDate),
+    ]);
 
     const sum = (key) => providers.reduce((n, p) => n + Number(p[key] || 0), 0);
     const totals = {
@@ -111,6 +114,7 @@ class ReportService {
 
     return {
       providers,
+      tests,
       totals,
       note: 'Approved is billable to the insurer and is not part of counter takings.',
     };

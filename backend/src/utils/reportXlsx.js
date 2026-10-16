@@ -224,6 +224,25 @@ function hmoClaimsXlsx(report, startDate, endDate) {
         empty: 'No HMO claim in this period.',
       }],
     },
+    {
+      title: 'By test',
+      note: 'Which tests the claims were for. A provider\'s rows add up to its row above.',
+      blocks: [{
+        type: 'table',
+        columns: [
+          { key: 'provider_name', header: 'Provider', kind: 'text' },
+          { key: 'test_name', header: 'Test', kind: 'text' },
+          { key: 'category_name', header: 'Department', kind: 'text' },
+          { key: 'tests_claimed', header: 'Claimed', kind: 'int' },
+          { key: 'approved', header: 'Approved', kind: 'money' },
+          { key: 'pending', header: 'Pending', kind: 'money' },
+          { key: 'refused', header: 'Refused', kind: 'money' },
+        ],
+        rows: report.tests || [],
+        total: { label: 'Total', sum: ['tests_claimed', 'approved', 'pending', 'refused'] },
+        empty: 'No HMO claim in this period.',
+      }],
+    },
   ]);
 }
 

@@ -78,7 +78,7 @@ test.describe('Printing a report', () => {
     // Takings and sales only [1.119.0]: front desk and turnaround are not a department report's.
     ['Departments', 'Departments Report', ['Takings', 'Sales by service'], ['Front desk', 'Turnaround']],
     ['Trends', 'Trends Report', ['Takings by day', 'Tests by department', 'Visits by status', 'Payments by method', 'Arrivals by hour']],
-    ['HMO Claims', 'HMO Claims Report', ['Summary', 'By provider', 'money still owed to the clinic']],
+    ['HMO Claims', 'HMO Claims Report', ['Summary', 'By provider', 'By test', 'money still owed to the clinic']],
     ['Staff Workload', 'Staff Workload Report', ['visits opened', 'reports released']],
   ]) {
     test(`${tab} prints as a titled document`, async ({ page }) => {

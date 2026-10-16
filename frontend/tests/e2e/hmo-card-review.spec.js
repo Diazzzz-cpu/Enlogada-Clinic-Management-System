@@ -11,7 +11,7 @@ import { selfPayProfile } from './helpers/patients.js';
 // the Admin's claim review. A card that uploads correctly and is then rendered as a broken image
 // on the one screen where somebody approves coverage is a working feature that fails at its job.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

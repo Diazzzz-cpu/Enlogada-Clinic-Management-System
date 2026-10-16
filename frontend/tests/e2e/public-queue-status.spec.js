@@ -12,7 +12,7 @@ import { test, expect, request } from 'playwright/test';
 // rather than a permission check. Everything else under /visits is staff-gated, so this route is
 // the exception and exceptions are what get copied.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 test.describe('Public queue status', () => {

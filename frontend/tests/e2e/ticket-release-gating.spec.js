@@ -21,7 +21,7 @@ import { appointmentForm } from './helpers/booking.js';
 // later cancelled. These tests pin both halves: that un-released tickets are invisible AND
 // that they are genuinely refused at the API, not merely hidden by the UI.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 const RECEPTIONIST = { email: 'receptionist@enlogada.com', password: 'Password123!' };

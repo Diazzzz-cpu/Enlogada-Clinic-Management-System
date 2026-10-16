@@ -44,7 +44,7 @@ const { renderClinicReport } = require('./demoReportPdf');
 const { COUNTER_METHODS, CASH_METHOD } = require('../constants/paymentMethods');
 const logger = require('../config/logger');
 
-const API = process.env.E2E_API_URL ? `${process.env.E2E_API_URL}/api` : 'http://localhost:5000/api';
+const API = process.env.E2E_API_URL ? `${process.env.E2E_API_URL}/api` : 'http://localhost:5050/api';
 const PASSWORD = 'Password123!';
 
 const STAFF = {

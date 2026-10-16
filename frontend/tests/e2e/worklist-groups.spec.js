@@ -16,7 +16,7 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
  * happens to share the fixture's name cannot answer for it.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -15,7 +15,7 @@ import { appointmentForm } from './helpers/booking.js';
 // errors, and the work is still harder than it should be.
 
 const PASSWORD = 'Password123!';
-const API = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
+const API = `${process.env.E2E_API_URL || 'http://localhost:5050'}/api`;
 
 
 

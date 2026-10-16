@@ -14,7 +14,7 @@ import { selfPayTypeId } from './helpers/patients.js';
 // something did — a receptionist watching a queue that has silently stopped updating is far
 // worse off than one on a slow connection. That is what this spec is for.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

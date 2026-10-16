@@ -14,7 +14,7 @@ import { registerClient } from './helpers/accounts.js';
 // Uses a throwaway registered client rather than a seeded account: this spec changes a password,
 // and a failure partway through must not leave a seeded login broken for everything else.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 test.describe('Password change ends older sessions', () => {

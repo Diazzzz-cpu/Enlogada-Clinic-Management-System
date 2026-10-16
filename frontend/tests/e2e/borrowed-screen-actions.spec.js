@@ -25,7 +25,7 @@ import { reportPart } from './helpers/reportFile.js';
  * — including the parts that do work.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

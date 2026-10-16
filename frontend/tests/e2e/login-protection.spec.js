@@ -16,7 +16,7 @@ import { runScript } from './helpers/backendScript.js';
 // those would bury the entries an investigation needs under traffic that is just staff doing
 // their job — the same fan-out mistake that took notification_reads to a quarter of a million rows.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'TestPass123!';
 

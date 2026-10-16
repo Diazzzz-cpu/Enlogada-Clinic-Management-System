@@ -12,7 +12,7 @@ import { test, expect, request } from 'playwright/test';
 // patient discovering it at the till, and shows preparation while they are still standing there —
 // which is a far better moment for "come back fasting" than an email the night before.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

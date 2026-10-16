@@ -166,7 +166,7 @@ Once payment settles, the client's booking shows a **scannable QR booking pass**
 ## 🚀 How to Run the Project
 
 ```bash
-# Terminal 1 — Backend (Port 5000)
+# Terminal 1 — Backend (Port 5050)
 cd backend
 npm run dev
 

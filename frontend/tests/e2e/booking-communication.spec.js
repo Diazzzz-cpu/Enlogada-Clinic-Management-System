@@ -21,7 +21,7 @@ import { appointmentForm, bookableTestId } from './helpers/booking.js';
 // API, it reaches the screen where the patient chooses, and a booking still succeeds when there
 // is no mail server and no address to send to.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

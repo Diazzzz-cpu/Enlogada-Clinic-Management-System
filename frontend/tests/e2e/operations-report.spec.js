@@ -11,7 +11,7 @@ import { test, expect, request } from 'playwright/test';
 // `reports:view` would make it Admin-only and defeat the point. The SLICES are the gate instead,
 // so these tests are the thing standing between that design and an accidental data leak.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 const RANGE = 'startDate=2026-01-01&endDate=2030-01-01';

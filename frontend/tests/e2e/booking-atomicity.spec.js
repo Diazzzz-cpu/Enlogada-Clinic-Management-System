@@ -21,7 +21,7 @@ import { appointmentForm } from './helpers/booking.js';
 // halves; without them the failure is invisible until a receptionist notices a queue entry with
 // nothing attached to it.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 const CLIENT = { email: 'client@enlogada.com', password: 'Password123!' };

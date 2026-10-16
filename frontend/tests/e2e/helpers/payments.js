@@ -13,7 +13,7 @@ import { fixturePerson, FIXTURE_CONTACT } from './people.js';
  * of the run — including the payment_submissions attached to the visits.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 export const API = `${BACKEND_URL}/api`;
 
 export const CREDS = {

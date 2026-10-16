@@ -23,7 +23,7 @@ import { nthWorkingDay } from './helpers/dates.js';
  *   AN OVERRIDE IS NOT THE PATTERN  closing next Thursday must not close every Thursday.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -19,7 +19,7 @@ import { bookableTestId } from './helpers/booking.js';
  * with another number.
  */
 
-const API = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
+const API = `${process.env.E2E_API_URL || 'http://localhost:5050'}/api`;
 const PASSWORD = 'Password123!';
 
 test.describe('a booking joins the queue at check-in', () => {

@@ -22,7 +22,7 @@ import { appointmentForm } from './helpers/booking.js';
  *   - A failed read of the bookings reads as "couldn't check", never as "nothing booked".
  */
 
-const API = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
+const API = `${process.env.E2E_API_URL || 'http://localhost:5050'}/api`;
 const PASSWORD = 'TestPass123!';
 
 /** A brand-new client with one Self Pay profile and one unpaid booking of their own. */

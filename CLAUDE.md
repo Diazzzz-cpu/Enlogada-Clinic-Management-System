@@ -26,7 +26,7 @@ Stack: React 19 (Vite, Tailwind CSS v4) frontend + Node.js/Express 5 backend + P
 ## Commands
 
 ```bash
-# Backend (port 5000)
+# Backend (port 5050; it was 5000, which other projects on this PC also use)
 cd backend
 npm run dev              # nodemon, auto-restart
 npm start                # plain node
@@ -35,7 +35,7 @@ npm start                # plain node
 cd frontend
 npm run dev
 npm run dev:lan           # the same, reachable from a phone on the Wi-Fi. Needs frontend/.env.lan
-                          # (VITE_API_BASE_URL=http://<PC's IP>:5000/api) and that page address in
+                          # (VITE_API_BASE_URL=http://<PC's IP>:5050/api) and that page address in
                           # backend CORS_ORIGINS; both are local, untracked. Google sign-in does not
                           # work from an IP address — use email and password on the phone.
 npm run build

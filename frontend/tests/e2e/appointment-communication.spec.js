@@ -22,7 +22,7 @@ import { openPortalTab } from './helpers/portal.js';
 // the reminder previously hardcoded "about 10 minutes early" while nothing else mentioned arrival
 // at all.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 test.describe('Appointment arrival policy', () => {

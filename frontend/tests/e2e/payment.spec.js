@@ -22,7 +22,7 @@ import { openPortalTab } from './helpers/portal.js';
 //    not exist at all — no Client-accessible payment endpoint, no UI. Built GET
 //    /payments/my-payments + a Payment History card on ClientDashboard.jsx.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 const RECEPTIONIST = { email: 'receptionist@enlogada.com', password: 'Password123!' };

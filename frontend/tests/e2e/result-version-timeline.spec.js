@@ -11,7 +11,7 @@ import { test, expect, request } from 'playwright/test';
 // What these guard is the pair of properties that make a superseded clinical value safe to show
 // at all: it is unmistakably marked as withdrawn, and it never reaches the printed copy.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -19,7 +19,7 @@ import { reportPart, pdfReport } from './helpers/reportFile.js';
  * OFFERED and what release SAYS it did, not what reached an inbox.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

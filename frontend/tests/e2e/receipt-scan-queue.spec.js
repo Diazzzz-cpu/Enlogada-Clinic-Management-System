@@ -26,7 +26,7 @@ import { appointmentForm, bookableTestId } from './helpers/booking.js';
 // people genuinely in front, a visit past the desk gets no estimate at all rather than a zero, and
 // the patient's screen and the receptionist's screen cannot disagree.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

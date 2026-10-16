@@ -20,7 +20,7 @@ import { test, expect, request } from 'playwright/test';
 // actually opens these in — reads the file as the system codepage, and every ñ in a patient's
 // name and every ₱ in a header renders as mojibake.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 const RANGE = { startDate: '2026-01-01', endDate: '2030-01-01' };

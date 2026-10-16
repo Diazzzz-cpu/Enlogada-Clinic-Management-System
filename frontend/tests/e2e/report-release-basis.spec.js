@@ -16,7 +16,7 @@ import { todayStr } from './helpers/dates.js';
  * correction released later adds an amendment rather than a second patient.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

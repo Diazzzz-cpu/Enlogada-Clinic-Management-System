@@ -20,7 +20,7 @@ import { signIn } from './helpers/auth.js';
  * carries this string, the confirmation email prints it, the wizard shows it.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 
 test.describe('Test preparation', () => {

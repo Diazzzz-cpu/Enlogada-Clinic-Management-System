@@ -4,7 +4,7 @@ const makeRequest = (path, method = 'GET', data = null, token = null) => {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'localhost',
-      port: 5000,
+      port: 5050,
       path,
       method,
       headers: {

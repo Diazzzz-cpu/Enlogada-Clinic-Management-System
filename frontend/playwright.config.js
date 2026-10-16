@@ -2,7 +2,7 @@
 import { defineConfig, devices } from 'playwright/test';
 
 const FRONTEND_URL = process.env.E2E_BASE_URL || 'http://localhost:5173';
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 
 export default defineConfig({
   testDir: './tests/e2e',

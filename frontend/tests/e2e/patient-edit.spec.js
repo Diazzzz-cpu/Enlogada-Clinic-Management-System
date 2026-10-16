@@ -16,7 +16,7 @@ import { fixturePerson } from './helpers/people.js';
 // the whole point — "someone edited this record" does not answer the question that gets asked
 // afterwards.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

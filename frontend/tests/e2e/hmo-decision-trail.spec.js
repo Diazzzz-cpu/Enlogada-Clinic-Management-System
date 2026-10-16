@@ -20,7 +20,7 @@ import { test, expect, request } from 'playwright/test';
 // Plus the arithmetic the cashier could not see: a test whose claim is undecided is billed at
 // full price, and a paid receipt is final [1.121.0]: taking payment now cannot be undone if the approval lands tomorrow.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

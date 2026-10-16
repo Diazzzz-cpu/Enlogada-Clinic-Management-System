@@ -13,7 +13,7 @@ import { test, expect, request } from 'playwright/test';
 // `patients:read_all_departments`. Front office holds it (their job is clinic-wide and neither
 // role implies a modality); diagnostic roles do not; a SuperAdmin can grant it per account.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

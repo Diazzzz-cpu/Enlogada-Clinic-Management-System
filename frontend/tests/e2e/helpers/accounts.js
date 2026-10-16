@@ -12,7 +12,7 @@ import { runScript } from './backendScript.js';
  * six digits are borrowed; the ticket, the limits and the account creation are the production path.
  */
 
-const API = `${process.env.E2E_API_URL || 'http://localhost:5050'}/api`;
+const API = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
 
 /** Any six digits would do. This one is easy to spot in a trace. */
 export const TEST_CODE = '246810';

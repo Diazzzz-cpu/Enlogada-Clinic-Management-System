@@ -20,7 +20,7 @@ import { docxReport, xlsxReport, csvReport, executableBytes, MIME } from './help
  * Driven through the API, like result-file-access.spec.js, because the rules live on the server.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

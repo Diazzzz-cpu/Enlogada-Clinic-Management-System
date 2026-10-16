@@ -13,7 +13,7 @@ import { appointmentForm, bookableTestId } from './helpers/booking.js';
 // design of that state — the slot you already hold stays selectable and is marked, rather than
 // appearing free like any other — is invisible to an API test.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

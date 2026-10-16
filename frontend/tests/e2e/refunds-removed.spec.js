@@ -14,7 +14,7 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
  * Reversals recorded before then stay in the cash book, which still reports them.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

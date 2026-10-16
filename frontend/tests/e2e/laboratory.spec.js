@@ -20,7 +20,7 @@ import { reportPart } from './helpers/reportFile.js';
 // Staff account was only acting on Laboratory-category visit_tests. Since fixed by Module 16 —
 // see diagnostic-result-layer.spec.js for that coverage.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 
 const RECEPTIONIST = { email: 'receptionist@enlogada.com', password: 'Password123!' };

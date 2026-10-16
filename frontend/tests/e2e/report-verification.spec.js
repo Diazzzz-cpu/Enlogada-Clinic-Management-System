@@ -16,7 +16,7 @@ import { pdfReport } from './helpers/reportFile.js';
  * into "replaced", nothing private in the answer, and the patient's copy carrying its own code.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 const CODE = /^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/;

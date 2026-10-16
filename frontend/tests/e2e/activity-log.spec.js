@@ -11,7 +11,7 @@ import { signInTo } from './helpers/auth.js';
  * "Show archived records"; never deleted, because on the clinic's database they are the only copy.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const ARCHIVE_ACTIONS = ['result.measurements_archived', 'clinic.signatory_archived', 'result.critical_flag_retired'];
 

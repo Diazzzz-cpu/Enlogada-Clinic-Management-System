@@ -16,7 +16,7 @@ import { appointmentForm, bookableTestId } from './helpers/booking.js';
 // phone, so a reschedule that reissued it would silently invalidate the thing they present at the
 // desk.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -12,7 +12,7 @@ import { reportPart } from './helpers/reportFile.js';
 // The assertions below are the ones that must never regress: the original text survives, exactly
 // one version is live, lists do not repeat a row per version, and a release tells staff.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

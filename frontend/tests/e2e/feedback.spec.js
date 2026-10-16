@@ -21,7 +21,7 @@ import { todayStr } from './helpers/dates.js';
  *   - a patient who asks for their name to be left off is left off.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

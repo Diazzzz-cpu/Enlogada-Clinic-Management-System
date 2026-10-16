@@ -16,7 +16,7 @@ import { reportPart } from './helpers/reportFile.js';
  *     file that never mentions this one. (This guard lived in ultrasound-measurements.spec.js.)
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

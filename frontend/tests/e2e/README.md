@@ -63,7 +63,7 @@ npm run dev
 npm run dev
 ```
 
-The suite assumes the frontend is reachable at `http://localhost:5173` and the backend at `http://localhost:5050` (both are this project's pinned defaults — see `frontend/vite.config.js` and `backend/.env`). Override with the `E2E_BASE_URL` / `E2E_API_URL` environment variables if your setup differs.
+The suite assumes the frontend is reachable at `http://localhost:5173` and the backend at `http://localhost:5000` (both are this project's pinned defaults — see `frontend/vite.config.js` and `backend/.env`). Override with the `E2E_BASE_URL` / `E2E_API_URL` environment variables if your setup differs.
 
 If Playwright's Chromium browser isn't installed yet: `npx playwright install chromium`.
 

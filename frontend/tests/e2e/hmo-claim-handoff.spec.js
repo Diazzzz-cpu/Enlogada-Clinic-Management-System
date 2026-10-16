@@ -18,7 +18,7 @@ import { test, expect, request } from 'playwright/test';
 // the suite runs — see tests/e2e/helpers/people.js.
 const PATIENT_SURNAME = 'Gatchalian';
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

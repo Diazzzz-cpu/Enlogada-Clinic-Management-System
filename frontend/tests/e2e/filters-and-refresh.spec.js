@@ -28,7 +28,7 @@ import { signIn } from './helpers/auth.js';
  * hours earlier with nothing on screen to say so.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -13,7 +13,7 @@ import { test, expect, request } from 'playwright/test';
 // These assert the parts that must not silently regress: the arithmetic, the ID requirement, who
 // may grant one, and that what was deducted actually reaches the register.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

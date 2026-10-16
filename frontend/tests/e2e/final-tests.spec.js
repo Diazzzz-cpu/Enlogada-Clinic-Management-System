@@ -22,7 +22,7 @@ import { nthWorkingDay } from './helpers/dates.js';
  *     portal no longer offer Cancel on one.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

@@ -23,7 +23,7 @@ import { test, expect, request } from 'playwright/test';
  * far: an admin who empties the preparation box must still be able to empty it.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const ADMIN = { email: 'admin@enlogada.com', password: 'Password123!' };
 

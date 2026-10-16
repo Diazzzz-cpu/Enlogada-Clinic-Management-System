@@ -17,7 +17,7 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
  * count beside them, a count is the number its screen shows, and an action is on screen once.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

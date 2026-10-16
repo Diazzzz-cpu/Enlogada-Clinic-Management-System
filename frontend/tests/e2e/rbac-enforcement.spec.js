@@ -11,7 +11,7 @@ import { test, expect, request } from 'playwright/test';
 // longer bypasses them — while Admin bypassed, unticking anything for Admin was a no-op, which is
 // why Admin and SuperAdmin felt like the same role.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

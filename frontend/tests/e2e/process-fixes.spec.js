@@ -26,7 +26,7 @@ import { docxReport, MIME } from './helpers/officeFiles.js';
  *   9  an unpaid online booking holding its slot for good, against "payment first"
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

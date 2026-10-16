@@ -31,7 +31,7 @@ import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
  * against the bug.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

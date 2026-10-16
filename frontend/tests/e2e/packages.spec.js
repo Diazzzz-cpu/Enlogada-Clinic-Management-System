@@ -23,7 +23,7 @@ import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
  *    existed: reception added the components one at a time and the patient paid list price.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 
 const RECEPTIONIST = { email: 'receptionist@enlogada.com', password: 'Password123!' };

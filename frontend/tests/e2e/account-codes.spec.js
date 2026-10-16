@@ -23,7 +23,7 @@ import { fixturePerson } from './helpers/people.js';
  * email; everything else here is the production path.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'TestPass123!';
 const NEW_PASSWORD = 'TestPass456!';

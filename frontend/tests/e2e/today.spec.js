@@ -17,7 +17,7 @@ import { todayStr } from './helpers/dates.js';
  * oldest few — the screen is served exactly the row under test, as front-desk.spec.js does.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

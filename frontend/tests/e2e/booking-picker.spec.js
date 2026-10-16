@@ -18,7 +18,7 @@ import { openBooking as openBookingDialog, attachDoctorRequest } from './helpers
  * by department instead of asking a patient to scroll past every blood test to reach an X-ray.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 
 /** Heights of every disclosure in the dialog — 0 when collapsed, its content height when open. */

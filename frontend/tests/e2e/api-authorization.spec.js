@@ -13,7 +13,7 @@ import { registerClient } from './helpers/accounts.js';
 // pre-existing seeded records, so this suite is deterministic and repeatable without manual
 // DB setup beyond the standard migrateDb.js -> setupRbac.js -> seedUsers.js sequence.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 
 const SUPERADMIN_EMAIL = 'admin@enlogada.com';

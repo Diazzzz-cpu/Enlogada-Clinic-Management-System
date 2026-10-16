@@ -21,7 +21,7 @@ import { reportPart } from './helpers/reportFile.js';
  * One patient, two laboratory tests: one released, one recorded and waiting for release.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

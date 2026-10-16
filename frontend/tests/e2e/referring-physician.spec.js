@@ -20,7 +20,7 @@ import { fixturePerson } from './helpers/people.js';
 // is a per-category flag, not a payer rule — and this spec is where that change would announce
 // itself.
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

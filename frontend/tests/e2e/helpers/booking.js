@@ -16,7 +16,7 @@
  * (`hmo[providerId]`), and null/undefined is left out — the same shapes BookingDialog sends.
  */
 
-const API_BASE = `${process.env.E2E_API_URL || 'http://localhost:5050'}/api`;
+const API_BASE = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
 let bookableCache;
 
 /**

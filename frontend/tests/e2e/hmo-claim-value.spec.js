@@ -20,7 +20,7 @@ import { test, expect, request } from 'playwright/test';
  *    claim column has the mirror fault — a test the HMO refused would report as billable.
  */
 
-const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5050';
+const BACKEND_URL = process.env.E2E_API_URL || 'http://localhost:5000';
 const API = `${BACKEND_URL}/api`;
 const PASSWORD = 'Password123!';
 

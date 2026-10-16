@@ -158,7 +158,7 @@ exists in the repository.
 Browser (React SPA, Vite dev server :5173)
     │  axios, Bearer JWT in Authorization header
     ▼
-Express API (:5050, /api/*)
+Express API (:5000, /api/*)
     │  routes → controllers → services → repositories
     ▼
 PostgreSQL (raw pg pool, AsyncLocalStorage transactions)
@@ -238,7 +238,7 @@ permissions[], departments }`.
 
 `frontend/src/config/api.js` (81 lines) — a single axios instance.
 
-- `baseURL`: `import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050/api'`.
+- `baseURL`: `import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'`.
   **Inlined at build time** — setting it on a server after building has no effect.
 - **Request interceptor** attaches `Authorization: Bearer <token>` from `localStorage`.
 - **Response interceptor**:

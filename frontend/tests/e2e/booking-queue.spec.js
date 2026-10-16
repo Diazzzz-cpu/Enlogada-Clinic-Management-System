@@ -2,6 +2,7 @@
 import { test, expect, request } from 'playwright/test';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
 import { nthWorkingDay } from './helpers/dates.js';
+import { bookableTestId } from './helpers/booking.js';
 
 /**
  * A booking joins today's queue when the patient checks in, not when it is made. [1.92.0]
@@ -61,7 +62,7 @@ test.describe('a booking joins the queue at check-in', () => {
     const waitingBefore = await waiting();
     const booked = await ctx.post(`${API}/appointments`, {
       headers: auth(staff),
-      data: { patientId: patient.id, scheduledDate: date, scheduledTime: slot.time },
+      data: { patientId: patient.id, scheduledDate: date, scheduledTime: slot.time, testIds: [await bookableTestId(ctx)] },
     });
     expect(booked.status(), 'the booking should be created').toBe(201);
     const { appointment } = (await booked.json()).data;

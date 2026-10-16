@@ -4,7 +4,7 @@ import { signIn } from './helpers/auth.js';
 import { openPortalTab } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { formatTime12 } from '../../src/lib/date.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, bookableTestId } from './helpers/booking.js';
 
 // The reschedule dialog, driven through the browser.
 //
@@ -46,7 +46,7 @@ test('a patient reschedules from their own booking list', async ({ page }) => {
 
   const created = await ctx.post(`${API}/appointments`, {
     headers: auth,
-    multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: free[0].time }),
+    multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: free[0].time, testIds: [await bookableTestId(ctx)] }),
   });
   expect(created.status()).toBe(201);
   const reference = (await created.json()).data.appointment.appointment_reference;

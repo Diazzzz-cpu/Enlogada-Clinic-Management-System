@@ -233,6 +233,19 @@ class HmoRepository {
     return lines.rowCount;
   }
 
+  /** The visits some visit_tests belong to, each with its status and whether it is paid. [1.124.0] */
+  async findVisitsForVisitTests(visitTestIds) {
+    const { rows } = await db.query(
+      `SELECT DISTINCT pv.id, pv.status,
+              EXISTS (SELECT 1 FROM payments pay
+                       WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid') AS is_paid
+         FROM visit_tests vt JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+        WHERE vt.id = ANY($1::int[])`,
+      [visitTestIds]
+    );
+    return rows;
+  }
+
   /** One claimed test, with its claim's visit, for deciding whether it may still be decided. */
   async findRequestTestContext(hmoRequestTestId) {
     const { rows } = await db.query(

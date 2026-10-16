@@ -54,7 +54,8 @@ export default function AppointmentsTab({ bookings }) {
 
   const renderCard = (appt) => {
     // A paid booking can be moved, not cancelled: a paid receipt is final. [1.122.0]
-    const isCancellable = (appt.status === 'Pending' || appt.status === 'Confirmed') && !appt.is_paid;
+    // Nor while a payment the patient sent is waiting to be checked. [1.124.0]
+    const isCancellable = (appt.status === 'Pending' || appt.status === 'Confirmed') && !appt.is_paid && !appt.has_pending_proof;
     const isOpen = appt.status !== 'Cancelled' && appt.status !== 'Completed';
 
     // The QR pass is issued only once the booking is PAID. [1.48.0]

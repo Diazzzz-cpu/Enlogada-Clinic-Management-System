@@ -21,6 +21,9 @@ const { PUBLISHABLE_METHODS } = require('../constants/paymentMethods');
  * @param {string} kind
  * @throws {Error} 400 naming what IS offered and why Cash is not.
  */
+/** Text from a request, trimmed; anything that is not text is treated as not given. [1.124.0] */
+const text = (v) => (typeof v === 'string' ? v.trim() : undefined);
+
 function assertPublishableKind(kind) {
   if (PUBLISHABLE_METHODS.includes(String(kind || '').trim())) return;
 
@@ -45,7 +48,7 @@ class PaymentMethodService {
   }
 
   async create(data, actor) {
-    if (!data.kind?.trim() || !data.label?.trim()) {
+    if (typeof data.kind !== 'string' || typeof data.label !== 'string' || !data.kind.trim() || !data.label.trim()) {
       const error = new Error('A payment method needs a kind and a label.');
       error.statusCode = 400;
       throw error;
@@ -60,7 +63,7 @@ class PaymentMethodService {
     // patient screen saying "Send ₱1,450.00 to the…" above an account number that cannot exist.
     assertPublishableKind(data.kind);
     // An account with no number is not a way to pay; it is a way to lose a patient's money.
-    if (!data.accountNumber?.trim()) {
+    if (!text(data.accountNumber)) {
       const error = new Error('An account or mobile number is required — it is what the patient pays into.');
       error.statusCode = 400;
       throw error;
@@ -69,10 +72,10 @@ class PaymentMethodService {
     const method = await paymentMethodRepository.create({
       kind: data.kind.trim(),
       label: data.label.trim(),
-      accountName: data.accountName?.trim(),
-      accountNumber: data.accountNumber.trim(),
-      bankName: data.bankName?.trim(),
-      instructions: data.instructions?.trim(),
+      accountName: text(data.accountName),
+      accountNumber: text(data.accountNumber),
+      bankName: text(data.bankName),
+      instructions: text(data.instructions),
       sortOrder: data.sortOrder,
     });
 

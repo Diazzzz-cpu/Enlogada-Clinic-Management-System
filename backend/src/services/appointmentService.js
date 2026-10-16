@@ -1,5 +1,6 @@
 const paymentMethodRepository = require('../repositories/paymentMethodRepository');
 const paymentRepository = require('../repositories/paymentRepository');
+const paymentSubmissionRepository = require('../repositories/paymentSubmissionRepository');
 const db = require('../config/database');
 const { formatTime12 } = require('../constants/clockFormat');
 const { isStaffUser } = require('../constants/roles');
@@ -34,36 +35,78 @@ async function assertClientOwnsPatient(requestingUser, patientId) {
 }
 
 function timeToMinutes(timeStr) {
-  const [h, m] = timeStr.split(':').map(Number);
+  const [h, m] = String(timeStr).split(':').map(Number);
   return h * 60 + m;
 }
 
+/** How far ahead the clinic takes bookings. [1.124.0] A probe booked a date five years out. */
+const BOOKING_HORIZON_DAYS = 365;
+
 /**
- * Is this date/time a slot the clinic actually offers? Returns that day's operating hours, which
- * the caller needs anyway for the capacity ceiling.
+ * What the clinic offers on one date: the weekly pattern, with that date's override over it. [1.124.0]
+ *
+ * The ONE answer to "is this a time the clinic offers", shared by the availability screen, booking
+ * and rescheduling. Booking used to check the weekly pattern alone, while the screen read the
+ * override too: a date the clinic had CLOSED could still be booked through the API, and a date's
+ * changed hours or capacity applied to what the patient was shown but not to what was accepted.
+ * `??` throughout, as before: an override's NULL means "the weekday's answer", and a capacity of 0
+ * is a real value.
+ *
+ * @returns {Promise<{isOpen: boolean, note: string|null, openMinutes?: number, closeMinutes?: number,
+ *   interval?: number, maxConcurrent?: number}>}
+ */
+async function resolveDay(date) {
+  const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const hours = await scheduleRepository.findOperatingHoursForDay(dayOfWeek);
+  const override = await scheduleRepository.findOverrideForDate(date);
+  const isOpen = override ? override.is_open : Boolean(hours?.is_open);
+  const note = override?.note || null;
+  if (!hours || !isOpen) return { isOpen: false, note };
+  return {
+    isOpen: true,
+    note,
+    openMinutes: timeToMinutes(override?.open_time ?? hours.open_time),
+    closeMinutes: timeToMinutes(override?.close_time ?? hours.close_time),
+    interval: override?.slot_interval_minutes ?? hours.slot_interval_minutes,
+    maxConcurrent: override?.max_concurrent_bookings ?? hours.max_concurrent_bookings,
+  };
+}
+
+/**
+ * Is this date/time a slot the clinic actually offers? Returns the capacity ceiling the caller
+ * needs, as `max_concurrent_bookings`.
  *
  * Shared by booking and rescheduling because the two must agree. A reschedule that skipped this
  * would let a patient move a booking to a Sunday, or to 19:00 — through a UI that never offered
  * either, but the API is reachable directly and the check is the only thing that makes the
- * availability screen more than a suggestion.
+ * availability screen more than a suggestion. [1.124.0] It now asks `resolveDay`, so it also
+ * refuses a closed DATE, a time off the slot grid (09:07 was accepted) and a time already gone.
  */
-
 async function assertSlotWithinOperatingHours(scheduledDate, scheduledTime) {
-  const dayOfWeek = new Date(`${scheduledDate}T12:00:00Z`).getUTCDay();
-  const hours = await scheduleRepository.findOperatingHoursForDay(dayOfWeek);
-
-  if (!hours || !hours.is_open) {
-    const error = new Error('The clinic is closed on the selected date.');
-    error.statusCode = 409;
+  const fail = (message, statusCode = 409) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
     throw error;
+  };
+  if (!/^([01]\d|2[0-3]):[0-5]\d(:00)?$/.test(String(scheduledTime || ''))) {
+    fail('Choose one of the times offered.', 400);
   }
-  const requestedMinutes = timeToMinutes(scheduledTime);
-  if (requestedMinutes < timeToMinutes(hours.open_time) || requestedMinutes >= timeToMinutes(hours.close_time)) {
-    const error = new Error('The selected time is outside clinic operating hours.');
-    error.statusCode = 409;
-    throw error;
+  const day = await resolveDay(scheduledDate);
+  if (!day.isOpen) {
+    fail(day.note ? `The clinic is closed on the selected date: ${day.note}.` : 'The clinic is closed on the selected date.');
   }
-  return hours;
+  const requested = timeToMinutes(scheduledTime);
+  if (requested < day.openMinutes || requested >= day.closeMinutes) {
+    fail('The selected time is outside clinic operating hours.');
+  }
+  if ((requested - day.openMinutes) % day.interval !== 0) {
+    fail(`Choose one of the times offered: appointments start every ${day.interval} minutes from ${minutesToTime(day.openMinutes)}.`, 400);
+  }
+  if (scheduledDate === todayLocalDateString()) {
+    const now = new Date();
+    if (requested <= now.getHours() * 60 + now.getMinutes()) fail('That time has already passed today. Choose a later time.');
+  }
+  return { max_concurrent_bookings: day.maxConcurrent };
 }
 
 // appointments.reschedule_reason is VARCHAR(500). [1.105.0]
@@ -115,6 +158,21 @@ function todayLocalDateString() {
  */
 function assertNotInThePast(scheduledDate, verb = 'Book') {
   const today = todayLocalDateString();
+  // [1.124.0] A real calendar date, and not beyond the booking horizon.
+  const real = /^\d{4}-\d{2}-\d{2}$/.test(String(scheduledDate || ''))
+    && formatDateOnly(new Date(`${scheduledDate}T12:00:00`)) === scheduledDate;
+  if (!real) {
+    const error = new Error('Choose a real date.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + BOOKING_HORIZON_DAYS);
+  if (scheduledDate > formatDateOnly(horizon)) {
+    const error = new Error(`${verb} a date within the next ${BOOKING_HORIZON_DAYS} days.`);
+    error.statusCode = 400;
+    throw error;
+  }
   if (scheduledDate < today) {
     const error = new Error(
       `${verb} a date from today onwards. ${scheduledDate} has already passed.`
@@ -151,6 +209,16 @@ async function assertNotPaid(appointment) {
     error.statusCode = 409;
     throw error;
   }
+  // [1.124.0] Nor while a payment the patient sent is waiting to be checked: the money has already
+  // left their account, and a cancelled booking cannot be paid, so verifying it afterwards would
+  // be refused and the clinic would hold money with no receipt for it.
+  if (await paymentSubmissionRepository.findPendingForVisit(appointment.patient_visit_id)) {
+    const error = new Error(
+      "A payment for this booking is waiting to be checked, so it can't be cancelled now. Move it to another day instead."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 }
 
 class AppointmentService {
@@ -178,37 +246,35 @@ class AppointmentService {
       return { date, isOpen: false, slots: [] };
     }
 
-    const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
-    const hours = await scheduleRepository.findOperatingHoursForDay(dayOfWeek);
+    // Past the booking horizon, or not a date at all: nothing to offer. [1.124.0]
+    const horizon = new Date();
+    horizon.setDate(horizon.getDate() + BOOKING_HORIZON_DAYS);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || date > formatDateOnly(horizon)) {
+      return { date, isOpen: false, slots: [], note: `Bookings open up to ${BOOKING_HORIZON_DAYS} days ahead.` };
+    }
 
     // ── What the clinic has said about THIS date, over the weekly pattern [1.57.0] ───────────
     //
     // The pattern cannot express "not this Thursday". Before overrides, a Holy Week closure or a
     // day with one sonographer instead of two had to be handled by telephoning every patient who
-    // took a slot the clinic could not honour.
-    //
-    // Every field on an override is nullable and NULL means "keep the weekday's answer", so
-    // closing a day is one row saying is_open=false and nothing else. `??` rather than `||`
-    // throughout: a deliberate capacity of 0 is a real value and `||` would silently discard it
-    // in favour of the weekday's.
-    const override = await scheduleRepository.findOverrideForDate(date);
-
-    const isOpen = override ? override.is_open : Boolean(hours?.is_open);
-    if (!hours || !isOpen) {
+    // took a slot the clinic could not honour. `resolveDay` is the same answer booking and
+    // rescheduling check against. [1.124.0]
+    const day = await resolveDay(date);
+    if (!day.isOpen) {
       return {
         date,
         isOpen: false,
         slots: [],
         // Why, when the clinic has said. A closed day with no reason reads as a broken website;
         // "Closed — Holy Week" reads as a clinic that is shut.
-        note: override?.note || null,
+        note: day.note,
       };
     }
 
-    const openMinutes = timeToMinutes(override?.open_time ?? hours.open_time);
-    const closeMinutes = timeToMinutes(override?.close_time ?? hours.close_time);
-    const interval = override?.slot_interval_minutes ?? hours.slot_interval_minutes;
-    const maxConcurrent = override?.max_concurrent_bookings ?? hours.max_concurrent_bookings;
+    const openMinutes = day.openMinutes;
+    const closeMinutes = day.closeMinutes;
+    const interval = day.interval;
+    const maxConcurrent = day.maxConcurrent;
 
     const bookings = await scheduleRepository.countBookingsByTimeForDate(date);
     const bookedCounts = {};
@@ -230,7 +296,7 @@ class AppointmentService {
 
     // `note` rides along on an OPEN day too: "Half day — staff training" is exactly the sort of
     // thing a patient should read before choosing a time, not after arriving.
-    return { date, isOpen: true, slots, note: override?.note || null };
+    return { date, isOpen: true, slots, note: day.note };
   }
 
   // Books an appointment and everything that belongs to it in ONE transaction.
@@ -257,6 +323,14 @@ class AppointmentService {
       // Inside the try, though it runs before the transaction: multer has already written the card
       // by the time this method is entered, so a 403 here would otherwise leave it on disk forever.
       await assertClientOwnsPatient(requestingUser, patientId);
+
+      // [1.124.0] A booking is for something. A probe booked with no tests: a slot taken, a visit
+      // with nothing to do or to charge. The booking screen already required one.
+      if ((testIds || []).length === 0 && (packageIds || []).length === 0) {
+        const error = new Error('Choose at least one test or package to book.');
+        error.statusCode = 400;
+        throw error;
+      }
 
       // The same rule the front desk applies when it registers a walk-in: a 'Private' patient is
       // by definition one a physician referred, so the booking has to say who. It was enforced at
@@ -318,6 +392,18 @@ class AppointmentService {
           { patientId, scheduledDate, scheduledTime }
         );
         if (existing) {
+          // [1.124.0] A re-sent booking ADDS its tests to the one already made, and that one may
+          // be paid: the tests went on a settled visit nobody would charge for, which [1.55.0]
+          // closed at the Desk and this path still allowed.
+          if (await paymentRepository.hasPaidPayment(existing.patient_visit_id)) {
+            const onIt = new Set((await testRepository.findTestsByVisitId(existing.patient_visit_id)).map((t) => t.test_id));
+            const adding = packageIds.length > 0 || testIds.some((id) => !onIt.has(parseInt(id, 10)));
+            if (adding) {
+              const error = new Error('This booking has already been paid, so its tests are final. Book another day for the extra tests.');
+              error.statusCode = 409;
+              throw error;
+            }
+          }
           let visitTests;
           if (packageIds.length) {
             await packageService.attachPackages(existing.patient_visit_id, packageIds);
@@ -771,6 +857,26 @@ class AppointmentService {
       error.statusCode = 404;
       throw error;
     }
+    // [1.124.0] What a person may do to a booking by hand: check it in, or mark it a no-show.
+    // A probe CHECKED IN A CANCELLED booking (a ticket in today's queue for a visit nobody owes
+    // anything on). Cancelled, No Show and Completed are final; cancelling has its own route.
+    const refuse = (message) => {
+      const error = new Error(message);
+      error.statusCode = 409;
+      throw error;
+    };
+    if (['Cancelled', 'No Show', 'Completed'].includes(appointment.status)) {
+      refuse(`This booking is ${appointment.status === 'No Show' ? 'marked a no-show' : appointment.status.toLowerCase()}, so it can no longer change.`);
+    }
+    if (!['Confirmed', 'No Show', 'Cancelled'].includes(status)) {
+      refuse('A booking can be checked in, marked a no-show or cancelled.');
+    }
+    const bookedFor = formatDateOnly(appointment.scheduled_date);
+    const today = todayLocalDateString();
+    if (status === 'No Show') {
+      if (appointment.status === 'Confirmed') refuse('This patient has already been checked in, so they are not a no-show.');
+    }
+
     // The same rule as cancelAppointment, on the route that can also set Cancelled. [1.122.0]
     if (status === 'Cancelled') await assertNotPaid(appointment);
     // A paid booking is moved, not written off as a no-show. [1.123.0] With no refunds, No Show
@@ -782,6 +888,9 @@ class AppointmentService {
       );
       error.statusCode = 409;
       throw error;
+    }
+    if (status === 'No Show' && bookedFor > today) {
+      refuse(`This booking is for ${bookedFor}. It can be marked a no-show from that day.`);
     }
     // Checking a patient in is only meaningful against the booking the receptionist just looked
     // at. Passing the status they read makes this a compare-and-swap against a reschedule landing
@@ -802,6 +911,14 @@ class AppointmentService {
         : await appointmentRepository.updateAppointmentStatus(id, status);
       if (row && status === 'Confirmed' && appointment.status !== 'Confirmed') {
         joined = await visitRepository.joinTodaysQueue(appointment.patient_visit_id);
+        // [1.124.0] Checked in on another day than the booking's: the patient is seen today, so
+        // the booking is today's. Left alone, it was served today AND still held its own date's
+        // slot, and the portal kept showing that date.
+        if (bookedFor !== today) {
+          await appointmentRepository.moveToTodayAtCheckIn(
+            id, `Checked in on ${today}; the booking was for ${bookedFor}.`
+          );
+        }
       }
       return row;
     });

@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge';
 import DataBadge from '../ui/data-badge';
 import { StatusBadge } from '../ui/status-badge';
 import QrScanner from '../QrScanner';
-import { ageFromBirthdate, formatAppointmentDate, formatTime12 } from '../../lib/date';
+import { ageFromBirthdate, formatAppointmentDate, formatTime12, toDateInput, todayStr } from '../../lib/date';
 
 /** A booking reference as the clinic issues it: `APT-` and hex digits (appointmentRepository). */
 const REFERENCE = /^apt-?[0-9a-f]{2,}$/i;
@@ -320,6 +320,11 @@ function BookingCard({ booking, checkIn, disposition, can }) {
   // button appears only when there is one. Shown in place, not in a dialog, so the card's
   // own actions stay in view.
   const [showRequest, setShowRequest] = useState(false);
+  // [1.124.0] What the server will accept, so the card offers nothing it would refuse.
+  const bookedFor = toDateInput(new Date(booking.scheduled_date));
+  const today = todayStr();
+  const over = ['Cancelled', 'No Show', 'Completed'].includes(booking.status);
+  const canNoShow = !booking.is_paid && booking.status === 'Pending' && bookedFor <= today;
   return (
     <div data-testid="booking-card" className="mt-3 space-y-3 rounded-xl border border-line bg-slate-50/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -344,7 +349,19 @@ function BookingCard({ booking, checkIn, disposition, can }) {
       {/* Payment is the other half of the release rule, so the desk sees it before checking anyone
           in — otherwise the patient is checked in, nothing reaches the department, and nobody
           knows why. */}
-      {!booking.is_paid && (
+      {over && (
+        <p role="note" className="m-0 rounded-lg border border-line bg-white p-2 text-fine text-slate-700">
+          This booking is {booking.status === 'No Show' ? 'marked a no-show' : booking.status.toLowerCase()}, so it can&apos;t be checked in.
+          Register the patient as a walk-in instead.
+        </p>
+      )}
+      {!over && bookedFor !== today && (
+        <p role="note" data-testid="booking-other-day" className="alert alert-info m-0 text-fine">
+          This booking is for {formatAppointmentDate(booking.scheduled_date)}, not today. Checking in moves it to
+          today and frees that day&apos;s slot.
+        </p>
+      )}
+      {!over && !booking.is_paid && (
         <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 p-2 text-fine text-amber-800">
           This booking has no confirmed payment yet. You can still check the patient in, but the
           ticket reaches the department only once the cashier confirms payment.
@@ -352,7 +369,7 @@ function BookingCard({ booking, checkIn, disposition, can }) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {can.checkIn && (
+        {can.checkIn && !over && (
           <Button type="button" onClick={() => checkIn.request('appointment', booking)}>
             <UserCheck className="h-4 w-4" />
             Confirm Check-In Patient
@@ -377,8 +394,9 @@ function BookingCard({ booking, checkIn, disposition, can }) {
             {showRequest ? "Hide doctor's request / notes" : "View doctor's request / notes"}
           </Button>
         )}
-        {/* A paid booking is moved, not written off as a no-show. [1.123.0] */}
-        {can.checkIn && !booking.is_paid && (
+        {/* A paid booking is moved, not written off as a no-show. [1.123.0] Nor is one already
+            checked in, or one whose day has not come yet. [1.124.0] */}
+        {can.checkIn && canNoShow && (
           <Button
             type="button"
             variant="ghost"

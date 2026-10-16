@@ -163,7 +163,7 @@ class AppointmentRepository {
       WHERE pv.patient_id = $1
         AND a.scheduled_date = $2
         AND a.scheduled_time = $3
-        AND a.status <> 'Cancelled'
+        AND a.status IN ('Pending', 'Confirmed')
       LIMIT 1
     `;
     const result = await client.query(queryText, [patientId, scheduledDate, scheduledTime]);
@@ -197,6 +197,12 @@ class AppointmentRepository {
                SELECT 1 FROM payments pay
                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
              ) AS is_paid,
+             -- [1.124.0] A payment the patient sent that nobody has checked yet: the booking can
+             -- be moved but not cancelled until it is, so the portal hides Cancel.
+             EXISTS (
+               SELECT 1 FROM payment_submissions ps
+               WHERE ps.patient_visit_id = pv.id AND ps.status = 'Pending'
+             ) AS has_pending_proof,
              -- The receipt for money already taken, so the pass and the receipt travel together.
              -- [1.52.0] A patient who has paid holds two things that belong side by side: the pass
              -- they present at the desk, and proof of what they paid. They lived on separate
@@ -422,6 +428,22 @@ class AppointmentRepository {
   // sweep only considers rows where it is NULL, so a booking reminded for tomorrow and then moved
   // was never reminded again — the exact no-show the reminder exists to prevent. Cleared
   // unconditionally: a move that keeps the date and changes only the time still needs a new one.
+  /**
+   * A booking checked in on another day than its own is moved to today. [1.124.0] Its old date's
+   * slot is freed, and the patient's portal shows the day they were actually seen.
+   */
+  async moveToTodayAtCheckIn(id, reason) {
+    const { rows } = await db.query(
+      `UPDATE appointments
+          SET scheduled_date = CURRENT_DATE, reschedule_reason = $2,
+              rescheduled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND scheduled_date <> CURRENT_DATE
+        RETURNING *`,
+      [id, reason]
+    );
+    return rows[0];
+  }
+
   async updateSchedule(id, { scheduledDate, scheduledTime, reason }) {
     const queryText = `
       UPDATE appointments

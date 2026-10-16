@@ -46,6 +46,13 @@ export const UNMAPPED_CATEGORY_COLOR = '#94a3b8';
  */
 export const CATEGORY_ORDER = ['Laboratory', 'Ultrasound', 'Xray', 'ECG'];
 
+/**
+ * The departments the clinic runs, where a service may be offered. [1.124.0] Mirrors
+ * DIAGNOSTIC_CATEGORIES in backend/src/constants/modality.js, which refuses an active service
+ * anywhere else; change both together. ECG is history only.
+ */
+export const OFFERED_CATEGORIES = ['Laboratory', 'Ultrasound', 'Xray'];
+
 // Pale tile + saturated glyph, for an icon beside a heading. Kept as Tailwind classes rather
 // than derived from the hex, because an opacity variant of the mark colour is exactly the
 // "five different pale greens on one screen" problem the design notes warn about.

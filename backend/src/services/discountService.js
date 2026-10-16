@@ -1,5 +1,6 @@
 const discountRepository = require('../repositories/discountRepository');
 const visitRepository = require('../repositories/visitRepository');
+const patientRepository = require('../repositories/patientRepository');
 const paymentRepository = require('../repositories/paymentRepository');
 const auditService = require('./auditService');
 // Aliased on import. A class method and a module function of the same name do not actually
@@ -140,11 +141,29 @@ class DiscountService {
 
     // The ID number is the evidence that the entitlement was checked. Without it a statutory
     // discount is an unsupported deduction, which is precisely what an audit looks for.
-    const trimmedId = (idNumber || '').trim();
+    const trimmedId = (typeof idNumber === 'string' ? idNumber : '').trim();
     if (discount.requires_id && !trimmedId) {
       throw new ValidationError(
         `A ${discount.name} discount requires the holder's ID number (OSCA/PWD ID) to be recorded.`
       );
+    }
+
+    // [1.124.0] The Senior Citizen discount is for patients 60 and over (RA 9994), and the
+    // record says how old this one is. A probe granted it to an 11-year-old: an ID number was
+    // typed, and nothing compared it with the birthdate on file. PWD carries no age rule.
+    if (/senior/i.test(discount.name)) {
+      const patient = await patientRepository.findPatientById(visit.patient_id);
+      const born = patient?.birthdate ? new Date(patient.birthdate) : null;
+      if (born) {
+        const now = new Date();
+        let age = now.getFullYear() - born.getFullYear();
+        if (now.getMonth() < born.getMonth() || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())) age -= 1;
+        if (age < 60) {
+          throw new ValidationError(
+            `The ${discount.name} discount is for patients 60 and over, and this patient's record says ${age}. If the birthdate is wrong, correct it on the patient's record first.`
+          );
+        }
+      }
     }
 
     const applied = await discountRepository.applyToVisit(visitId, {

@@ -30,6 +30,18 @@ const bad = (message) => {
   throw error;
 };
 
+/** A real calendar date, YYYY-MM-DD. [1.124.0] 2026-02-30 used to reach the database. */
+const isRealDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+};
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 /** HH:MM or HH:MM:SS, and open must precede close. Both or neither. */
 function normaliseTimes(openTime, closeTime, { required }) {
   const has = (v) => v !== undefined && v !== null && v !== '';
@@ -163,7 +175,7 @@ class ScheduleService {
   async listOverrides(from) {
     // A null start means CURRENT_DATE, decided by Postgres. Computing "today" in JavaScript here
     // would give the UTC date, which is yesterday in PHT for the first eight hours of every day.
-    const start = /^\d{4}-\d{2}-\d{2}$/.test(from || '') ? from : null;
+    const start = isRealDate(String(from || '')) ? from : null;
     return await scheduleRepository.findOverridesFrom(start);
   }
 
@@ -176,8 +188,12 @@ class ScheduleService {
    * so the count of affected bookings comes back with the result and the screen says it.
    */
   async setOverride(payload, actor) {
-    const date = (payload.date || '').trim();
+    const date = (typeof payload.date === 'string' ? payload.date : '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) bad('Give a date as YYYY-MM-DD.');
+    // [1.124.0] A real date, from today on. A probe saved an override for a day already past,
+    // which changes nothing anyone can act on and reads on the schedule as if it had.
+    if (!isRealDate(date)) bad('That is not a real date.');
+    if (date < localToday()) bad('That date has already passed. Choose today or a later date.');
 
     const isOpen = payload.isOpen !== false;
     const { openTime, closeTime } = normaliseTimes(payload.openTime, payload.closeTime, { required: false });
@@ -227,7 +243,7 @@ class ScheduleService {
 
   /** The bookings a date's override leaves without a slot, for moving them one by one. [1.123.0] */
   async listAffectedBookings(date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) bad('Give a date as YYYY-MM-DD.');
+    if (!isRealDate(String(date || ''))) bad('Give a real date as YYYY-MM-DD.');
     const override = await scheduleRepository.findOverrideForDate(date);
     if (!override) return [];
     if (!override.is_open) return scheduleRepository.findBookingsOnDate(date);
@@ -236,6 +252,7 @@ class ScheduleService {
   }
 
   async removeOverride(date, actor) {
+    if (!isRealDate(String(date || ''))) bad('That is not a real date.');
     const removed = await scheduleRepository.deleteOverride(date);
     if (!removed) {
       const error = new Error('There is no override for that date.');

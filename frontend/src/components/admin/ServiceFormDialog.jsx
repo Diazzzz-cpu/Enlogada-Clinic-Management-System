@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { OFFERED_CATEGORIES } from '../../lib/categories';
 
 /**
  * Adding or editing a service.
@@ -55,9 +56,13 @@ export default function ServiceFormDialog({ catalogue }) {
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {catalogue.categories.map(cat => (
+                  {/* Only the departments the clinic runs, plus the one a service being edited is
+                      already in, so an old ECG entry still shows where it is. [1.124.0] */}
+                  {catalogue.categories
+                    .filter(cat => OFFERED_CATEGORIES.includes(cat.name) || String(cat.id) === String(catalogue.form.categoryId))
+                    .map(cat => (
                     <SelectItem key={cat.id} value={cat.id.toString()}>{cat.name}</SelectItem>
-                  ))}
+                    ))}
                 </SelectContent>
               </Select>
             </div>

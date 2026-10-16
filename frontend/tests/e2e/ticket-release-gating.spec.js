@@ -257,7 +257,17 @@ test.describe('Online appointment gating (API)', () => {
     labToken = await loginAs(apiContext, LAB_STAFF);
   });
 
+  // Cancel what this file booked and left unpaid. [1.124.0] The check-in test leaves the seeded
+  // client's patient checked in and unpaid, which is waiting in today's queue: the next spec to
+  // open a walk-in for that patient is then (rightly) refused a second unpaid visit. A paid
+  // booking cannot be cancelled and is not in the way, so its 409 is expected.
+  const made = [];
   test.afterAll(async () => {
+    for (const appointment of made) {
+      await apiContext.put(`${API}/appointments/${appointment.id}/cancel`, {
+        headers: { Authorization: `Bearer ${clientToken}` },
+      });
+    }
     await apiContext.dispose();
   });
 
@@ -269,6 +279,8 @@ test.describe('Online appointment gating (API)', () => {
   // because a dev database with the slot cap lifted (cleanE2eData.js --unlimited-slots) reports
   // every slot as available however many bookings it holds.
   const claimedSlots = new Set();
+  // The next working-day offset a booking may use; each booking moves it on. [1.124.0]
+  let gatingDay = 170;
 
   async function createOnlineBooking() {
     const profilesRes = await apiContext.get(`${API}/patients/my-profiles`, {
@@ -305,39 +317,43 @@ test.describe('Online appointment gating (API)', () => {
     //
     // 170 is clear of the 120-151 band the other booking specs already claim. The probe is kept
     // in case that exact date carries a schedule override, but it starts somewhere quiet.
+    // Each booking on a day of its own [1.124.0]: a patient holds one booking a day, and all three
+    // tests book this same seeded client.
     let avail = null;
     for (let ahead = 0; ahead <= 7 && !avail?.isOpen; ahead += 1) {
       const availRes = await apiContext.get(`${API}/appointments/availability`, {
         headers: { Authorization: `Bearer ${clientToken}` },
-        params: { date: nthWorkingDay(170 + ahead) }
+        params: { date: nthWorkingDay(gatingDay + ahead) }
       });
       avail = (await availRes.json()).data;
+      if (avail?.isOpen) gatingDay += ahead + 1;
     }
     expect(avail?.isOpen, 'no open day in the next week — check clinic_operating_hours').toBe(true);
     const slot = avail.slots.find((s) => s.available && !claimedSlots.has(s.time));
     test.skip(!slot, 'No available slot to book.');
     claimedSlots.add(slot.time);
 
+    const testsRes = await apiContext.get(`${API}/tests`);
+    const labTest = (await testsRes.json()).data.tests.find((t) => t.category_name === 'Laboratory');
+
     const apptRes = await apiContext.post(`${API}/appointments`, {
       headers: { Authorization: `Bearer ${clientToken}` },
-      // A patient's booking carries the doctor's signed request. [1.106.0]
+      // A patient's booking carries the doctor's signed request [1.106.0], and its test: a
+      // booking with none is refused [1.124.0].
       multipart: appointmentForm({
         patientId: profiles[0].id,
         scheduledDate: avail.date,
         scheduledTime: slot.time,
-        notes: 'gating spec'
+        notes: 'gating spec',
+        testIds: [labTest.id]
       })
     });
-    const appointment = (await apptRes.json()).data.appointment;
+    expect(apptRes.status(), 'the online booking').toBe(201);
+    const booked = (await apptRes.json()).data;
+    const appointment = booked.appointment;
+    const visitTestId = booked.visitTests[0].id;
 
-    const testsRes = await apiContext.get(`${API}/tests`);
-    const labTest = (await testsRes.json()).data.tests.find((t) => t.category_name === 'Laboratory');
-    const vtRes = await apiContext.post(`${API}/tests/visit-tests`, {
-      headers: { Authorization: `Bearer ${clientToken}` },
-      data: { patientVisitId: appointment.patient_visit_id, testIds: [labTest.id] }
-    });
-    const visitTestId = (await vtRes.json()).data.visitTests[0].id;
-
+    made.push(appointment);
     return { appointment, visitTestId };
   }
 

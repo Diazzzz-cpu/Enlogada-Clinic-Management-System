@@ -1,6 +1,13 @@
 const patientRepository = require('../repositories/patientRepository');
 const userRepository = require('../repositories/userRepository');
 const auditService = require('./auditService');
+const { normalisePatientFields } = require('../validations/patientFields');
+
+/** The clinic's local date, YYYY-MM-DD. */
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 /**
  * Which columns an edit may touch, and what to call them in the log.
@@ -95,7 +102,7 @@ class PatientService {
   async addPatientProfile(userId, patientData) {
     return await patientRepository.createPatient({
       userId,
-      ...patientData,
+      ...normalisePatientFields(patientData, localToday()),
       email: normaliseEmail(patientData.email),
     });
   }
@@ -152,7 +159,7 @@ class PatientService {
       ? (before.email ?? null)
       : normaliseEmail(patientData.email);
 
-    const updated = await patientRepository.updatePatient(id, { ...patientData, email });
+    const updated = await patientRepository.updatePatient(id, { ...normalisePatientFields(patientData, localToday()), email });
 
     // Audited with a field-level diff, not a bare "patient updated". [1.24.0]
     //
@@ -186,7 +193,7 @@ class PatientService {
    * single letter matches most of a roster and is a scan wearing a search box.
    */
   async searchPatients(query, requestingUser, { from, to, includeArchived, page, limit } = {}) {
-    const trimmed = (query || '').trim();
+    const trimmed = (typeof query === 'string' ? query : '').trim();
     if (trimmed && trimmed.length < 2) {
       const error = new Error('Search for at least 2 characters, or clear the box to browse.');
       error.statusCode = 400;

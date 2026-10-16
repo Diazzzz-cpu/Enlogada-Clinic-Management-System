@@ -16,6 +16,24 @@
  * (`hmo[providerId]`), and null/undefined is left out — the same shapes BookingDialog sends.
  */
 
+const API_BASE = `${process.env.E2E_API_URL || 'http://localhost:5000'}/api`;
+let bookableCache;
+
+/**
+ * An active Laboratory test to put on a booking. [1.124.0] A booking with no tests is refused
+ * now, as the booking screen always required; specs that only need "a booking" book this one.
+ *
+ * @param {import('playwright/test').APIRequestContext} ctx
+ * @returns {Promise<number>}
+ */
+export async function bookableTestId(ctx) {
+  if (!bookableCache) {
+    const tests = (await (await ctx.get(`${API_BASE}/tests`)).json()).data.tests;
+    bookableCache = tests.find((t) => t.category_name === 'Laboratory' && t.is_active).id;
+  }
+  return bookableCache;
+}
+
 /** A 1x1 PNG: genuinely an image, so the server's mime filter sees a real one. */
 export const DOCTOR_REQUEST_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',

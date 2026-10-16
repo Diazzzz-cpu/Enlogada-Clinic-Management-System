@@ -5,6 +5,7 @@ const visitRepository = require('../repositories/visitRepository');
 const patientService = require('./patientService');
 const auditService = require('./auditService');
 const paymentRepository = require('../repositories/paymentRepository');
+const { DIAGNOSTIC_CATEGORIES } = require('../constants/modality');
 
 // Mirrors appointmentService.js's assertClientOwnsPatient exactly. POST /tests/visit-tests
 // authorizes the Client role (for self-service booking) but previously performed no ownership
@@ -42,8 +43,54 @@ class TestService {
     return test;
   }
 
+  /**
+   * A service's name and price, checked wherever either is set. [1.124.0] A probe created a test
+   * named three spaces (it appeared on the public Services page as a blank card), and a negative
+   * or worded price reached the database as a 500.
+   */
+  checkTestFields({ name, price }, { required = false } = {}) {
+    const refuse = (message) => {
+      const error = new Error(message);
+      error.statusCode = 400;
+      throw error;
+    };
+    if (name !== undefined || required) {
+      if (typeof name !== 'string' || !name.trim()) refuse('A service needs a name.');
+      if (name.trim().length > 150) refuse('That name is too long.');
+    }
+    if (price !== undefined || required) {
+      const n = Number(price);
+      if (price === null || price === '' || !Number.isFinite(n) || n < 0 || n > 1_000_000) {
+        refuse('Price must be a number from 0 to 1,000,000.');
+      }
+    }
+  }
+
+  /**
+   * An offered service belongs to a department the clinic runs. [1.124.0] ECG keeps its category
+   * row for history ([1.47.0]) but is not offered, and a probe added an active test to it: ECG
+   * came back on the patient's booking picker as a department of one nameless test. A retired
+   * service may sit there; an active one may not.
+   */
+  async assertOfferedDepartment(categoryId, isActive) {
+    if (isActive === false) return;
+    const category = (await testRepository.findAllCategories()).find((c) => c.id === Number(categoryId));
+    if (!category) {
+      const error = new Error('That department does not exist.');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!DIAGNOSTIC_CATEGORIES.includes(category.name)) {
+      const error = new Error(`The clinic does not offer ${category.name}, so a service there cannot be active.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   async createTest(testData) {
-    return await testRepository.createTest(testData);
+    this.checkTestFields(testData, { required: true });
+    await this.assertOfferedDepartment(testData.categoryId, testData.isActive);
+    return await testRepository.createTest({ ...testData, name: testData.name.trim() });
   }
 
   /**
@@ -72,8 +119,14 @@ class TestService {
       error.statusCode = 404;
       throw error;
     }
+    this.checkTestFields(testData);
+    await this.assertOfferedDepartment(
+      testData.categoryId ?? existing.category_id,
+      testData.isActive === undefined ? existing.is_active : testData.isActive
+    );
     return await testRepository.updateTest(id, {
       ...testData,
+      ...(typeof testData.name === 'string' ? { name: testData.name.trim() } : {}),
       preparation: testData.preparation === undefined ? existing.preparation : testData.preparation,
       isActive: testData.isActive === undefined ? existing.is_active : testData.isActive,
     });
@@ -84,6 +137,12 @@ class TestService {
     if (!existing) {
       const error = new Error('Test not found');
       error.statusCode = 404;
+      throw error;
+    }
+    this.checkTestFields({ price }, { required: false });
+    if (price === undefined) {
+      const error = new Error('Give the new price.');
+      error.statusCode = 400;
       throw error;
     }
     return await testRepository.updateTestPrice(id, price);
@@ -139,6 +198,18 @@ class TestService {
         `Test${missing.length > 1 ? 's' : ''} with ID ${missing.join(', ')} not found`
       );
       error.statusCode = 404;
+      throw error;
+    }
+
+    // [1.124.0] A retired service is not offered: the catalogue hides it, so it reached a visit or
+    // a booking only by id, priced at whatever it last cost and routed to a department that no
+    // longer does it. Both callers (the Desk, and booking) come through here.
+    const retired = uniqueIds.map((id) => byId.get(id)).filter((t) => !t.is_active);
+    if (retired.length > 0) {
+      const error = new Error(
+        `${retired.map((t) => t.name).join(', ')} ${retired.length > 1 ? 'are' : 'is'} no longer offered.`
+      );
+      error.statusCode = 400;
       throw error;
     }
 
@@ -255,6 +326,20 @@ class TestService {
       const error = new Error(
         'This visit has already been paid, so tests can no longer be added to it. Start another visit for the extra tests: find the patient in Who\'s here at the Desk.'
       );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // [1.124.0] Nor does a visit that is over. A probe added tests to a CANCELLED visit: they sat
+    // on a ticket nobody would call, billed to a visit the till no longer lists.
+    const visit = await visitRepository.findVisitById(patientVisitId);
+    if (!visit) {
+      const error = new Error('Visit not found');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (visit.status === 'Cancelled' || visit.status === 'Completed') {
+      const error = new Error(`This visit is ${visit.status.toLowerCase()}, so tests can no longer be added to it.`);
       error.statusCode = 409;
       throw error;
     }

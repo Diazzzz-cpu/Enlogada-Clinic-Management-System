@@ -4,6 +4,13 @@ import api from '../../config/api';
 import { todayStr, formatTime12, toDateInput } from '../../lib/date';
 import { CalendarX2, Clock, Info } from 'lucide-react';
 
+/** The last date the clinic takes bookings for: 365 days ahead, the server's horizon. [1.124.0] */
+const BOOKING_HORIZON_END = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 365);
+  return toDateInput(d);
+};
+
 /**
  * Pick a date, then a time the clinic actually has free.
  *
@@ -128,6 +135,7 @@ const SlotPicker = ({
         <DateField id="slotpicker-label"
           value={date || ''}
           min={minDate}
+          max={BOOKING_HORIZON_END()}
           unavailable={unavailable}
           disabled={disabled}
           onChange={(e) => onDateChange(e.target.value)}

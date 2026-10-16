@@ -3,7 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { loginAs } from './helpers/ticketRelease.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { nthWorkingDay, dateStr } from './helpers/dates.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, bookableTestId } from './helpers/booking.js';
 
 // Moving a booking instead of cancelling and rebooking it.
 //
@@ -69,7 +69,7 @@ test.describe('Appointment reschedule (API)', () => {
   const book = async (date, time) => {
     const res = await ctx.post(`${API}/appointments`, {
       headers: auth(clientToken),
-      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: time }),
+      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: time, testIds: [await bookableTestId(ctx)] }),
     });
     expect(res.status(), 'booking setup').toBe(201);
     return (await res.json()).data.appointment;
@@ -226,10 +226,16 @@ test.describe('Appointment reschedule (API)', () => {
       headers: auth(recToken),
       data: { status: 'Confirmed' },
     });
-    expect(checkIn.status()).toBe(200);
+    try {
+      expect(checkIn.status()).toBe(200);
 
-    const res = await move(appt.id, DAY_B, to);
-    expect(res.status()).toBe(409);
-    expect((await res.json()).message).toMatch(/checked in/i);
+      const res = await move(appt.id, DAY_B, to);
+      expect(res.status()).toBe(409);
+      expect((await res.json()).message).toMatch(/checked in/i);
+    } finally {
+      // Checked in and unpaid is the seeded patient WAITING today, and the next spec's walk-in for
+      // them would be refused as a second unpaid visit. [1.124.0]
+      await ctx.put(`${API}/appointments/${appt.id}/cancel`, { headers: auth(clientToken) });
+    }
   });
 });

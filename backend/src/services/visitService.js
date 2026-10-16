@@ -52,6 +52,30 @@ class VisitService {
     // the patient's type, not a department-scoped read, and calling the scoped helper with no
     // requesting user would look like the scoping had been considered and waived.
     const patient = await patientRepository.findPatientById(patientId);
+    // [1.124.0] Checked before the ticket is drawn, for the reason above. A probe opened a visit
+    // for an ARCHIVED patient (a record hidden from the Desk, now in its queue) and a second unpaid
+    // visit for someone already waiting (two tickets, two bills), which the Desk only stopped on
+    // screen. A PAID visit does not block another: its tests are final, so extra ones need one.
+    if (!patient) {
+      const error = new Error('Patient not found');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (patient.archived_at) {
+      const error = new Error(
+        `${patient.first_name} ${patient.last_name}'s record is archived. Restore it on Patient Records before starting a visit.`
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+    const waiting = await visitRepository.findUnpaidWaitingToday(patientId);
+    if (waiting) {
+      const error = new Error(
+        `${patient.first_name} ${patient.last_name} is already waiting${waiting.queue_number ? ` with ticket ${waiting.queue_number}` : ''} and has not paid yet. Add the tests to that visit instead.`
+      );
+      error.statusCode = 409;
+      throw error;
+    }
     assertReferralIfRequired({
       patientTypeName: patient?.patient_type_name,
       hasHmoClaim: false,
@@ -286,6 +310,26 @@ class VisitService {
       const error = new Error(
         "This visit has already been paid, so it can't be cancelled. A paid receipt is final; the tests can still be done later."
       );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // [1.124.0] The other moves belong to the process, not to a person. A probe set an UNPAID visit
+    // to Completed (it left the till's queue with nothing charged) and brought a CANCELLED visit
+    // back to Pending (a cancelled ticket waiting again). Completed is set when the last result is
+    // released, and nothing returns a visit to Pending; the screens only ever send Cancelled.
+    if (status === visit.status) return visit;
+    if (status === 'Completed' || status === 'Pending') {
+      const error = new Error(
+        status === 'Completed'
+          ? 'A visit is completed when its last result is released; it cannot be set by hand.'
+          : 'A visit cannot be put back to waiting. Start a new visit for the patient.'
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+    if (visit.status === 'Cancelled' || visit.status === 'Completed') {
+      const error = new Error(`This visit is already ${visit.status.toLowerCase()}, so its status cannot change.`);
       error.statusCode = 409;
       throw error;
     }

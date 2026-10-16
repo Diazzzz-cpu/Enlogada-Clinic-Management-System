@@ -193,7 +193,9 @@ test.describe('Processes that make sense', () => {
     // The queue matched a first OR a last name, so a full name found nobody waiting and the
     // box offered "Start visit" to a patient already in the queue.
     await page.getByRole('searchbox', { name: "Who's here?" }).fill(person.fullName);
-    await expect(page.getByText("One match is already in today's queue")).toBeVisible({ timeout: 20000 });
+    // "One match is" or "2 matches are": fixture names come from a pool, so another patient of the
+    // same name may be waiting too.
+    await expect(page.getByText(/already in today's queue, shown below/)).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId('desk-match').filter({ hasText: person.fullName })).toHaveCount(0);
   });
 

@@ -71,7 +71,7 @@ class PaymentSubmissionService {
    * handed the same money twice. It is partial, so a rejected claim never blocks a second attempt.
    */
   async submit({ patientVisitId, paymentMethodId, referenceNumber, amountClaimed }, file, user) {
-    if (!referenceNumber?.trim()) {
+    if (typeof referenceNumber !== 'string' || !referenceNumber.trim()) {
       discardPaymentFile(file);
       const error = new Error('The transaction reference number is required — it is what the cashier checks against.');
       error.statusCode = 400;
@@ -94,8 +94,21 @@ class PaymentSubmissionService {
         error.statusCode = 409;
         throw error;
       }
-      // Payment first [1.123.0]: a booking whose payment window ran out has released its slot.
+      // [1.124.0] Nor for a visit or booking that is over. A probe sent a proof for a CANCELLED
+      // booking, and a cashier verifying it would have issued a receipt for a visit with no exam.
+      const visit = await visitRepository.findVisitById(patientVisitId);
+      if (!visit) {
+        const error = new Error('Visit not found.');
+        error.statusCode = 404;
+        throw error;
+      }
       const hold = await appointmentRepository.findHoldByVisitId(patientVisitId);
+      if (visit.status === 'Cancelled' || ['Cancelled', 'No Show'].includes(hold?.status)) {
+        const error = new Error('This booking was cancelled, so there is nothing to pay. Please book again.');
+        error.statusCode = 409;
+        throw error;
+      }
+      // Payment first [1.123.0]: a booking whose payment window ran out has released its slot.
       if (hold?.lapsed) {
         const error = new Error("This booking wasn't paid in time, so its slot was released. Please book again.");
         error.statusCode = 409;

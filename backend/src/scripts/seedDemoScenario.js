@@ -953,9 +953,7 @@ async function main() {
   const nextDay = (base, n) => { const d = new Date(base); d.setDate(d.getDate() + n); return d; };
 
   if (profiles.length > 0) {
-    const slotDate = nextDay(new Date(), 2);
     try {
-      const slots = await openSlots(slotDate, client);
       // Two bookings, because the QR pass has two states worth seeing side by side: one still to
       // be paid at the counter (the common case in this clinic) and one already settled online.
       // With a single unpaid booking the pass was invisible for a long time — the display used to
@@ -970,12 +968,21 @@ async function main() {
       // also the honest example: it is exactly the test somebody books online and then forgets
       // to fast for.
       const labTest = catalogue.Laboratory.find((t) => t.preparation) || catalogue.Laboratory[0];
-      for (const [i, plan] of bookings.entries()) {
-        if (!slots[i]) break;
+      // On the next two open days, so the two passes read as two visits rather than one day's.
+      let offset = 2;
+      for (const plan of bookings) {
+        let slotDate = null;
+        let slots = [];
+        for (let tries = 0; !slots.length && tries < 7; tries++, offset++) {
+          slotDate = nextDay(new Date(), offset);
+          slots = await openSlots(slotDate, client);
+        }
+        if (!slots.length) break;
         // [1.106.0] A patient's booking carries the doctor's signed request, which names the test.
         const booking = (await callMultipart('/appointments', {
           token: client,
-          fields: { patientId: profiles[0].id, scheduledDate: dateStr(slotDate), scheduledTime: slots[i] },
+          // The test goes with the booking: a booking with none is refused. [1.124.0]
+          fields: { patientId: profiles[0].id, scheduledDate: dateStr(slotDate), scheduledTime: slots[0], testIds: [labTest.id] },
           files: {
             doctorRequest: {
               name: 'doctor-request.pdf',
@@ -988,10 +995,6 @@ async function main() {
             },
           },
         })).data.appointment;
-        await call('/tests/visit-tests', {
-          method: 'POST', token: client,
-          body: { patientVisitId: booking.patient_visit_id, testIds: [labTest.id] },
-        });
         if (plan.pay) {
           const bill = (await call(`/payments/bill/${booking.patient_visit_id}`, { token: tok.cashier })).data.bill;
           await call('/payments', {

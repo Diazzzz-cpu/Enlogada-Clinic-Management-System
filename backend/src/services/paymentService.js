@@ -96,6 +96,8 @@ class PaymentService {
       // paper back to the queue slip they were holding, which is how a counter dispute actually
       // gets resolved — the receipt number means nothing to them, the ticket number does.
       queueNumber: visitInfo.queue_number,
+      // [1.124.0] So the till can refuse a cancelled visit, and say why.
+      visitStatus: visitInfo.visit_status,
       patientType: visitInfo.patient_type_name,
       items: formattedItems,
       subtotal: subtotal.toFixed(2),
@@ -172,6 +174,20 @@ class PaymentService {
     const alreadyPaid = await paymentRepository.hasPaidPayment(patientVisitId);
     if (alreadyPaid) {
       const error = new Error('This visit has already been paid. Refresh the billing queue.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // [1.124.0] A receipt is final, so it is never issued for nothing. A probe took payment for a
+    // CANCELLED visit (a receipt, money kept, no tests ever done) and a ₱0 receipt for a visit with
+    // no tests on it. A visit the HMO covers in full still has tests, and still gets its receipt.
+    if (bill.visitStatus === 'Cancelled') {
+      const error = new Error('This visit was cancelled, so it cannot be paid. Start a new visit for the patient.');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (bill.items.length === 0) {
+      const error = new Error('This visit has no tests yet. Add the tests before taking payment.');
       error.statusCode = 409;
       throw error;
     }

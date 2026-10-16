@@ -105,3 +105,34 @@ test('the stack starts at the throw site, not inside the error module', () => {
   const firstFrame = String(err.stack).split('\n')[1] || '';
   assert.doesNotMatch(firstFrame, /errors[/\\]index\.js/);
 });
+
+/**
+ * A database refusal becomes the client's mistake, in words. [1.124.0] A probe of every route
+ * found ~1,400 inputs (an id of "abc", 2026-02-30, two payments racing) answered with a 500 and
+ * Postgres's own wording.
+ */
+const pg = (code, extra = {}) => Object.assign(new Error(`pg ${code}`), { code, severity: 'ERROR', ...extra });
+
+test('malformed input is a 400, a missing reference a 404, a duplicate a 409', () => {
+  for (const [code, status] of [['22P02', 400], ['22003', 400], ['22007', 400], ['22008', 400], ['2201W', 400], ['22001', 400], ['23502', 400], ['23514', 400], ['23505', 409]]) {
+    const err = E.normalizeError(pg(code));
+    assert.equal(err.statusCode, status, code);
+    assert.equal(err.expose, true, `${code} is shown to the person`);
+    assert.doesNotMatch(err.message, /syntax|relation|constraint/i, `${code} speaks plainly`);
+  }
+  assert.equal(E.normalizeError(pg('23503', { detail: 'Key (visit_id)=(9) is not present in table "patient_visits".' })).statusCode, 404);
+  assert.equal(E.normalizeError(pg('23503', { detail: 'Key (id)=(9) is still referenced from table "visit_tests".' })).statusCode, 409);
+});
+
+test('a known constraint is named in words', () => {
+  assert.equal(E.normalizeError(pg('23505', { constraint: 'uq_payments_one_paid_per_visit' })).message, 'This visit has already been paid.');
+  assert.equal(E.normalizeError(pg('23514', { constraint: 'chk_patients_sex' })).message, 'Sex must be Male or Female.');
+});
+
+test('a fault that is not about the input stays a 500', () => {
+  assert.equal(E.normalizeError(pg('42601')).statusCode ?? 500, 500); // a syntax error in our own SQL
+  assert.equal(E.normalizeError(pg('08006')).statusCode ?? 500, 500); // the connection dropped
+  const plain = new Error('boom');
+  assert.equal(E.normalizeError(plain), plain);
+  assert.equal(E.fromDatabaseError({ code: '23505' }), null, 'only a real pg error (with a severity) is translated');
+});

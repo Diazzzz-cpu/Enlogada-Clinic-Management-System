@@ -166,8 +166,91 @@ class ServiceUnavailableError extends AppError {
  * @returns {AppError|Error}  The value unchanged if it is already an Error; otherwise wrapped.
  */
 function normalizeError(err) {
+  const fromDb = fromDatabaseError(err);
+  if (fromDb) return fromDb;
   if (err instanceof Error) return err;
   return new AppError(typeof err === 'string' ? err : 'An unexpected error occurred.', 500);
+}
+
+/**
+ * The rule a named constraint enforces, in words a person at the counter can act on. [1.124.0]
+ * A constraint absent from this list still gets the generic sentence for its error class.
+ */
+const CONSTRAINT_MESSAGES = {
+  uq_payments_one_paid_per_visit: 'This visit has already been paid.',
+  uq_paysub_one_live_per_visit: 'A payment for this visit is already waiting to be checked.',
+  uq_hmo_one_live_claim_per_test: 'That test already has an HMO claim open.',
+  uq_hmo_request_visit_test: 'That test is already on this HMO claim.',
+  uq_users_email_lower: 'That email address is already used by another account.',
+  users_email_key: 'That email address is already used by another account.',
+  uq_visit_tests_visit_test: 'That test is already on this visit.',
+  uq_tests_category_name: 'A service with that name already exists in this department.',
+  test_packages_code_key: 'A package with that code already exists.',
+  hmo_providers_name_key: 'An HMO provider with that name already exists.',
+  discount_types_name_key: 'A discount with that name already exists.',
+  uq_package_items: 'A package cannot list the same test twice.',
+  chk_patients_sex: 'Sex must be Male or Female.',
+  chk_payment_method: 'Payment method must be Cash, GCash or Bank.',
+  chk_payment_methods_kind: 'The account type must be Cash, GCash or Bank.',
+  chk_payment_amount: 'An amount cannot be negative.',
+  chk_tests_price: 'A price cannot be negative.',
+  chk_test_packages_price: 'A price cannot be negative.',
+  chk_visit_tests_price: 'A price cannot be negative.',
+  chk_feedback_answers_rating: 'Each answer must be one of the three on the form.',
+  chk_visits_status: 'That is not a visit status.',
+  chk_visit_tests_status: 'That is not a test status.',
+  chk_appointments_status: 'That is not a booking status.',
+  chk_visits_type: 'A visit is either a walk-in or an appointment.',
+  chk_operating_hours_times: 'Closing time must be after opening time.',
+  chk_schedule_override_times: 'Give both an opening and a closing time, closing after opening.',
+  chk_schedule_override_interval: 'Slots must be between 5 and 240 minutes long.',
+  chk_schedule_override_capacity: 'Capacity cannot be negative.',
+  chk_discount_percentage: 'A discount must be between 0 and 100 percent.',
+};
+
+/**
+ * A Postgres error, turned into the refusal it really is. [1.124.0]
+ *
+ * Input the routes never checked (an id of "abc", a date of 2026-02-30, a second payment racing
+ * the first) reached the database, which refused it correctly, and the refusal surfaced as a 500
+ * with the database's own wording ("invalid input syntax for type integer"). A probe of every
+ * route found about 1,400 of these. The database is right to refuse; this makes the answer say so
+ * as the client's mistake (400/404/409) in plain words, for every route at once. Errors that are
+ * not about the data sent (a lost connection, a syntax error in our own SQL) stay 500.
+ *
+ * @param {unknown} err
+ * @returns {AppError|null}
+ */
+function fromDatabaseError(err) {
+  if (!err || typeof err !== 'object' || typeof err.code !== 'string' || !('severity' in err)) return null;
+  const known = err.constraint && CONSTRAINT_MESSAGES[err.constraint];
+  switch (err.code) {
+    case '22P02': // invalid_text_representation: "abc" where a number belongs
+    case '22003': // numeric_value_out_of_range
+      return new ValidationError(known || 'A number or ID in the request is not valid.');
+    case '22007': // invalid_datetime_format
+    case '22008': // datetime_field_value_out_of_range: 2026-02-30
+      return new ValidationError('A date or time in the request is not valid.');
+    case '2201W': // invalid_row_count_in_limit_clause
+    case '2201X': // invalid_row_count_in_result_offset_clause
+      return new ValidationError('The page or page size is not valid.');
+    case '22001': // string_data_right_truncation
+      return new ValidationError('Some of the text is too long.');
+    case '22021': // character_not_in_repertoire (a NUL byte)
+      return new ValidationError('Some of the text contains characters that cannot be stored.');
+    case '23502': // not_null_violation
+      return new ValidationError(known || 'Something required is missing.');
+    case '23514': // check_violation
+      return new ValidationError(known || 'One of the values is not allowed.');
+    case '23505': // unique_violation: usually two people doing the same thing at once
+      return new ConflictError(known || 'That already exists, or was just done by someone else.');
+    case '23503': // foreign_key_violation
+      return /still referenced/.test(err.detail || '')
+        ? new ConflictError('This is still in use, so it cannot be removed.')
+        : new NotFoundError('Something the request refers to does not exist.');
+    default:
+      return null;
+  }
 }
 
 /**
@@ -197,5 +280,6 @@ module.exports = {
   UpstreamServiceError,
   ServiceUnavailableError,
   normalizeError,
+  fromDatabaseError,
   isOperationalError,
 };

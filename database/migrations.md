@@ -1,5 +1,64 @@
 # Database Migration & Schema History
 
+## [1.124.0] - 2026-10-16 (Every route, fed what it should refuse)
+
+No schema change; nothing to run. Steven asked for the system to be broken on purpose before the
+defense. Two probes ran against the live dev servers: every one of the 142 routes fed impossible
+ids, dates, types, broken JSON and oversized text (4,387 requests), and the clinic's processes run
+out of order, twice at once and by the wrong person. `process-rules.spec.js` holds what they found.
+
+**About 1,400 crashes, one cause.** An id of `abc`, `9999999999999999999` or a date of
+`2026-02-30` went straight to Postgres, which refused it, and the refusal came back as a 500 with
+the database's own words ("invalid input syntax for type integer"). `errors.normalizeError` now
+translates a Postgres error into the refusal it is: malformed input 400, a missing reference 404,
+a duplicate 409 (two cashiers verifying one proof at once: the second now gets "This visit has
+already been paid", not a 500), with plain messages per constraint (`CONSTRAINT_MESSAGES`).
+Anything not about the input sent stays 500. Plus three `.trim()` calls on input that was not text.
+After the fix the same 4,387 requests produce no 5xx. No route let a request in without a token, a
+patient onto a staff route, or an Admin onto a SuperAdmin one.
+
+**Rules the screens kept and the API did not:**
+- **Booking checked the weekly pattern only.** A date the clinic CLOSED, with free slots, could be
+  booked through the API; a date's changed hours or capacity applied to the picker, not to what
+  was accepted. `resolveDay` is now the one answer for availability, booking and rescheduling.
+  Also refused: a time off the slot grid (09:07), a time already gone today, a date more than 365
+  days ahead (the picker stops there too), and a booking with no tests. Two bookings one day for
+  the same patient stay allowed: fasting bloods at 8:00 and an ultrasound later is a real case.
+- **A re-sent booking added its tests to a PAID visit** (the [1.55.0] leak by another door). Refused
+  when it would add anything; an unchanged re-send still returns the booking.
+- **Money:** no receipt for a cancelled visit or a visit with no tests (the till disables Take
+  Payment and says why); an unknown payment method is a 400.
+- **Visit status by hand:** Completed and Pending can no longer be set (an unpaid visit was set
+  Completed; a cancelled one brought back to Pending); a cancelled or completed visit stays so, and
+  takes no new tests. No visit for an archived patient, and no second unpaid visit for someone
+  already waiting (the Desk refused it on screen only); a paid visit does not block the next.
+- **Booking status by hand:** Cancelled, No Show and Completed are final (a cancelled booking could
+  be checked in). No Show only on or after the booking's day and never after check-in; the Desk's
+  card offers it only then. A booking checked in on another day is moved to today, freeing its old
+  slot (`moveToTodayAtCheckIn`), and the card says so before check-in.
+- **Online proof:** refused for a cancelled booking. A booking whose proof is waiting cannot be
+  cancelled (the money has left the patient's account and a cancelled booking cannot be paid); the
+  portal hides Cancel then (`has_pending_proof`).
+- **HMO:** no claim on a paid, cancelled or completed visit.
+- **Catalogue:** retired services cannot be added to a visit, booked, or put in a package; a
+  service needs a name and a price from 0 to 1,000,000; an ACTIVE service only in a department the
+  clinic runs (`DIAGNOSTIC_CATEGORIES`, mirrored as `OFFERED_CATEGORIES` in `lib/categories.js`). A
+  probe's test in ECG brought ECG back onto the patient's booking picker as a department of one
+  nameless test, and `catalogue-partial-update.spec.js` had been creating its fixture there on every
+  run (it took `categories[0]`, which is ECG by name). The service form lists only those departments.
+- **Patient records** (`validations/patientFields.js`, unit-tested): a real birthdate between
+  1900 and today, a non-blank name of 100 characters at most, Male or Female, a phone number in
+  digits.
+- **Senior Citizen discount** needs a patient of 60 or over by the birthdate on file (RA 9994).
+  One was granted to an 11-year-old.
+- **Schedule overrides** for a past or impossible date are refused.
+- **Results:** the test-status override takes only a real status, and a missing test is a 404, not
+  "Test status updated".
+
+`seedDemoScenario.js` now books its two portal bookings with their test. `hmo-card-review.spec.js`
+booked 500 days out, which the horizon reads as a closed day, and had been skipping itself; it books
+within the horizon now.
+
 ## [1.123.0] - 2026-10-16 (Processes that did not make sense once a receipt became final)
 
 No schema change; nothing to run. One new optional setting: `BOOKING_PAYMENT_MINUTES` (default 60,

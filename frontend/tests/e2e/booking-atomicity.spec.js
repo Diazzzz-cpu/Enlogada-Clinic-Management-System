@@ -4,7 +4,7 @@ import { loginAs } from './helpers/ticketRelease.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { daysAgoStr } from '../../src/lib/date.js';
 import { holdSlot, expireHold, releaseLeftoverBookings } from './helpers/slotHold.js';
-import { dateStr } from './helpers/dates.js';
+import { dateStr, nthWorkingDay } from './helpers/dates.js';
 import { appointmentForm } from './helpers/booking.js';
 
 // Booking atomicity and duplicate handling.
@@ -28,8 +28,12 @@ const CLIENT = { email: 'client@enlogada.com', password: 'Password123!' };
 const RECEPTION = { email: 'receptionist@enlogada.com', password: 'Password123!' };
 const LAB = { email: 'lab@enlogada.com', password: 'Password123!' };
 
-// Far enough out that the seeded schedule is open and nothing else in the suite competes for it.
-const BOOKING_DATE = '2026-11-18';
+// A date of its own for each test. [1.124.0] A patient may hold one booking a day, and every test
+// here books the same seeded patient, so a shared date let only the first test book at all. A
+// fixed calendar date also stopped working the day it passed. Working days 215-230 are this
+// spec's alone (nthWorkingDay, so each is a different open day on every calendar).
+let BOOKING_DATE;
+let dayIndex = 0;
 
 test.describe('Booking atomicity (API)', () => {
   let apiContext;
@@ -49,10 +53,14 @@ test.describe('Booking atomicity (API)', () => {
     const testsRes = await apiContext.get(`${API}/tests`);
     testIds = (await testsRes.json()).data.tests.slice(0, 2).map((t) => t.id);
 
-    // A run stopped before its teardown leaves its bookings on BOOKING_DATE, and eighteen slots
-    // do not survive many of those — the spec then fails on "no slot left" for reasons that have
-    // nothing to do with booking. Release them first, so every run starts from a clean date.
-    // Measured on 2026-09-12: eleven leftovers from two interrupted runs. [1.72.0]
+  });
+
+  // A run stopped before its teardown leaves its bookings on the date, and a slot that patient
+  // already holds fails the next run for reasons that have nothing to do with booking. Released
+  // first, so every test starts from a clean date. Measured on 2026-09-12: eleven leftovers from
+  // two interrupted runs. [1.72.0]
+  test.beforeEach(() => {
+    BOOKING_DATE = nthWorkingDay(215 + dayIndex++);
     releaseLeftoverBookings(BOOKING_DATE);
   });
 

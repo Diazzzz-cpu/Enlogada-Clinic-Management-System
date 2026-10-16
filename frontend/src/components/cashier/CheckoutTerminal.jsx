@@ -62,7 +62,8 @@ export default function CheckoutTerminal({ checkout, queue }) {
                         {formatCurrency(checkout.bill.totalAmount)}
                       </span>
                     </div>
-                    <Button type="submit" form="checkout-form" size="lg">
+                    {/* [1.124.0] Nothing to charge for: the server refuses a receipt for no tests. */}
+                    <Button type="submit" form="checkout-form" size="lg" disabled={(checkout.bill.items ?? []).length === 0}>
                       <CheckCircle className="h-4 w-4" />
                       Take Payment
                     </Button>
@@ -88,6 +89,13 @@ export default function CheckoutTerminal({ checkout, queue }) {
                             cannot be partial the way it could when the reprint path wrote here.
                             The optional chain stays as a cheap guard at what was the crash
                             site, in case the endpoint's shape ever changes. */}
+                        {(checkout.bill.items ?? []).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={3} className="py-3 text-fine text-slate-600">
+                              No tests on this visit yet. Reception adds them at the Desk; payment is taken after.
+                            </TableCell>
+                          </TableRow>
+                        )}
                         {(checkout.bill.items ?? []).map((item, idx) => (
                           <TableRow key={idx}>
                             <TableCell className="py-2.5 text-xs font-bold text-slate-900">

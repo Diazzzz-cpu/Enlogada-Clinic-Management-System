@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { nthWorkingDay } from './helpers/dates.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, bookableTestId } from './helpers/booking.js';
 
 // Two features that both offer a number to a person, and must never be mistaken for deciding one.
 // [1.62.0]
@@ -210,35 +210,40 @@ test.describe('Queue wait estimates', () => {
     expect(slot, `a free slot on ${date}`).toBeTruthy();
     const booked = (await (await ctx.post(`${API}/appointments`, {
       headers: auth(client),
-      multipart: appointmentForm({ patientId: profile.id, scheduledDate: date, scheduledTime: slot.time }),
+      multipart: appointmentForm({ patientId: profile.id, scheduledDate: date, scheduledTime: slot.time, testIds: [await bookableTestId(ctx)] }),
     })).json()).data.appointment;
     expect((await ctx.patch(`${API}/appointments/${booked.id}/status`, {
       headers: auth(staff), data: { status: 'Confirmed' },
     })).status(), 'the desk checks the booking in').toBe(200);
+    // Checked in and unpaid is the seeded patient WAITING today; left so, the next spec's walk-in
+    // for them is refused as a second unpaid visit. Cancelled when this test ends. [1.124.0]
+    try {
+      const queue = (await (await ctx.get(
+        `${API}/visits/active?limit=200&search=${encodeURIComponent(profile.last_name)}`, { headers: auth(staff) }
+      )).json()).data.visits;
+      const bookings = (await (await ctx.get(`${API}/appointments/my-bookings`, { headers: auth(client) })).json()).data.bookings;
 
-    const queue = (await (await ctx.get(
-      `${API}/visits/active?limit=200&search=${encodeURIComponent(profile.last_name)}`, { headers: auth(staff) }
-    )).json()).data.visits;
-    const bookings = (await (await ctx.get(`${API}/appointments/my-bookings`, { headers: auth(client) })).json()).data.bookings;
+      const estimated = bookings.filter((b) => b.estimated_wait_minutes != null);
+      expect(estimated.length, 'the booking just checked in carries an estimate').toBeGreaterThan(0);
 
-    const estimated = bookings.filter((b) => b.estimated_wait_minutes != null);
-    expect(estimated.length, 'the booking just checked in carries an estimate').toBeGreaterThan(0);
+      const byVisit = new Map(queue.map((v) => [v.id, v]));
+      let compared = 0;
 
-    const byVisit = new Map(queue.map((v) => [v.id, v]));
-    let compared = 0;
+      for (const booking of estimated) {
+        const staffRow = byVisit.get(booking.patient_visit_id);
+        if (!staffRow) continue;
+        compared += 1;
+        // One service rate, one rounding, one estimate. Two independent calculations would disagree
+        // within a minute of each other, and the patient would be reading one while the receptionist
+        // read the other — worse than neither screen carrying a number at all.
+        expect(Number(booking.patients_ahead)).toBe(Number(staffRow.patients_ahead));
+        expect(Number(booking.estimated_wait_minutes)).toBe(Number(staffRow.estimated_wait_minutes));
+      }
 
-    for (const booking of estimated) {
-      const staffRow = byVisit.get(booking.patient_visit_id);
-      if (!staffRow) continue;
-      compared += 1;
-      // One service rate, one rounding, one estimate. Two independent calculations would disagree
-      // within a minute of each other, and the patient would be reading one while the receptionist
-      // read the other — worse than neither screen carrying a number at all.
-      expect(Number(booking.patients_ahead)).toBe(Number(staffRow.patients_ahead));
-      expect(Number(booking.estimated_wait_minutes)).toBe(Number(staffRow.estimated_wait_minutes));
+      expect(compared, 'no booking could be matched to a queue row').toBeGreaterThan(0);
+    } finally {
+      await ctx.put(`${API}/appointments/${booked.id}/cancel`, { headers: auth(client) });
     }
-
-    expect(compared, 'no booking could be matched to a queue row').toBeGreaterThan(0);
   });
 
   test('a booking that is not in today\'s queue is given no estimate at all', async () => {

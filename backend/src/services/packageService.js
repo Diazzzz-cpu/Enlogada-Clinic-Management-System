@@ -72,6 +72,11 @@ class PackageService {
    */
   async save(id, { code, name, price, description, isActive, testIds }) {
     if (testIds !== undefined) {
+      if (!Array.isArray(testIds)) {
+        const error = new Error('List the tests in the package.');
+        error.statusCode = 400;
+        throw error;
+      }
       const unique = [...new Set(testIds.map((t) => parseInt(t, 10)))];
       if (unique.length < 2) {
         const error = new Error('A package needs at least two tests — otherwise it is just a test.');
@@ -83,6 +88,14 @@ class PackageService {
       if (missing.length) {
         const error = new Error(`Test${missing.length > 1 ? 's' : ''} with ID ${missing.join(', ')} not found`);
         error.statusCode = 404;
+        throw error;
+      }
+      // [1.124.0] A probe built a package around a retired test: booking it would put a service
+      // the clinic no longer does onto a patient's visit, at a share of the package price.
+      const retired = found.filter((t) => !t.is_active);
+      if (retired.length) {
+        const error = new Error(`${retired.map((t) => t.name).join(', ')} ${retired.length > 1 ? 'are' : 'is'} no longer offered, so it cannot be in a package.`);
+        error.statusCode = 400;
         throw error;
       }
     }

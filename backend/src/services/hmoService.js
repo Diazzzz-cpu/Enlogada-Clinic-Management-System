@@ -221,6 +221,21 @@ class HmoService {
 
     const card = resolveCardEvidence(requestingUser, cardFile);
 
+    // [1.124.0] A claim is for tests still to be paid for. A probe raised one on a PAID visit: the
+    // patient had paid in full, and an approval would bill the insurer for the same tests.
+    const visits = await hmoRepository.findVisitsForVisitTests([...new Set((visitTestIds || []).map(Number))]);
+    if (visits.some((v) => v.is_paid)) {
+      const error = new Error('This visit has already been paid in full, so its tests cannot be claimed from an HMO.');
+      error.statusCode = 409;
+      throw error;
+    }
+    const over = visits.find((v) => v.status === 'Cancelled' || v.status === 'Completed');
+    if (over) {
+      const error = new Error(`This visit is ${over.status.toLowerCase()}, so its tests cannot be claimed.`);
+      error.statusCode = 409;
+      throw error;
+    }
+
     // Joins the caller's transaction when there is one (the booking flow), and opens its own when
     // there is not (POST /hmo/request) — see db.withTransaction's nesting rule.
     return await db.withTransaction(async () => {
@@ -548,7 +563,7 @@ class HmoService {
   }
 
   async createProvider(name, requestingUser) {
-    if (!name || !name.trim()) {
+    if (typeof name !== 'string' || !name.trim()) {
       const error = new Error('Provider name is required.');
       error.statusCode = 400;
       throw error;
@@ -584,7 +599,7 @@ class HmoService {
 
     try {
       const updated = await hmoRepository.updateProvider(id, {
-        name: name ? name.trim() : undefined,
+        name: typeof name === 'string' && name.trim() ? name.trim() : undefined,
         isActive: typeof isActive === 'boolean' ? isActive : undefined
       });
 

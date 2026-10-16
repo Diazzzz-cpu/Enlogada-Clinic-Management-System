@@ -3,7 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { openBooking } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, bookableTestId } from './helpers/booking.js';
 
 // What the patient is told about their own booking. [1.24.0]
 //
@@ -111,7 +111,7 @@ test.describe('Booking communication and preparation', () => {
 
     const booked = await ctx.post(`${API}/appointments`, {
       headers: auth(clientToken),
-      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: slots[0].time }),
+      multipart: appointmentForm({ patientId, scheduledDate: date, scheduledTime: slots[0].time, testIds: [await bookableTestId(ctx)] }),
     });
     expect(booked.status()).toBe(201);
 

@@ -116,7 +116,9 @@ test.describe('HMO card evidence (UI)', () => {
     // Far out, and offset per run, so this never collides with another spec's slot or its own
     // previous run — a repeat of the same patient/date/time returns the existing booking.
     const when = new Date();
-    when.setDate(when.getDate() + 500 + (Date.now() % 40));
+    // Inside the 365-day booking horizon [1.124.0]: at +500 the day reads closed and this test
+    // skipped itself, which looks exactly like a pass. 330-359 is clear of booking-atomicity's days.
+    when.setDate(when.getDate() + 330 + (Date.now() % 30));
     while (when.getDay() === 0 || when.getDay() === 6) when.setDate(when.getDate() + 1);
     const date = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}`;
     const slots = (await (await ctx.get(`${API}/appointments/availability?date=${date}`, { headers: auth })).json())

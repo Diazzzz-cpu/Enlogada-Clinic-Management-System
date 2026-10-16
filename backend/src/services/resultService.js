@@ -196,7 +196,20 @@ class ResultService {
       throw error;
     }
 
-    return await testRepository.updateVisitTestStatus(visitTestId, status);
+    // [1.124.0] A status that exists, on a test that exists. The override above let any text
+    // through, and a missing test answered "Test status updated" with nothing updated.
+    if (!['Pending', 'Approved', 'Processing', 'Waiting for Release', 'Completed', 'Cancelled'].includes(status)) {
+      const error = new Error('That is not a test status.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const updated = await testRepository.updateVisitTestStatus(visitTestId, status);
+    if (!updated) {
+      const error = new Error('Test not found on any visit.');
+      error.statusCode = 404;
+      throw error;
+    }
+    return updated;
   }
 
   async uploadResult(

@@ -42,7 +42,9 @@ test.describe('a partial service update keeps what it did not mention', () => {
 
     // Its own service, so a failing run cannot leave the clinic's catalogue altered.
     const cats = await apiContext.get(`${API}/tests/categories`, { headers });
-    const category = (await cats.json()).data.categories[0];
+    // Laboratory, not categories[0]: that is ECG by name, a department the clinic does not offer,
+    // where an active service is refused. [1.124.0]
+    const category = (await cats.json()).data.categories.find((c) => c.name === 'Laboratory');
     const created = await apiContext.post(`${API}/tests`, {
       headers,
       data: {

@@ -463,6 +463,22 @@ class VisitRepository {
    * and get distinct numbers from a single round trip. See migrateDataIntegrity.js [1.13.0]; a
    * unique index on (visit date, queue_number) backs the invariant at the schema level.
    */
+  /**
+   * A visit of this patient's already waiting in today's queue and not yet paid. [1.124.0]
+   * The Desk refuses a second one on screen; this is the same rule for every caller.
+   */
+  async findUnpaidWaitingToday(patientId) {
+    const { rows } = await db.query(
+      `SELECT pv.id, pv.queue_number FROM patient_visits pv
+        WHERE pv.patient_id = $1 AND ${inTodaysQueue('pv')} AND pv.status = 'Pending'
+          AND NOT EXISTS (SELECT 1 FROM payments pay
+                           WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid')
+        ORDER BY pv.created_at LIMIT 1`,
+      [patientId]
+    );
+    return rows[0];
+  }
+
   async getNextQueueNumber(client = db) {
     const queryText = `
       INSERT INTO daily_counters (counter_date, counter_name, last_number)

@@ -36,6 +36,9 @@ const PROTECTED_EMAILS = [
   'xray@enlogada.com',
   'client@enlogada.com',
   'multirole@enlogada.com',
+  // [1.125.0] Real people's own accounts, kept across every reset: DEMO_KEEP_ACCOUNTS in .env,
+  // comma-separated. Without it a developer's own sign-in was deleted with the demo data.
+  ...String(process.env.DEMO_KEEP_ACCOUNTS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
 ];
 
 // Child-to-parent order. Foreign keys are not all declared ON DELETE CASCADE, so this sequence

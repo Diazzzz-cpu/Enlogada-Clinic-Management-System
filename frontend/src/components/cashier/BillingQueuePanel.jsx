@@ -108,7 +108,10 @@ export default function BillingQueuePanel({ queue, checkout }) {
                       <span className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
                           <span className="block truncate text-note font-semibold text-slate-900">{visit.first_name} {visit.last_name}</span>
-                          <DataBadge variant="patient" label="Queue ticket" className="block">{visit.queue_number || `V-${visit.id}`}</DataBadge>
+                          {/* A booking has no ticket until it is checked in [1.92.0]; an internal id in its place read as test data. [1.125.0] */}
+                          {visit.queue_number
+                            ? <DataBadge variant="patient" label="Queue ticket" className="block">{visit.queue_number}</DataBadge>
+                            : <span className="block whitespace-nowrap text-fine text-slate-500">Not checked in</span>}
                         </span>
                         <span className="flex flex-shrink-0 flex-col items-end gap-1">
                           <span className="flex items-center gap-1">

@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 const {
   ISSUED_IN_RANGE, REVERSED_IN_RANGE, ISSUED_IN_DAY_RANGE, MONEY_IN_RANGE, ISSUED_RECEIPT_CLAUSE
 } = require('../constants/moneyRange');
@@ -182,18 +183,38 @@ class ReportRepository {
                t.name  AS test_name,
                tc.name AS category_name,
                vt.price_at_time,
-               -- Each test's share of the visit's gross, used to spread the deduction.
-               vt.price_at_time / NULLIF(SUM(vt.price_at_time) OVER (PARTITION BY vt.patient_visit_id), 0) AS share
+               -- [1.125.0] A test the HMO covers is not money taken at the till: it is a receivable,
+               -- reported on HMO Claims. Counted as a sale (gross) and as no takings (net), or the
+               -- breakdown summed to more than the drawer held once any covered visit was paid.
+               COALESCE((
+                 SELECT ${hmoEffectiveStatus('hr', 'hrt')} = 'Approved'
+                   FROM hmo_request_tests hrt
+                   JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                  WHERE hrt.visit_test_id = vt.id
+                  ORDER BY hrt.created_at DESC
+                  LIMIT 1
+               ), false) AS covered
           FROM visit_tests vt
           JOIN tests t            ON t.id = vt.test_id
           JOIN test_categories tc ON tc.id = t.category_id
          WHERE vt.patient_visit_id IN (SELECT patient_visit_id FROM paid)
+      ),
+      shared AS (
+        -- Each paid-for test's share of what the patient paid for, used to spread the deduction:
+        -- the bill takes the discount off the patient's own part, never off the HMO's.
+        SELECT l.*,
+               CASE WHEN l.covered THEN 0
+                    ELSE l.price_at_time / NULLIF(SUM(CASE WHEN l.covered THEN 0 ELSE l.price_at_time END)
+                                                    OVER (PARTITION BY l.patient_visit_id), 0)
+               END AS share
+          FROM lines l
       )
       SELECT l.test_name, l.category_name,
              COUNT(*)::int                                              AS sold,
              SUM(l.price_at_time)::numeric(12,2)                        AS gross,
-             SUM(l.price_at_time - (p.deducted * l.share))::numeric(12,2) AS net
-        FROM lines l
+             SUM(CASE WHEN l.covered THEN 0
+                      ELSE l.price_at_time - (p.deducted * COALESCE(l.share, 0)) END)::numeric(12,2) AS net
+        FROM shared l
         JOIN paid p ON p.patient_visit_id = l.patient_visit_id
        GROUP BY l.test_name, l.category_name
        ORDER BY net DESC
@@ -389,12 +410,8 @@ class ReportRepository {
                -- A refusal at either level wins, matching the partial unique index on this table
                -- in schema.sql, whose predicate is approval_status <> 'Rejected' -- it treats a
                -- rejected test as no longer a live claim on that work.
-               CASE
-                 -- A withdrawn claim ('Cancelled') is the patient's to settle too. [1.123.0]
-                 WHEN hr.status IN ('Rejected', 'Cancelled') OR hrt.approval_status = 'Rejected' THEN 'Rejected'
-                 WHEN hr.status = 'Approved'                                     THEN 'Approved'
-                 ELSE 'Pending'
-               END AS effective_status
+               -- One rule with the bill and the worklist [1.125.0]: constants/hmoEffectiveStatus.
+               ${hmoEffectiveStatus('hr', 'hrt')} AS effective_status
           FROM hmo_requests hr
           JOIN hmo_providers hp     ON hp.id = hr.hmo_provider_id
           JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id

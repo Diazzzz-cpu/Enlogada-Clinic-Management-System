@@ -112,7 +112,8 @@ node src/scripts/resetDemoData.js --confirm   # apply
 
 # Seed a realistic clinic dataset: ~18 visits today at every workflow stage (awaiting payment,
 # senior/PWD discounts, on each modality worklist, a markedly abnormal result, an AMENDED report,
-# HMO pre-auth) plus 14 days of backdated history so the reporting screens have something to plot.
+# HMO pre-auth) plus 60 days of backdated history (~85 patients, ~140 visits) so the reporting
+# screens have something to plot. [1.125.0]
 # Needs both servers running. Every "today" screen filters on the current date, so re-run before
 # a demo — data seeded yesterday leaves the queues legitimately empty.
 node src/scripts/seedDemoScenario.js
@@ -150,6 +151,14 @@ with ordinary names and Bugo / Cagayan de Oro addresses, one record each, with e
 filled inside the clinic's printed ranges and the day spread across clinic hours; no patient has an
 email address. `seedUsers.js` renames any demo account still carrying a placeholder name. Keep new
 seed data looking real: no "Test", "E2E" or joke names, no shared phone number, no empty forms.
+`[1.125.0]` Every report is drawn on the clinic's own form (`scripts/demoReportPdf.js`, from their
+photographed CBC: letterhead, patient block, TEST / RESULT / UNIT / REFERENCE RANGE, the seal note
+and the department's signatories from `constants/labResultForms.js`), with a small foot line saying
+it is a demo record; never copy a real patient's report into the seed. The history is ~60 generated
+people over 60 days, each visit a real mix (`VISIT_KINDS`, weighted so ultrasound leads), about one
+in six abnormal, with senior/PWD discounts and approved HMO claims; its notifications are deleted, as
+the staff saw them weeks ago. The reset deletes every account but the nine seeded ones, so list a
+real person's own sign-in in `DEMO_KEEP_ACCOUNTS` (backend `.env`, comma-separated) to keep it.
 
 The suite now cleans up after itself — `playwright.config.js` wires a global setup/teardown that stamps the run start and then deletes everything the run created (throwaway `@enlogada-e2e.test` accounts, plus any visit, payment, notification or audit row created inside the window). Row counts are identical before and after a run, so a seeded demo dataset survives testing. Set `E2E_SKIP_PURGE=1` to keep the data when debugging a failure. Cleanup never fails the run; if it errors it says so and leaves the data behind.
 
@@ -613,8 +622,14 @@ Two things decide a claim, independently, and BOTH decide the money: `hmo_reques
 approve/reject) and `hmo_request_tests.approval_status` (set per test). An HMO routinely clears a
 claim while refusing one line on it, so neither column alone is the answer — reading only the
 per-test column reported an approved claim as ₱0 approved with its full value still Pending.
-A refusal at either level wins, matching the partial unique index on that table. Bucketed by the
-VISIT date, so a claim decided three weeks later never moves money out of a period already
+A refusal at either level wins, matching the partial unique index on that table; otherwise an
+approval at either level covers the test. `[1.125.0]` That is ONE rule,
+`constants/hmoEffectiveStatus.js`, read by the bill, the worklist and the report alike: the bill
+read only the test's own column, so after an Admin approved a whole claim the till still saw every
+test Pending and refused to take payment (before [1.123.0], it charged the patient in full).
+The Departments report's sales by service reads it too: a covered test is gross with no takings, so
+the breakdown sums to the cash collected (`operations-report.spec.js` holds the reconciliation).
+Bucketed by the VISIT date, so a claim decided three weeks later never moves money out of a period already
 reported — the closed-day restatement [1.30.0] exists to prevent, arriving by another door.
 
 **A report exports as Excel via `?format=xlsx`** `[1.119.0]`, which is what the Reports tabs' "Export

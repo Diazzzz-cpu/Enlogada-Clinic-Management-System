@@ -113,7 +113,10 @@ export default function VisitHistoryPanel({ history, operations, canRecordFeedba
                       <TableRow key={v.id}>
                         <TableCell label="Queue Ticket">
                           {/* The shared ticket badge, drawn as the Desk and the worklists draw it. [1.79.0] */}
-                          <DataBadge variant="queue" label="Queue ticket">{v.queue_number || `V-${v.id}`}</DataBadge>
+                          {/* A booking has no ticket until it is checked in [1.92.0]; an internal id in its place read as test data. [1.125.0] */}
+                          {v.queue_number
+                            ? <DataBadge variant="queue" label="Queue ticket">{v.queue_number}</DataBadge>
+                            : <span className="whitespace-nowrap text-fine text-slate-500">Not checked in</span>}
                         </TableCell>
                         <TableCell label="Patient" className="font-semibold text-slate-900">
                           {v.first_name} {v.last_name}

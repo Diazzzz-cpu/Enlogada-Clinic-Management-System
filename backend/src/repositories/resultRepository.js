@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 
 class ResultRepository {
   // The modality worklist gate. This query previously filtered on vt.status alone and never
@@ -31,8 +32,9 @@ class ResultRepository {
              -- releasing from the row must not write a stale flag over a real one.
              tr.file_path, tr.file_original_name,
              (
-               SELECT hrt.approval_status
+               SELECT ${hmoEffectiveStatus('hr', 'hrt')}
                FROM hmo_request_tests hrt
+               JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
                WHERE hrt.visit_test_id = vt.id
                ORDER BY hrt.created_at DESC
                LIMIT 1

@@ -161,6 +161,37 @@ test.describe('Process rules the server enforces', () => {
     expect((await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: w.patient.id, visitType: 'Walk in' } })).status()).toBe(201);
   });
 
+  // [1.125.0] The bill read only each test's own HMO status, so a claim approved as a whole left
+  // every test "Pending" at the till: no coverage, and the payment refused over tests "still
+  // waiting for the HMO". Both levels now decide, by one rule (constants/hmoEffectiveStatus).
+  test('a claim approved as a whole covers its tests at the till', async () => {
+    const admin = await login('clinicadmin@enlogada.com');
+    const person = fixturePerson();
+    const patient = (await (await ctx.post(`${API}/patients`, {
+      headers: auth(desk),
+      data: { patientTypeId: await patientTypeId(ctx, API, desk, 'HMO'), ...person, birthdate: '1984-02-02', sex: 'Male', contactNumber: FIXTURE_CONTACT },
+    })).json()).data.patient;
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(desk),
+      data: { patientId: patient.id, visitType: 'Walk in', referringPhysician: 'Dr. Amelia R. Santos', referringPhysicianPrc: '0142887' },
+    })).json()).data.visit;
+    const vts = (await (await ctx.post(`${API}/tests/visit-tests`, {
+      headers: auth(desk), data: { patientVisitId: visit.id, testIds: [labTests[0].id, labTests[1].id] },
+    })).json()).data.visitTests;
+    const providerId = (await (await ctx.get(`${API}/hmo/providers`, { headers: auth(desk) })).json()).data.providers[0].id;
+    const claim = (await (await ctx.post(`${API}/hmo/request`, {
+      headers: auth(desk), data: { hmoProviderId: providerId, memberNumber: `M${Date.now()}`, visitTestIds: vts.map((v) => v.id) },
+    })).json()).data;
+    const claimId = claim.request?.id || claim.hmoRequest?.id;
+    expect((await ctx.put(`${API}/hmo/request/${claimId}/approve`, { headers: auth(admin), data: { approvalCode: 'LOA-2026-1' } })).status()).toBe(200);
+
+    const bill = (await (await ctx.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json()).data.bill;
+    expect(bill.hmoPendingCount, 'nothing is still waiting on the HMO').toBe(0);
+    expect(bill.items.every((i) => i.hmoApproved), 'every test reads covered').toBe(true);
+    expect(Number(bill.totalAmount), 'the patient owes nothing for covered tests').toBe(0);
+    expect((await pay(visit.id)).status(), 'and the till takes the payment').toBe(201);
+  });
+
   test('a Senior Citizen discount needs a patient of 60 or over', async () => {
     const child = await walkIn({ birthdate: '2015-06-01' });
     const discounts = (await (await ctx.get(`${API}/discounts`, { headers: auth(cashier) })).json()).data.discounts;

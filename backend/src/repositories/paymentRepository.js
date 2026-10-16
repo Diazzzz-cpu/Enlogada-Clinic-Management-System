@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 const {
   ISSUED_IN_RANGE, REVERSED_IN_RANGE, ISSUED_RECEIPT_CLAUSE
 } = require('../constants/moneyRange');
@@ -315,9 +316,11 @@ class PaymentRepository {
              -- ₱226.96 for a CBC invites a question at the counter that nobody can answer.
              vt.package_id, tp.code as package_code, tp.name as package_name,
              tp.price as package_price,
+             -- Both decisions, the claim's and the test's [1.125.0]: see constants/hmoEffectiveStatus.
              (
-               SELECT hrt.approval_status
+               SELECT ${hmoEffectiveStatus('hr', 'hrt')}
                FROM hmo_request_tests hrt
+               JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
                WHERE hrt.visit_test_id = vt.id
                ORDER BY hrt.created_at DESC
                LIMIT 1
@@ -329,8 +332,9 @@ class PaymentRepository {
              -- lookup on a handful of rows, and it keeps the "exactly one row per test" guarantee
              -- above impossible to break by accident.
              (
-               SELECT hrt.decision_reason
+               SELECT COALESCE(hrt.decision_reason, hr.decision_reason)
                FROM hmo_request_tests hrt
+               JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
                WHERE hrt.visit_test_id = vt.id
                ORDER BY hrt.created_at DESC
                LIMIT 1

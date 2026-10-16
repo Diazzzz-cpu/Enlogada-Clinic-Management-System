@@ -37,6 +37,8 @@
  */
 const db = require('../config/database');
 const { LAB_FIELD_SETS, SIGNATORIES } = require('../constants/labResultForms');
+// [1.125.0] The demo's reports are drawn on the clinic's own form, not as a page of text.
+const { renderClinicReport } = require('./demoReportPdf');
 // The vocabulary, not a copy of it: a seeder that invents a method the CHECK constraint
 // rejects fails halfway through, leaving a half-built demo. [1.33.0]
 const { COUNTER_METHODS, CASH_METHOD } = require('../constants/paymentMethods');
@@ -103,17 +105,35 @@ const BOOKING_POOL = [
   { person: ['Allan', 'Sumampong', 'Male', '1980-02-02'], tests: [/chest/i], time: '14:00', notes: 'Annual physical exam' },
 ];
 
-// Two weeks of returning patients. Each comes back about once a week, to the same record.
-const HISTORY_POOL = [
-  ['Maria Luisa', 'Uy', 'Female', '1966-03-14'], ['Edgardo', 'Balili', 'Male', '1962-08-29'],
-  ['Rowena', 'Legaspi', 'Female', '1983-11-11'], ['Benjie', 'Alcantara', 'Male', '1991-04-04'],
-  ['Teresita', 'Macaraeg', 'Female', '1955-07-19'], ['Randy', 'Obsioma', 'Male', '1987-09-09'],
-  ['Charlene', 'Dizon', 'Female', '1995-12-24'], ['Alfredo', 'Magno', 'Male', '1950-01-15'],
-  ['Lorna', 'Gallardo', 'Female', '1972-10-02'], ['Jose', 'Manlangit', 'Male', '1969-06-23'],
-  ['Rhodora', 'Sanchez', 'Female', '1978-04-30'], ['Glenn', 'Lumacang', 'Male', '1989-05-05'],
-  ['Imelda', 'Caballero', 'Female', '1960-09-09'], ['Nestor', 'Galarrita', 'Male', '1965-11-30'],
-  ['Janine', 'Abellana', 'Female', '2000-08-18'], ['Wilfredo', 'Tiu', 'Male', '1957-02-28'],
-];
+// Two months of patients. [1.125.0] About sixty people, from names common around Bugo and Cagayan
+// de Oro; most are seen once or twice, each always to the same record. Generated rather than
+// listed so the pool can grow without a hand-typed table, and deterministic, so a reseed produces
+// the same people. No surname here is used by today's patients, the bookings, the staff accounts,
+// or the clinic's own sample report.
+const HISTORY_FEMALE = ['Maria Luisa', 'Rowena', 'Teresita', 'Charlene', 'Lorna', 'Rhodora', 'Imelda', 'Janine',
+  'Marivic', 'Rosalinda', 'Evangeline', 'Cherry Mae', 'Jennifer', 'Arlene', 'Nenita', 'Gloria', 'Liezl',
+  'Kristine Joy', 'Divina', 'Milagros', 'Florencia', 'Aileen', 'Mylene', 'Sheila Mae', 'Rachelle', 'Cecilia',
+  'Erlinda', 'Annabelle', 'Junalyn', 'Remedios'];
+const HISTORY_MALE = ['Edgardo', 'Benjie', 'Randy', 'Alfredo', 'Jose', 'Glenn', 'Nestor', 'Wilfredo', 'Rogelio',
+  'Danilo', 'Ramon', 'Rodrigo', 'Jerome', 'Romeo', 'Reynante', 'Cris John', 'Jessie', 'Arnold', 'Elmer',
+  'Florencio', 'Manuel', 'Junrey', 'Kenneth', 'Leonardo', 'Vicente', 'Ariel', 'Dexter', 'Teodoro',
+  'Eduardo', 'Marlon'];
+const HISTORY_SURNAMES = ['Uy', 'Balili', 'Legaspi', 'Alcantara', 'Macaraeg', 'Obsioma', 'Dizon', 'Magno',
+  'Gallardo', 'Manlangit', 'Sanchez', 'Lumacang', 'Caballero', 'Galarrita', 'Abellana', 'Tiu', 'Pacana',
+  'Bacalso', 'Ladera', 'Jamisola', 'Cagas', 'Dablo', 'Paler', 'Sumalpong', 'Labis', 'Daligdig', 'Ompoc',
+  'Lagura', 'Yamit', 'Pagara', 'Baculio', 'Villamor', 'Acenas', 'Tagupa', 'Elcano', 'Gumapac', 'Maglinte',
+  'Lumayag', 'Cuizon', 'Pepito', 'Amora', 'Sagarino', 'Dumalagan', 'Lim', 'Chiong', 'Bendijo', 'Tabanao',
+  'Velasco', 'Rosales', 'Gementiza', 'Bajao', 'Salvana', 'Montecillo', 'Lacson', 'Ranile', 'Cabanlit',
+  'Neri-Sy', 'Pabualan', 'Ycong', 'Madrazo'];
+const HISTORY_POOL = HISTORY_SURNAMES.map((surname, i) => {
+  const female = i % 2 === 0;
+  const first = (female ? HISTORY_FEMALE : HISTORY_MALE)[Math.floor(i / 2) % 30];
+  // 1946 to 2007: every age the clinic sees, seniors included. Month and day vary with the index.
+  const year = 1946 + ((i * 23) % 62);
+  const month = String(((i * 5) % 12) + 1).padStart(2, '0');
+  const day = String(((i * 11) % 28) + 1).padStart(2, '0');
+  return [first, surname, female ? 'Female' : 'Male', `${year}-${month}-${day}`];
+});
 
 // Invented physicians, so "Referred by" is filled on some visits and empty on others — the honest
 // picture, and the one that shows the rule working rather than a field always full or always blank.
@@ -182,15 +202,15 @@ const labFormFor = (testName) => LAB_FIELD_SETS.find((f) => f.tests.includes(tes
 const plain = (v) => (v && typeof v === 'object' ? v.value_1 ?? v.value_text : v);
 
 /**
- * The lines of a laboratory report, as its sheet prints them: `Hemoglobin  14.8 g/dL  (13.5-17.5)`,
- * with each section heading printed once above the lines it groups. `overrides` fixes a value,
- * which is how an abnormal result is written.
+ * The rows of a laboratory report, as the clinic's sheet prints them: label, result, unit and the
+ * printed reference range, each under its section. `overrides` fixes a value, which is how an
+ * abnormal result is written. [1.125.0] Rows rather than lines of text, because demoReportPdf.js
+ * lays them out in the form's own TEST / RESULT / UNIT / REFERENCE RANGE columns.
  */
-function labReportLines(form, sex, seed, overrides = {}) {
+function labReportRows(form, sex, seed, overrides = {}) {
   const nudge = 1 + (((seed * 37) % 7) - 3) / 100;   // within ±3%, so no two reports match exactly
   const position = 0.35 + ((seed * 13) % 31) / 100;  // somewhere in the middle of a printed range
-  const lines = [form.discipline || form.name.toUpperCase()];
-  let section = null;
+  const rows = [];
   for (const f of form.fields) {
     const code = f.code;
     let value = plain(overrides[code]);
@@ -207,17 +227,18 @@ function labReportLines(form, sex, seed, overrides = {}) {
         : (EXACT.has(code) ? base : (base * nudge).toFixed(decimalsOf(base)));
     }
     if (value === null || value === undefined) continue;
-    if (f.section && f.section !== section) lines.push(f.section);
-    section = f.section || null;
-    lines.push(`${f.section ? '    ' : ''}${f.label}   ${value}${f.unit ? ` ${f.unit}` : ''}${f.note ? `   (${f.note})` : ''}`);
+    rows.push({ section: f.section || null, label: f.label, value: String(value), unit: f.unit || '', note: f.note || '' });
   }
-  return lines;
+  return rows;
 }
 
-/** The names under a sample report: the clinic's own signatories for that department. */
-const signatureLines = (category) => SIGNATORIES
-  .filter((sig) => sig.category === category)
-  .map((sig) => `${sig.name} - ${sig.caption}${sig.prc ? `, PRC ${sig.prc}` : ''}`);
+/**
+ * Who signs for a department, from the clinic's forms. X-ray is read by the clinic's radiologist,
+ * whose caption reads RADIOLOGIST/SONOLOGIST; the forms name no separate X-ray signatory.
+ */
+const signatoriesFor = (category) => SIGNATORIES
+  .filter((sig) => sig.category === (category === 'Xray' ? 'Ultrasound' : category))
+  .sort((a, b) => a.order - b.order);
 
 // Which written report an ultrasound service gets. These were the names of its typed form.
 const ULTRASOUND_REPORT = {
@@ -225,6 +246,7 @@ const ULTRASOUND_REPORT = {
   'Whole Abdomen': 'Whole Abdomen', 'Lower Abdomen': 'Lower Abdomen', 'KUB / Prostate': 'KUB and Prostate',
   'Thyroid': 'Thyroid and Neck', 'Trans-vaginal (TVS)': 'Transvaginal', 'Pelvic Ultrasound': 'Pelvic',
   'Scrotum': 'Scrotum', 'BPS': 'Biophysical Profile', 'BPS w/ NST': 'Biophysical Profile with NST',
+  'Chest Ultrasound': 'Chest', 'Transrectal': 'Transrectal',
 };
 
 // Written reports for imaging, ending in the impression the way the clinic's reports do.
@@ -235,37 +257,73 @@ const GALLBLADDER = 'The gallbladder is adequately distended with a thin wall an
 const KIDNEYS = 'Both kidneys are normal in size and echopattern, with good corticomedullary differentiation. No calculi or hydronephrosis.';
 const BLADDER = 'The urinary bladder is adequately filled with smooth walls and no intraluminal echoes.';
 
+// Abnormal findings a real month brings, by variant. [1.125.0]
+const GALLSTONES = 'The gallbladder is adequately distended. Multiple echogenic foci with posterior acoustic shadowing are seen within its lumen, the largest measuring 0.9 cm. The wall is not thickened.';
+const KIDNEY_STONE = 'Both kidneys are normal in size. A 0.6 cm echogenic focus with posterior acoustic shadowing is seen in the lower pole of the right kidney. No hydronephrosis.';
+const BIG_PROSTATE = 'The prostate gland is enlarged, measuring 4.8 x 4.1 x 3.9 cm with an estimated weight of 40 grams. Its echopattern is homogeneous, with no focal lesion.';
+
 function imagingReport(test, sex, variant) {
   const name = ULTRASOUND_REPORT[test.name] || '';
   const liver = variant === 'fatty' ? LIVER_FATTY : LIVER_NORMAL;
-  const abdomenImpression = variant === 'fatty' ? 'MILD FATTY INFILTRATION OF THE LIVER.' : null;
+  const gallbladder = variant === 'gallstones' ? GALLSTONES : GALLBLADDER;
+  const kidneys = variant === 'kidneyStone' ? KIDNEY_STONE : KIDNEYS;
+  const abdomenImpression = variant === 'fatty' ? 'MILD FATTY INFILTRATION OF THE LIVER.'
+    : variant === 'gallstones' ? 'CHOLELITHIASIS.'
+      : variant === 'kidneyStone' ? 'NEPHROLITHIASIS, RIGHT.' : null;
   switch (name) {
+    case 'Chest':
+      return para('No pleural effusion is seen on either side. The visualised lung bases show normal sliding with A-lines.',
+        'No subpleural consolidation is seen.', 'IMPRESSION:\nNO PLEURAL EFFUSION.');
+    case 'Transrectal':
+      return para(variant === 'prostate' ? BIG_PROSTATE : 'The prostate gland is normal in size, measuring 3.6 x 3.0 x 2.8 cm, with a homogeneous echopattern. No focal lesion.',
+        'The seminal vesicles are symmetric and unremarkable.',
+        `IMPRESSION:\n${variant === 'prostate' ? 'PROSTATOMEGALY, ESTIMATED WEIGHT 40 GRAMS.' : 'NORMAL TRANSRECTAL ULTRASOUND OF THE PROSTATE.'}`);
     case 'Whole Abdomen':
-      return para(liver, `${GALLBLADDER} The pancreas and spleen are unremarkable.`, KIDNEYS,
+      return para(liver, `${gallbladder} The pancreas and spleen are unremarkable.`, kidneys,
         sex === 'Male'
           ? `${BLADDER} The prostate gland is not enlarged and has a homogeneous echopattern.`
           : `${BLADDER} The uterus is normal in size. No adnexal mass is seen.`,
         `IMPRESSION:\n${abdomenImpression || 'NORMAL WHOLE ABDOMINAL ULTRASOUND.'}`);
     case 'Upper Abdomen':
-      return para(liver, `${GALLBLADDER} The pancreas and spleen are unremarkable.`, KIDNEYS,
+      return para(liver, `${gallbladder} The pancreas and spleen are unremarkable.`, kidneys,
         `IMPRESSION:\n${abdomenImpression || 'NORMAL UPPER ABDOMINAL ULTRASOUND.'}`);
     case 'Hepatobiliary Tree':
     case 'Liver':
-      return para(liver, `${GALLBLADDER} The spleen is not enlarged.`,
+      return para(liver, `${gallbladder} The spleen is not enlarged.`,
         `IMPRESSION:\n${abdomenImpression || 'NORMAL HEPATOBILIARY ULTRASOUND.'}`);
     case 'Lower Abdomen':
       return para(KIDNEYS, BLADDER,
         sex === 'Male' ? 'The prostate gland is not enlarged.' : 'The uterus and cervix are normal in size and echopattern.',
         'IMPRESSION:\nNORMAL LOWER ABDOMINAL ULTRASOUND.');
     case 'KUB and Prostate':
-      return para(KIDNEYS, `${BLADDER} Post-void residual urine is not significant.`,
-        sex === 'Male' ? 'The prostate gland is not enlarged and has a homogeneous echopattern. No calcifications.' : null,
-        `IMPRESSION:\n${sex === 'Male' ? 'NORMAL KUB-PROSTATE ULTRASOUND.' : 'NORMAL KUB ULTRASOUND.'}`);
+      return para(kidneys, `${BLADDER} Post-void residual urine is not significant.`,
+        sex === 'Male' ? (variant === 'prostate' ? BIG_PROSTATE : 'The prostate gland is not enlarged and has a homogeneous echopattern. No calcifications.') : null,
+        `IMPRESSION:\n${variant === 'kidneyStone' ? 'NEPHROLITHIASIS, RIGHT.'
+          : variant === 'prostate' && sex === 'Male' ? 'PROSTATOMEGALY, ESTIMATED WEIGHT 40 GRAMS.'
+            : sex === 'Male' ? 'NORMAL KUB-PROSTATE ULTRASOUND.' : 'NORMAL KUB ULTRASOUND.'}`);
     case 'Thyroid and Neck':
-      return para('Both thyroid lobes are normal in size with a homogeneous echopattern. No nodule or cyst is seen. The isthmus is not thickened.',
-        'No enlarged cervical lymph nodes.', 'IMPRESSION:\nNORMAL THYROID ULTRASOUND.');
+      return variant === 'thyroidNodule'
+        ? para('Both thyroid lobes are normal in size. A 0.8 x 0.6 cm well-defined, solid, hypoechoic nodule is seen in the right lobe, with no microcalcification. The left lobe and the isthmus are unremarkable.',
+          'No enlarged cervical lymph nodes.', 'IMPRESSION:\nSOLITARY NODULE, RIGHT THYROID LOBE (TI-RADS 3). Suggest follow-up ultrasound in 12 months.')
+        : para('Both thyroid lobes are normal in size with a homogeneous echopattern. No nodule or cyst is seen. The isthmus is not thickened.',
+          'No enlarged cervical lymph nodes.', 'IMPRESSION:\nNORMAL THYROID ULTRASOUND.');
     case 'Pelvic':
     case 'Transvaginal':
+      if (variant === 'pregnancy') {
+        return para('A single gestational sac is seen within the uterine cavity, containing a live embryo with cardiac activity of 152 beats per minute.',
+          'The crown-rump length measures 2.1 cm, corresponding to 8 weeks and 6 days age of gestation. No subchorionic haemorrhage. Both ovaries are unremarkable.',
+          'IMPRESSION:\nSINGLE LIVE INTRAUTERINE PREGNANCY, 8 WEEKS 6 DAYS AGE OF GESTATION BY CRL.');
+      }
+      if (variant === 'pregnancy2') {
+        return para('Single live intrauterine pregnancy in cephalic presentation. The fetal heart rate is 148 beats per minute.',
+          'The biparietal diameter and femur length correspond to 20 weeks 3 days age of gestation. The placenta is posterior, grade I, with no previa. The amniotic fluid is adequate.',
+          'IMPRESSION:\nSINGLE LIVE INTRAUTERINE PREGNANCY, CEPHALIC, 20 WEEKS 3 DAYS AGE OF GESTATION BY FETAL BIOMETRY.');
+      }
+      if (variant === 'myoma') {
+        return para('The uterus is anteverted and enlarged, with a 3.2 x 2.8 cm well-defined hypoechoic mass in the posterior myometrium. The endometrium is regular.',
+          'Both ovaries are normal in size and appearance. No free fluid in the cul-de-sac.',
+          'IMPRESSION:\nUTERINE MYOMA, INTRAMURAL, POSTERIOR.');
+      }
       return para('The uterus is anteverted, normal in size, with a homogeneous myometrial echopattern. The endometrium is thin and regular.',
         'Both ovaries are normal in size and appearance. No adnexal mass. No free fluid in the cul-de-sac.',
         `IMPRESSION:\nNORMAL ${name === 'Pelvic' ? 'PELVIC' : 'TRANSVAGINAL'} ULTRASOUND.`);
@@ -280,7 +338,40 @@ function imagingReport(test, sex, variant) {
     default:
       break;
   }
+  if (/apico/i.test(test.name)) {
+    return para('The lung apices are clear. No apical density or cavity is seen.',
+      'The visualised bony structures are intact.', 'IMPRESSION:\nNEGATIVE APICO-LORDOTIC VIEW.');
+  }
+  if (/spine|lumb|cervical|thorac/i.test(test.name)) {
+    return variant === 'spondylosis'
+      ? para('Marginal osteophytes are seen along the anterior vertebral bodies. The disc spaces are preserved. The pedicles are intact.',
+        'No compression deformity or listhesis.', 'IMPRESSION:\nSPONDYLOSIS.')
+      : para('The vertebral bodies are normal in height and alignment. The disc spaces are preserved. The pedicles are intact.',
+        'No fracture or listhesis.', 'IMPRESSION:\nNORMAL SPINE.');
+  }
+  if (/knee/i.test(test.name)) {
+    return variant === 'osteoarthritis'
+      ? para('Narrowing of the medial joint space with marginal osteophytes and subchondral sclerosis. No fracture or dislocation.',
+        'The soft tissues are unremarkable.', 'IMPRESSION:\nDEGENERATIVE OSTEOARTHRITIS OF THE KNEE.')
+      : para('The bones of the knee are intact. The joint spaces are preserved. No fracture or dislocation.',
+        'IMPRESSION:\nNORMAL KNEE.');
+  }
+  if (/sinus|waters|pns/i.test(test.name)) {
+    return variant === 'sinusitis'
+      ? para('Haziness with mucosal thickening is seen in both maxillary sinuses. The frontal and ethmoid sinuses are clear. The nasal septum is midline.',
+        'IMPRESSION:\nBILATERAL MAXILLARY SINUSITIS.')
+      : para('The paranasal sinuses are well aerated. The nasal septum is midline.', 'IMPRESSION:\nNORMAL PARANASAL SINUSES.');
+  }
+  if (/abdomen/i.test(test.name)) {
+    return para('The bowel gas pattern is nonspecific. No dilated bowel loops or air-fluid levels. No free air under the hemidiaphragms.',
+      'The psoas shadows and the visualised bones are unremarkable.', 'IMPRESSION:\nNONSPECIFIC BOWEL GAS PATTERN.');
+  }
   if (/chest/i.test(test.name)) {
+    if (variant === 'cardiomegaly') {
+      return para('The lung fields are clear. The cardiac silhouette is enlarged, with a cardiothoracic ratio of 0.58.',
+        'The hemidiaphragms and the costophrenic sulci are intact. Atheromatous aorta.',
+        'IMPRESSION:\nCARDIOMEGALY. ATHEROMATOUS AORTA.');
+    }
     return variant === 'pneumonia'
       ? para('Hazy densities are seen in the right lower lung field. The rest of the lung fields are clear.',
         'The heart is not enlarged. The hemidiaphragms and the costophrenic sulci are intact.',
@@ -462,7 +553,7 @@ async function main() {
           address: pick(PLACES, i * 5), contactNumber: phone(i), emergencyContact: phone(i, 7),
         },
       })).data.patient;
-      records.set(key, { patient, sex, seed: i + 1 });
+      records.set(key, { patient, sex, seed: i + 1, birthdate });
     }
     return records.get(key);
   };
@@ -475,8 +566,12 @@ async function main() {
    * would have been refused for naming no doctor. Most of these are ordinary walk-ins, which is
    * what Self Pay describes; pass `referrerIndex` for the ones that should carry a referral.
    */
-  const makeVisit = async ({ person, category, test, patientTypeName = 'Self Pay', referrerIndex = null, notes = '' }) => {
-    const { patient, sex, seed } = await patientFor(person, patientTypeName);
+  const packages = (await call('/packages')).data.packages || [];
+  const makeVisit = async ({
+    person, category, test, tests: wanted = null, packageCodes = [], patientTypeName = 'Self Pay',
+    referrerIndex = null, notes = '', date = null,
+  }) => {
+    const { patient, sex, seed, birthdate } = await patientFor(person, patientTypeName);
 
     // 'Private' and HMO both require one, so those callers must supply an index.
     const referrer = referrerIndex === null ? null : pick(REFERRERS, referrerIndex);
@@ -489,15 +584,25 @@ async function main() {
       },
     })).data.visit;
 
-    const chosen = test && typeof test === 'object' && test.id ? test : findTest(category, test);
+    // [1.125.0] Several tests on one visit, and package deals, the way people actually come in: a
+    // pre-employment panel is four tests, an annual physical eight.
+    const chosen = (wanted || (category ? [[category, test]] : []))
+      .map(([c, t]) => (t && typeof t === 'object' && t.id ? t : findTest(c, t)));
+    const packageIds = packageCodes.map((code) => packages.find((pk) => pk.code === code)?.id).filter(Boolean);
     const attached = (await call('/tests/visit-tests', {
       method: 'POST', token: tok.receptionist,
-      body: { patientVisitId: visit.id, testIds: [chosen.id] },
-    })).data.visitTests[0];
+      body: { patientVisitId: visit.id, testIds: [...new Set(chosen.map((t) => t.id))], packageIds },
+    })).data.visitTests;
+    const items = attached.map((vt) => {
+      const t = tests.find((x) => x.id === vt.test_id);
+      return { visitTestId: vt.id, test: t, category: offered(t.category_name) };
+    });
+    const first = items.find((it) => chosen[0] && it.test.id === chosen[0].id) || items[0];
 
     return {
-      patient, sex, seed, visit, test: chosen, visitTestId: attached.id,
-      category: offered(category), price: parseFloat(chosen.price),
+      patient, sex, seed, birthdate, visit, items, referrer, patientTypeName, date,
+      test: first.test, visitTestId: first.visitTestId, category: first.category,
+      price: attached.reduce((sum, vt) => sum + parseFloat(vt.price_at_time), 0),
     };
   };
 
@@ -509,66 +614,39 @@ async function main() {
     })).data.payment;
   };
 
+  // How the clinic's form names a patient's type. [1.125.0]
+  const FORM_PATIENT_TYPE = { 'Self Pay': 'WALK-IN', HMO: 'HMO', Private: 'PRIVATE' };
+
+  /** "IMPRESSION:\n..." split off the written report, for the form's own Impression block. */
+  const splitImpression = (text) => {
+    const at = String(text || '').lastIndexOf('IMPRESSION:');
+    return at < 0 ? [String(text || ''), ''] : [text.slice(0, at).trim(), text.slice(at + 'IMPRESSION:'.length).trim()];
+  };
+
   /**
-   * A minimal, valid one-page PDF, built by hand rather than pulled from a fixture file.
-   *
-   * The seeded dataset had 40 results and not one attachment, so the report viewer — and the
-   * whole "can this role open the document" question the department scoping exists to answer —
-   * could not be exercised at all without someone manually uploading a file first.
-   *
-   * Hand-assembled because the alternatives are worse: a binary fixture in the repo is a blob
-   * nobody can review, and a dependency for six lines of PostScript is not worth the supply
-   * chain. The xref offsets are computed rather than hardcoded, so editing the text below cannot
-   * silently produce a PDF that some readers reject and others tolerate.
+   * The report a department attaches, on the clinic's form. [1.125.0] A laboratory service prints
+   * its sheet's rows; imaging prints the written report and its impression. `comment` fills the
+   * form's Comment line.
    */
-  const makeSamplePdf = (title, body) => {
-    // A PDF's xref table is a list of BYTE offsets, so every length in this function has to be
-    // measured in the same encoding the file is finally written in. The first version measured
-    // with Buffer.byteLength(str) — which defaults to UTF-8 — and wrote with Buffer.from(str,
-    // 'latin1'). An em dash is three bytes in the first and one in the second, so each one shifted
-    // every subsequent offset by two and produced a file that opens as a blank page in some
-    // readers and an error in others. Two defences: ASCII only, and every measurement explicitly
-    // latin1.
-    const LATIN1 = 'latin1';
-    const len = (s) => Buffer.byteLength(s, LATIN1);
-    // Escape the three characters that are structural inside a PDF string literal, and flatten
-    // anything outside printable ASCII rather than trusting it to survive the round trip.
-    const esc = (s) =>
-      String(s)
-        .replace(/[‐-―]/g, '-')
-        .replace(/[‘’]/g, "'")
-        .replace(/[“”]/g, '"')
-        .replace(/[^\x20-\x7E]/g, '?')
-        .replace(/([()\\])/g, '\\$1');
-
-    const lines = [
-      'BT /F1 15 Tf 60 770 Td (' + esc('ENLOGADA ULTRASOUND & DIAGNOSTIC CLINIC') + ') Tj ET',
-      'BT /F1 11 Tf 60 750 Td (' + esc(title) + ') Tj ET',
-      ...(String(body).match(/.{1,88}(\s|$)/g) || [])
-        .map((line, i) => 'BT /F1 10 Tf 60 ' + (715 - i * 15) + ' Td (' + esc(line.trim()) + ') Tj ET'),
-      'BT /F1 8 Tf 60 60 Td (' + esc('Sample document generated by seedDemoScenario.js - not a real clinical report.') + ') Tj ET',
-    ];
-    const content = lines.join('\n');
-
-    const objects = [
-      '<< /Type /Catalog /Pages 2 0 R >>',
-      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-      `<< /Length ${len(content)} >>\nstream\n${content}\nendstream`,
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    ];
-
-    let pdf = '%PDF-1.4\n';
-    const offsets = [];
-    objects.forEach((obj, i) => {
-      offsets.push(len(pdf));
-      pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  const reportPdf = (v, { text, values, comment, date } = {}) => {
+    const form = v.category === 'Laboratory' ? labFormFor(v.test.name) : null;
+    const imaging = v.category === 'Ultrasound' || v.category === 'Xray';
+    const [body, impression] = imaging ? splitImpression(text) : ['', ''];
+    const exam = v.category === 'Ultrasound'
+      ? `${(ULTRASOUND_REPORT[v.test.name] || v.test.name)} ultrasound`
+      : v.test.name;
+    return renderClinicReport({
+      patient: { name: `${v.patient.last_name}, ${v.patient.first_name}`, birthdate: v.birthdate, sex: v.sex },
+      date: date || v.date || new Date(),
+      patientType: FORM_PATIENT_TYPE[v.patientTypeName] || 'WALK-IN',
+      physician: v.referrer?.[0] || '',
+      lab: form
+        ? { discipline: form.discipline, title: form.name, rows: labReportRows(form, v.sex, v.seed * 31 + (v.visit.id % 97), values) }
+        : null,
+      narrative: imaging ? { title: v.category === 'Xray' ? 'RADIOGRAPHIC REPORT' : 'ULTRASOUND REPORT', exam, body, impression } : null,
+      comment: form ? (comment ?? text ?? '') : (comment || ''),
+      signatories: signatoriesFor(v.category),
     });
-    const xrefStart = len(pdf);
-    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-    offsets.forEach((o) => { pdf += `${String(o).padStart(10, '0')} 00000 n \n`; });
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
-    return Buffer.from(pdf, LATIN1);
   };
 
   const postResult = async (v, form) => {
@@ -577,20 +655,6 @@ async function main() {
     });
     if (!res.ok) throw new Error(`record findings -> ${res.status} ${(await res.text()).slice(0, 160)}`);
     return (await res.json()).data.result;
-  };
-
-  /**
-   * What the sample report PDF says: a laboratory sheet's lines, the written text, and the names
-   * that sign for the department. [1.109.0] The values are IN the document, which is where a real
-   * result keeps them; nothing typed is sent to the API any more.
-   */
-  const reportBody = (v, text, values) => {
-    const form = v.category === 'Laboratory' ? labFormFor(v.test.name) : null;
-    return [
-      ...(form ? labReportLines(form, v.sex, v.seed, values) : []),
-      text,
-      ...signatureLines(v.category),
-    ].filter(Boolean).join('\n');
   };
 
   /**
@@ -612,7 +676,7 @@ async function main() {
     // which was right while findings WERE the report. A release now requires the document, so the
     // old shape would have stopped the seeder dead on the first laboratory visit — and, worse for
     // a demo, shown the clinic a system where half the results have nothing to open.
-    const pdf = makeSamplePdf(`${v.test.name} - ${v.patient.first_name} ${v.patient.last_name}`, reportBody(v, text, values));
+    const pdf = await reportPdf(v, { text, values });
     body.append(
       'file',
       new Blob([pdf], { type: 'application/pdf' }),
@@ -631,10 +695,7 @@ async function main() {
     // inherit the original file and the demo would show an "amendment" whose report is identical
     // to the one it replaced — which is exactly the empty-amendment problem the clinic should not
     // be shown, and which the real workflow avoids by attaching the new report.
-    const pdf = makeSamplePdf(
-      `${v.test.name} (corrected) - ${v.patient.first_name} ${v.patient.last_name}`,
-      reportBody(v, findings || reason, values)
-    );
+    const pdf = await reportPdf(v, { text: findings, values, comment: v.category === 'Laboratory' ? findings : remarks });
     body.append(
       'file',
       new Blob([pdf], { type: 'application/pdf' }),
@@ -645,6 +706,14 @@ async function main() {
 
   const release = async (v) =>
     (await call(`/results/${v.visitTestId}/release`, { method: 'POST', token: modalityToken[v.category] })).data.result;
+
+  /** Every test on a visit resulted by its own department; `byTest` holds options per test name. */
+  const recordVisit = async (v, byTest = {}) => {
+    for (const item of v.items) await recordFindings({ ...v, ...item }, byTest[item.test.name] || {});
+  };
+  const releaseVisit = async (v) => {
+    for (const item of v.items) await release({ ...v, ...item });
+  };
 
   // ── TODAY: the clinic's day so far, created in the order people arrived ───────────────────
   // Created earliest first, so queue and receipt numbers rise with the arrival times set below.
@@ -807,47 +876,135 @@ async function main() {
   // department a turnaround of 0 minutes. Skipped before 9 a.m., when there is no day to spread.
   await retimeToday(today);
 
-  // ── HISTORY: two weeks of completed, paid visits, then backdated ─────────────────────────
+  // ── HISTORY: two months of finished visits, then backdated [1.125.0] ─────────────────────
   // Without this the revenue trend, staff workload and every date-range report are empty, which
-  // reads as broken rather than new. The same sixteen people come and go, about once a week each.
+  // reads as broken rather than new. About sixty people over sixty days, one to four visits a day,
+  // each visit a mix the clinic really sees, about one in six with something out of range.
   const historical = [];
-  const LAB_ROTATION = [
-    'Complete Blood Count (CBC)', 'Fasting Blood Sugar (FBS)', 'Urinalysis', 'Lipid Profile', 'Creatinine',
-    'Blood Uric Acid (BUA)', 'SGPT', 'HbA1c', 'Blood Typing', 'TSH', 'Stool Exam', 'Blood Urea Nitrogen (BUN)',
-  ];
-  const ULTRASOUND_ROTATION = {
-    Male: ['Whole Abdomen', 'KUB / Prostate', 'Upper Abdomen', 'HBT', 'Thyroid'],
-    Female: ['Pelvic Ultrasound', 'Whole Abdomen', 'Thyroid', 'Upper Abdomen', 'Trans-vaginal (TVS)'],
+  // The database's own clock, so the notifications this history raises can be found again below.
+  const historyStartedAt = (await db.query('SELECT clock_timestamp() AS t')).rows[0].t;
+  const L = (name) => ['Laboratory', name];
+  const CBC = L('Complete Blood Count (CBC)');
+  const UA = L('Urinalysis');
+  const FBS = L('Fasting Blood Sugar (FBS)');
+  const LIPID = L('Lipid Profile');
+  const CREA = L('Creatinine');
+  const BUA = L('Blood Uric Acid (BUA)');
+  const SGPT = L('SGPT');
+  const ageOf = (birthdate) => {
+    const b = new Date(`${birthdate}T12:00:00`);
+    const now = new Date();
+    return now.getFullYear() - b.getFullYear() - (now < new Date(now.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
   };
-  const HISTORY_CATEGORIES = ['Laboratory', 'Ultrasound', 'Laboratory', 'Xray', 'Ultrasound'].filter((c) => OFFERED.includes(c));
-  // A few results out of range, as in any real week: a raised sugar, a raised cholesterol, a
-  // fatty liver and a pneumonia. Keyed by the visit's position in the fortnight.
-  const ABNORMAL = {
-    4: { values: { fbs: 128 } },
-    9: { values: { cholesterol: 258, triglycerides: 210, hdl: 41, ldl: 175.0, vldl: 42.0, chol_hdl_ratio: 6.3 } },
-    12: { variant: 'fatty' },
-    16: { variant: 'pneumonia' },
-  };
+  // Why people come, what they are sent for, and who it suits. `sick` is the version of the visit
+  // with something out of range, keyed by test name.
+  const VISIT_KINDS = [
+    { weight: 2, notes: 'Pre-employment requirement', tests: [CBC, UA, L('Stool Exam'), ['Xray', 'Chest PA']], fits: (a) => a >= 18 && a <= 45,
+      sick: { 'Stool Exam': { values: { ova_of_parasites: 'ASCARIS LUMBRICOIDES 1-2', consistency: 'SOFT' } } } },
+    { weight: 1, notes: 'Annual physical exam', tests: [CBC, FBS, LIPID, CREA, BUA, SGPT, UA, ['Xray', 'Chest PA']], fits: (a) => a >= 30,
+      sick: { 'Lipid Profile': { values: { cholesterol: 252, triglycerides: 205, hdl: 40, ldl: 171.0, vldl: 41.0, chol_hdl_ratio: 6.3 } },
+        'Chest PA': { variant: 'cardiomegaly' } } },
+    { weight: 2, notes: 'Diabetic, maintenance follow-up', tests: [FBS, L('HbA1c'), CREA], fits: (a) => a >= 40, referred: true,
+      sick: { 'Fasting Blood Sugar (FBS)': { values: { fbs: 162 } }, HbA1c: { values: { hba1c: 7.9 } } } },
+    { weight: 2, notes: 'Hypertensive, routine monitoring', tests: [LIPID, FBS, CREA, BUA], fits: (a) => a >= 40, referred: true,
+      sick: { 'Lipid Profile': { values: { cholesterol: 268, triglycerides: 221, hdl: 38, ldl: 185.8, vldl: 44.2, chol_hdl_ratio: 7.1 } },
+        'Blood Uric Acid (BUA)': { values: { bua: 8.3 } } } },
+    { weight: 2, notes: 'Painful urination', tests: [UA, CBC], fits: () => true,
+      sick: { Urinalysis: { values: { appearance: 'TURBID', protein: 'TRACE', wbc: '15-20', rbc: '2-4', bacteria: 'MANY', epithelial_cells: 'MODERATE' } },
+        'Complete Blood Count (CBC)': { values: { wbc: 12.6, neutrophils: 74, lymphocytes: 18, monocytes: 5, eosinophils: 2, basophils: 1 } } } },
+    { weight: 1, notes: 'Fever for three days', tests: [CBC, L('Clotting Time / Bleeding Time (CT BT)')], fits: () => true, referred: true,
+      sick: { 'Complete Blood Count (CBC)': { values: { wbc: 3.6, platelet_count: 96, neutrophils: 42, lymphocytes: 48, monocytes: 7, eosinophils: 2, basophils: 1 } } } },
+    { weight: 2, notes: 'Neck swelling, for evaluation', tests: [L('TSH'), L('FT4'), ['Ultrasound', 'Thyroid']], fits: (a) => a >= 20, referred: true,
+      sick: { TSH: { values: { tsh: 6.9 } }, FT4: { values: { ft4: 10.4 } }, Thyroid: { variant: 'thyroidNodule' } } },
+    { weight: 4, notes: 'Upper abdominal pain on and off', tests: [['Ultrasound', 'Whole Abdomen']], fits: () => true,
+      sick: { 'Whole Abdomen': { variant: 'fatty' } } },
+    { weight: 3, notes: 'Right upper quadrant pain after fatty meals', tests: [['Ultrasound', 'HBT'], SGPT], fits: (a) => a >= 25,
+      sick: { HBT: { variant: 'gallstones' }, SGPT: { values: { sgpt_alt: 68 } } } },
+    { weight: 3, notes: 'Flank pain', tests: [['Ultrasound', 'KUB / Prostate'], UA, CREA], fits: () => true, referred: true,
+      sick: { 'KUB / Prostate': { variant: 'kidneyStone' }, Urinalysis: { values: { rbc: '10-15' } } } },
+    { weight: 3, notes: 'Prenatal check-up', packages: ['A'], fits: (a, sex) => sex === 'Female' && a >= 19 && a <= 38, referred: true,
+      always: { 'Pelvic Ultrasound': { variant: 'pregnancy2' } } },
+    { weight: 2, notes: 'Missed period, for confirmation', tests: [['Ultrasound', 'Trans-vaginal (TVS)'], CBC, UA], fits: (a, sex) => sex === 'Female' && a >= 19 && a <= 40, referred: true,
+      always: { 'Trans-vaginal (TVS)': { variant: 'pregnancy' } } },
+    { weight: 3, notes: 'Irregular menstruation', tests: [['Ultrasound', 'Pelvic Ultrasound']], fits: (a, sex) => sex === 'Female' && a >= 20 && a <= 55,
+      sick: { 'Pelvic Ultrasound': { variant: 'myoma' } } },
+    { weight: 1, notes: 'Low back pain', tests: [['Xray', 'Lumbo-Sacral APL (LS)']], fits: (a) => a >= 35,
+      sick: { 'Lumbo-Sacral APL (LS)': { variant: 'spondylosis' } } },
+    { weight: 1, notes: 'Knee pain on walking', tests: [['Xray', 'Knee APL'], BUA], fits: (a) => a >= 45,
+      sick: { 'Knee APL': { variant: 'osteoarthritis' }, 'Blood Uric Acid (BUA)': { values: { bua: 7.9 } } } },
+    { weight: 1, notes: 'Recurring headache and colds', tests: [['Xray', 'Paranasal Sinuses (PNS)']], fits: () => true,
+      sick: { 'Paranasal Sinuses (PNS)': { variant: 'sinusitis' } } },
+    { weight: 2, notes: 'Cough for two weeks', tests: [['Xray', 'Chest PA'], CBC], fits: () => true, referred: true,
+      sick: { 'Chest PA': { variant: 'pneumonia' } } },
+    { weight: 2, notes: 'Frequent urination at night', tests: [['Ultrasound', 'KUB / Prostate'], UA], fits: (a, sex) => sex === 'Male' && a >= 50, referred: true,
+      sick: { 'KUB / Prostate': { variant: 'prostate' } } },
+    { weight: 1, notes: 'Health certificate requirement', tests: [L('Hepatitis B Screening'), L('HIV Screening'), L('VDRL / Syphilis')], fits: (a) => a >= 18 && a <= 50 },
+    { weight: 1, notes: 'Blood donation screening', tests: [L('Blood Typing'), CBC], fits: (a) => a >= 18 && a <= 55 },
+    { weight: 2, notes: 'Epigastric pain and bloating', tests: [['Ultrasound', 'Upper Abdomen']], fits: (a) => a >= 18,
+      sick: { 'Upper Abdomen': { variant: 'gallstones' } } },
+    { weight: 2, notes: '33 weeks pregnant, fetal well-being', tests: [['Ultrasound', 'BPS']], fits: (a, sex) => sex === 'Female' && a >= 19 && a <= 38, referred: true },
+    { weight: 1, notes: 'Painless scrotal swelling', tests: [['Ultrasound', 'Scrotum']], fits: (a, sex) => sex === 'Male' && a >= 15 },
+  ].filter((kind) => (kind.tests || []).every(([c]) => OFFERED.includes(c)));
+
+  // A deck with each kind as many times as its weight, walked with a stride coprime to its length
+  // so every card is reached. Stepping 5 through 20 kinds reached only four of them, which made the
+  // history mostly annual physicals and chest X-rays at an ultrasound clinic. [1.125.0]
+  const KIND_DECK = VISIT_KINDS.flatMap((kd) => Array(kd.weight || 1).fill(kd));
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const STRIDE = [11, 13, 17, 19, 23, 29].find((n) => gcd(n, KIND_DECK.length) === 1);
+
+  const providers = (await call('/hmo/providers', { token: tok.receptionist })).data.providers;
+  const HISTORY_DAYS = 60;
+  const VISITS_PER_DAY = [2, 3, 1, 3, 2, 4, 2, 3, 1, 2];
   let k = 0;
-  for (let daysAgo = 14; daysAgo >= 1; daysAgo--) {
+  for (let daysAgo = HISTORY_DAYS; daysAgo >= 1; daysAgo--) {
     // The clinic is closed on Sundays and shuts at noon on Saturdays, so the history keeps to the
     // days and hours it is open. [1.90.0]
     const day = new Date();
     day.setDate(day.getDate() - daysAgo);
     const weekday = day.getDay();
     if (weekday === 0) continue;
-    // Two or three visits a day, varying so the trend line is not a flat bar.
-    const perDay = 2 + (daysAgo % 2);
+    const perDay = weekday === 6 ? Math.min(2, VISITS_PER_DAY[daysAgo % 10]) : VISITS_PER_DAY[daysAgo % 10];
     for (let i = 0; i < perDay; i++, k++) {
-      const person = HISTORY_POOL[k % HISTORY_POOL.length];
-      const category = pick(HISTORY_CATEGORIES, k);
-      const test = category === 'Laboratory' ? pick(LAB_ROTATION, k)
-        : category === 'Ultrasound' ? pick(ULTRASOUND_ROTATION[person[2]], k)
-          : /chest/i;
-      const v = await makeVisit({ person, category, test, referrerIndex: k % 3 === 0 ? k : null });
-      await payFor(v, pick([CASH_METHOD, ...COUNTER_METHODS], daysAgo + i));
-      await recordFindings(v, ABNORMAL[k] || {});
-      await release(v);
+      // Stride 7 through the pool: everyone is seen before anyone returns, about a month apart.
+      const person = HISTORY_POOL[(k * 7) % HISTORY_POOL.length];
+      const age = ageOf(person[3]);
+      const start = (k * STRIDE) % KIND_DECK.length;
+      const kind = [...KIND_DECK.slice(start), ...KIND_DECK.slice(0, start)].find((kd) => kd.fits(age, person[2]));
+      const sick = (k * 7) % 6 === 0;
+      // One member in eight carries HMO cover; their visits are claimed and approved before the till.
+      const hmoMember = ((k * 7) % HISTORY_POOL.length) % 8 === 3 && providers.length > 0;
+      const referred = hmoMember || kind.referred || k % 3 === 0;
+
+      const v = await makeVisit({
+        person, tests: kind.tests || [], packageCodes: kind.packages || [],
+        patientTypeName: hmoMember ? 'HMO' : 'Self Pay', referrerIndex: referred ? k : null,
+        notes: kind.notes, date: day,
+      });
+
+      if (hmoMember) {
+        const claim = (await call('/hmo/request', {
+          method: 'POST', token: tok.receptionist,
+          body: { hmoProviderId: providers[0].id, memberNumber: `1CH-${String(204310 + k * 37).padStart(7, '0')}`, visitTestIds: v.items.map((it) => it.visitTestId) },
+        })).data;
+        const claimId = claim.request?.id || claim.hmoRequest?.id;
+        await call(`/hmo/request/${claimId}/approve`, {
+          method: 'PUT', token: tok.admin, body: { approvalCode: `LOA-${day.getFullYear()}-${String(31000 + k * 13)}` },
+        });
+      } else if (age >= 60 && senior && k % 2 === 0) {
+        // Statutory discounts for the seniors, so the BIR register has months behind it.
+        await call(`/discounts/visit/${v.visit.id}`, {
+          method: 'POST', token: tok.cashier, body: { discountTypeId: senior.id, idNumber: `OSCA-04${String(10000 + k * 97).slice(-5)}` },
+        });
+      } else if (pwd && k % 23 === 11) {
+        await call(`/discounts/visit/${v.visit.id}`, {
+          method: 'POST', token: tok.cashier, body: { discountTypeId: pwd.id, idNumber: `PWD-10-4305-${String(1000 + k * 7).padStart(7, '0')}` },
+        });
+      }
+
+      await payFor(v, k % 4 === 1 ? 'GCash' : k % 9 === 0 ? 'Bank' : CASH_METHOD);
+      await recordVisit(v, { ...(kind.always || {}), ...(sick ? (kind.sick || {}) : {}) });
+      await releaseVisit(v);
       historical.push({ ...v, daysAgo, slot: i, saturday: weekday === 6 });
     }
   }
@@ -899,11 +1056,30 @@ async function main() {
         `UPDATE test_results
             SET released_at    = (CURRENT_DATE - $2::interval) + make_interval(hours => $3, mins => $4),
                 authorised_at  = (CURRENT_DATE - $2::interval) + make_interval(hours => $3, mins => $4)
-          WHERE visit_test_id = $1`,
-        [h.visitTestId, shift, arrival, waitToPay + releaseAfter]
+          WHERE visit_test_id IN (SELECT id FROM visit_tests WHERE patient_visit_id = $1)`,
+        [h.visit.id, shift, arrival, waitToPay + releaseAfter]
+      );
+      // An HMO claim is filed at the desk and approved before the patient reaches the till.
+      await db.query(
+        `UPDATE hmo_requests
+            SET created_at    = (CURRENT_DATE - $2::interval) + make_interval(hours => $3, mins => 1),
+                approved_date = (CURRENT_DATE - $2::interval) + make_interval(hours => $3, mins => 3)
+          WHERE id IN (SELECT hrt.hmo_request_id FROM hmo_request_tests hrt
+                         JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                        WHERE vt.patient_visit_id = $1)`,
+        [h.visit.id, shift, arrival]
       );
     }
   });
+
+  // The staff were told about all of this weeks ago, as it happened. [1.125.0] Raised now, two
+  // months of payments, releases and HMO approvals sat unread on every bell (99+), which no clinic
+  // opens its morning to. Today's notifications stay.
+  await db.query(
+    'DELETE FROM notification_reads WHERE event_id IN (SELECT id FROM notification_events WHERE created_at >= $1)',
+    [historyStartedAt]
+  );
+  await db.query('DELETE FROM notification_events WHERE created_at >= $1', [historyStartedAt]);
 
   // ── Patient feedback [1.112.0] ────────────────────────────────────────────────────────────
   // The paper forms reception typed in for the fortnight's walk-ins, as the clinic's own form
@@ -920,6 +1096,15 @@ async function main() {
     { ratings: [3, 3, 2, null], comment: 'Init kaayo sa waiting area, dugangan unta ug electric fan.', nameHidden: true },
     { ratings: [3, 1, 3, 3], comment: 'Na-delay ug usa ka adlaw ang akong result.' },
     { ratings: [3, 3, 3, 3], comment: 'Maayo kaayo ang pag-atiman sa akong mama.' },
+    { ratings: [3, 3, 3, 3], comment: 'Klaro kaayo ang pag-explain sa sonologist.' },
+    { ratings: [3, 2, 3, 3], comment: 'Taas ang pila sa buntag pero dali ra ang result.' },
+    { ratings: [3, 3, 3, 3], comment: null, nameHidden: true },
+    { ratings: [2, 3, 3, 3], comment: 'Sana mas daghan pa ang lingkuranan sa waiting area.' },
+    { ratings: [3, 3, 3, 3], comment: 'Nindot ang serbisyo, mobalik ko diri.' },
+    { ratings: [3, 3, 2, 3], comment: 'Okay ra tanan, medyo init lang.' },
+    { ratings: [3, 3, 3, 3], comment: 'Thank you sa pag-assist sa akong lolo.' },
+    { ratings: [1, 3, 3, 3], comment: 'Dugay ko na-entertain sa counter.' },
+    { ratings: [3, 3, 3, 3], comment: 'Paspas ang X-ray ug buotan ang radtech.' },
   ];
   const feedbackQuestions = (await call('/feedback/questions', { token: tok.receptionist })).data.questions;
   const rated = historical.filter((_, i) => i % 3 !== 2).slice(0, FEEDBACK.length);
@@ -1112,7 +1297,7 @@ async function main() {
   for (const line of stages) logger.info(`   • ${line}`);
   logger.info('');
   logger.info(`   patients            ${c.patients}`);
-  logger.info(`   visits today        ${c.visits_today}   (${c.visits_total} including 14 days of history)`);
+  logger.info(`   visits today        ${c.visits_today}   (${c.visits_total} including 60 days of history)`);
   logger.info(`   paid today          ${c.paid_today}   —  PHP ${c.revenue_today}`);
   logger.info(`   amended results     ${c.amended}`);
   logger.info(`   appointments        ${c.appointments}`);

@@ -174,9 +174,10 @@ export default function ActiveQueuePanel({ queue, disposition, hmo, testAssignme
                             {/* The ticket number is the thing a receptionist calls out and a
                                 patient reads back, so it is set larger than the row around it
                                 rather than smaller — it was 12px in a row of 12px text. */}
-                            <DataBadge variant="queue" label="Queue ticket">
-                              {visit.queue_number || `V-${visit.id}`}
-                            </DataBadge>
+                            {/* A booking has no ticket until it is checked in [1.92.0]; an internal id in its place read as test data. [1.125.0] */}
+                            {visit.queue_number
+                              ? <DataBadge variant="queue" label="Queue ticket">{visit.queue_number}</DataBadge>
+                              : <span className="whitespace-nowrap text-fine text-slate-500">Not checked in</span>}
                             {/* aria-label as well as title: `title` alone is not a reliable
                                 accessible name and is invisible on touch, so a screen reader
                                 announced two unlabelled buttons on every queue row. */}

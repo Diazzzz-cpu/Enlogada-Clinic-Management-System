@@ -9,6 +9,18 @@ to practise next.
   code, tracing a request, or fixing bugs alone.
 - Goal: investigate and explain problems in this system in front of a panel, even when the fix is
   not immediately obvious.
+- **The actual test format:** the instructor will break the system on purpose and ask for it to be
+  fixed live. So the practice focus is **planted-bug drills**: a small deliberate break, found from
+  its symptom, fixed with the smallest change, then explained. See "When someone has broken the
+  code on purpose" in `DEBUGGING_GUIDE.md`.
+
+## Planted-bug drills
+
+Each drill is made on a local `practice/...` git branch that is never pushed, and thrown away after.
+
+| # | Symptom given | Layer | Status | Notes |
+|---|---|---|---|---|
+| 1 | Applying any discount fails with "Could not apply the discount." | (found by you) | Started | |
 
 ## Learning path
 

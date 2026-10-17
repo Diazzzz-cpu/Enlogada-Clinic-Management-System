@@ -172,6 +172,56 @@ the database is running.
 
 ---
 
+## When someone has broken the code on purpose
+
+An instructor who breaks a system for you to fix usually changes **one small thing**: a letter in
+a name, a `<` turned into `>`, a deleted line, a wrong setting. You are not writing new code; you
+are finding the one wrong thing and putting it back.
+
+### First question: what changed?
+
+If the project is in git (this one is), VS Code shows every file changed since the last commit:
+- **Source Control** panel (`Ctrl+Shift+G`): the changed files are listed. Click one to see the
+  old line in red and the new one in green.
+- In the editor, a coloured bar in the left margin marks a changed line.
+- In a terminal: `git status` lists changed files, `git diff` shows the exact lines.
+
+This is a real professional technique ("what changed since it last worked?"). Ask the instructor
+whether you may use it. Either way, you must still explain the bug from its **symptom**, so learn
+the table below too. A break that was committed, or made in the database or a `.env` file, will
+not show up this way.
+
+### Symptom -> likely planted bug -> where to look
+
+| What you see | Most likely change | Where to look |
+|---|---|---|
+| Network: **404**, and the Response is an **HTML page** "Cannot POST /api/…" | The address in the frontend and the backend route disagree: a typo, a missing letter, `get` vs `post` | The `api.post(...)` in the hook vs `router.post(...)` in `backend/src/routes/`, and `app.use('/api/…')` in `app.js` |
+| **Every** request fails with `ERR_CONNECTION_REFUSED`; the backend terminal says **"app crashed - waiting for file changes"** | A syntax error (missing bracket, comma, quote) or a wrong `require` in a backend file | The red error at the top of the backend terminal names the **file and line** |
+| A red error **overlay** or a **blank white page** in the browser | A syntax error in a frontend file | The overlay and the Vite terminal name the file and line |
+| **500**; the terminal says `column "…" does not exist`, `relation "…" does not exist` or `syntax error at or near` | A typo in the SQL | The repository function; compare names with `database/schema.sql` |
+| **500**; the terminal says `Cannot read properties of undefined`, `… is not a function`, `… is not defined` | A renamed or deleted variable or function, or a removed `await` | The first `backend/src/...` line in the stack trace |
+| Browser Console: `Cannot read properties of undefined (reading '…')` | The frontend reads the answer in the wrong place (e.g. `res.data.user` instead of `res.data.data.user`) | Compare the Network Response's shape with the line the Console names |
+| **403** "Required permissions: …" for a role that should be allowed | A permission name changed in a route | The route's `authorizePermissions(...)`; compare with Super Admin -> Who sees what |
+| **401** on every request right after signing in | The token is not sent or not accepted | `frontend/src/config/api.js` (the `Authorization` line), `backend/src/middlewares/auth.js` |
+| **Wrong answer, no error** (allowed when it should refuse, or the reverse) | A flipped comparison: `<` / `>`, `===` / `!==`, `&&` / `||`, a removed `!` | The service rule. Read the condition aloud in English and ask: is that what the clinic wants? |
+| Button does **nothing**, and **no request** in the Network tab | `onClick` removed or renamed, a wrong `disabled` condition, an early `return` | The button in the component, then the hook function it calls |
+| It saves (the Network tab shows 200) but the **screen does not update** | The refresh after saving was removed | The hook, right after `await api.post(...)` |
+| A **number is wrong** | Arithmetic changed, or a SQL `SUM` / `WHERE` changed | The service or repository that computes it |
+| The backend will not start: "password authentication failed", "database … does not exist", "ECONNREFUSED 5432" | A database setting in `backend/.env` was changed | The backend terminal at startup, then `backend/.env` |
+
+### The loop for a planted bug
+
+1. **Reproduce** the symptom and write it down exactly.
+2. **Read** the evidence: screen message, Network status and Response, backend terminal, browser Console.
+3. Use the table to pick the **layer** (frontend, route, service, SQL, settings).
+4. Open that file and **read the few lines around** the clue. Planted bugs are usually within a
+   few lines of where the error points.
+5. Make the **one** change that puts it right. Save. (The backend restarts itself; the browser updates.)
+6. **Retest** the exact steps from 1. Then try something nearby that also uses that code.
+7. **Explain**: "The symptom was …, the cause was … in …, I changed … to …, and I checked it by …"
+
+---
+
 ## Safety rules
 
 - Investigate with test accounts and the development database, never the clinic's live one.

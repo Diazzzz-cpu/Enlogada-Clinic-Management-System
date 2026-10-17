@@ -38,7 +38,7 @@ Tick a stage when you can do its check without notes.
 
 | # | Exercise | Status | Notes |
 |---|---|---|---|
-| 1 | The discount won't go through | Assigned | |
+| 1 | The discount won't go through | Done (2026-10-17) | Found the rule from the message alone. Mixed up "bad data" and "bug" on the twist. |
 | 2 | Nobody can log in | Not started | |
 | 3 | Kristine can't see X-Ray History | Not started | |
 | 4 | The patient can't open her report | Not started | |
@@ -54,13 +54,33 @@ Tick a stage when you can do its check without notes.
 ### Session 1 (2026-10-17)
 - **Covered:** the overview of the system, the five most important files, the five most likely
   trouble areas, the learning path.
-- **Assigned:** Exercise 1.
-- **Mistakes to learn from:** none yet.
-- **Practise next:** Exercise 1, then stage 1 of the learning path.
+- **Exercise 1, done.** Read the red message on screen, found the request in the Network tab
+  (400), saw the Response `message` matched the screen, searched the backend for a fixed part of
+  the message and landed on the age check in `backend/src/services/discountService.js`
+  (`applyToVisit`). Called it a rule, correctly.
+- **Mistakes to learn from:**
+  - First guess was that the OSCA/PWD ID box showing was the bug. It is required by law: a
+    Senior/PWD discount must record the ID number. Lesson: read the actual error before guessing.
+  - The Network tab looked empty: the **Font** type filter was on. Use **Fetch/XHR** or **All**.
+    Chrome's "Keep log" is the old "Preserve log".
+  - Called "the record says 31 but the patient is really 65" a bug. It is **bad data**: the code
+    is right, the birthdate on file is wrong. Test: fix the data; if it then works with no code
+    change, it was bad data.
+  - Described a 400 as "a bad request from the frontend". The request was fine; the server refused
+    it because it breaks a rule. HTTP's name "Bad Request" is misleading.
+- **Practise next:** the bug / rule / bad data / configuration quick check, then Exercise 2.
 
 ## Concepts learned
 
-(Add a line each time a concept clicks, in your own words.)
+- A **400** means the server refused the request, usually because of a rule. It does not mean the
+  system is broken.
+- The frontend often just **repeats** the server's message (`setDiscountError(err.response?.data?.message …)`
+  in `useCheckout.js`), so the sentence on screen can be searched for in `backend/src`.
+- Search with words that never change: not names or numbers, which the code fills in (`${discount.name}`).
+- `throw new ValidationError(…)` stops the work and becomes a 400 through `errorHandler.js`.
+- Bug vs bad data: a bug is the code doing the wrong thing with correct data; bad data is the code
+  doing the right thing with wrong data.
+- A strong explanation: **what happened → where the rule is → why it exists → what to do.**
 
 ## Things I still find confusing
 

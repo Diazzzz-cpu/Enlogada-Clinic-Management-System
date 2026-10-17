@@ -33,7 +33,11 @@ often consequences. "Cannot read properties of undefined (reading 'x')" means th
 that was not there: usually a request failed or returned a different shape.
 
 **Network tab.** The most useful tool you have.
-1. Open it **before** you click, and tick **Preserve log**.
+1. Open it **before** you click, and tick **Keep log** (older Chrome calls it **Preserve log**),
+   so the list is not wiped when the page changes.
+   Check the type buttons under the Filter box: **All** or **Fetch/XHR** must be the highlighted
+   one. If another (such as Font) is highlighted, the list hides the server requests and shows
+   "0 / 74 requests".
 2. Click the thing that fails.
 3. Find the request (filter by `Fetch/XHR`). Red rows failed.
 4. Click it and read:

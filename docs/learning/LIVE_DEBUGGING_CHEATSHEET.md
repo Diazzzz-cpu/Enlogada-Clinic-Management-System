@@ -22,7 +22,8 @@ and `Database connected successfully`.
 ## Check first
 
 1. Are **both** servers running? On the expected ports?
-2. Network tab open **before** clicking, with Preserve log ticked.
+2. Network tab open **before** clicking, **Keep log** ticked (old name: Preserve log), filter on
+   **Fetch/XHR** or **All**.
 3. The request's **URL**, **status**, **Response `message`**.
 4. The backend terminal line for that request (and WARN / ERROR under it).
 5. Signed in as the right **role**? (`TEST_ACCOUNTS.md`)

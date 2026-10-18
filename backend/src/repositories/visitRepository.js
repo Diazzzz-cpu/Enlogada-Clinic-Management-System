@@ -313,6 +313,10 @@ class VisitRepository {
   // A patient's visits, newest first: what Patient Records' file shows the front desk. [1.116.0]
   // Each carries the names of its tests (never a result) and whether it is in today's queue, by the
   // queue's own rule, so the file can say "already here" instead of offering a second visit.
+  //
+  // [1.130.0] And where each test stands, so the desk can answer "is my result ready?" without
+  // reading it: its status, when its report was first released, or when its X-ray was marked
+  // done. Dates and states only; what a report SAYS stays with whoever holds results:read.
   async findVisitsByPatientId(patientId) {
     const queryText = `
       SELECT pv.*, p.first_name, p.last_name,
@@ -323,6 +327,22 @@ class VisitRepository {
                WHERE vt.patient_visit_id = pv.id
                ORDER BY vt.id
              ) AS test_names,
+             COALESCE((
+               SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                        'id', vt.id, 'name', t.name, 'category', tc.name, 'status', vt.status,
+                        'released_at', (SELECT MIN(tr.authorised_at) FROM test_results tr
+                                         WHERE tr.visit_test_id = vt.id AND tr.authorised_at IS NOT NULL),
+                        'done_at', vt.performed_at
+                      ) ORDER BY vt.id)
+                 FROM visit_tests vt
+                 JOIN tests t            ON t.id = vt.test_id
+                 JOIN test_categories tc ON tc.id = t.category_id
+                WHERE vt.patient_visit_id = pv.id
+             ), '[]') AS tests,
+             EXISTS (
+               SELECT 1 FROM payments pay
+                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
+             ) AS is_paid,
              (${inTodaysQueue('pv')}) AS in_todays_queue
       FROM patient_visits pv
       JOIN patients p ON pv.patient_id = p.id

@@ -6,9 +6,17 @@ import DataBadge from '../ui/data-badge';
 import { StatusBadge } from '../ui/status-badge';
 import { SkeletonList } from '../ui/skeleton';
 import { formatDate } from '../../lib/date';
+import { testProgress } from '../../lib/testProgress';
 import LinkAccountDialog from './LinkAccountDialog';
 
 const VISITS_SHOWN = 8;
+
+// [1.130.0] A test's own state, beside its name: finished, still being worked on, or neither.
+const TONE = {
+  done: 'font-semibold text-emerald-700',
+  working: 'font-semibold text-amber-700',
+  quiet: 'text-slate-500',
+};
 
 /**
  * A patient's file, for the front desk and the till. [1.116.0]
@@ -17,6 +25,9 @@ const VISITS_SHOWN = 8;
  * a returning patient's record is for: what else is on file, when they came and what for, and the
  * way to start their next visit without typing them in again. Never a result, and never the
  * details the row above it already shows (sex, birthdate, contact, type): a fact said once.
+ *
+ * [1.130.0] Each test says where it stands (released, X-ray done, with which department, waiting
+ * for payment, cancelled), so "is my result ready?" is answered here without opening a report.
  *
  * "Start a visit" goes to the Desk with the patient already found, rather than creating the visit
  * here, because the Desk is where a visit is started safely: it will not offer a second visit to
@@ -107,18 +118,38 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
           <>
             <ul data-testid="patient-file-visits" className="m-0 list-none divide-y divide-line rounded-lg border border-line bg-surface p-0">
               {shown.map((v) => (
-                <li key={v.id} data-testid="patient-file-visit" className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5">
-                  <div className="min-w-0 space-y-0.5">
+                <li key={v.id} data-testid="patient-file-visit" className="space-y-1.5 px-3 py-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="m-0 flex flex-wrap items-center gap-2 text-fine font-semibold text-slate-900">
                       {formatDate(v.created_at)}
                       {v.queue_number && <DataBadge variant="queue" label="Queue ticket">{v.queue_number}</DataBadge>}
                       <span className="font-normal text-slate-500">{v.visit_type}</span>
                     </p>
-                    <p className="m-0 text-fine text-slate-600">
-                      {v.test_names?.length ? v.test_names.join(', ') : 'No tests added'}
-                    </p>
+                    <StatusBadge status={v.status} className="px-2 py-0.5" />
                   </div>
-                  <StatusBadge status={v.status} className="px-2 py-0.5" />
+                  {v.tests?.length ? (
+                    <ul className="m-0 list-none space-y-0.5 p-0">
+                      {v.tests.map((t) => {
+                        const progress = testProgress(t, { paid: v.is_paid });
+                        return (
+                          <li
+                            key={t.id}
+                            data-testid="patient-file-test"
+                            data-state={progress.state}
+                            className="flex flex-wrap items-baseline justify-between gap-x-3 text-fine"
+                          >
+                            <span className="min-w-0 text-slate-700">{t.name}</span>
+                            <span className={TONE[progress.tone]}>
+                              {progress.label}
+                              {progress.detail && <span className="font-normal text-slate-500"> · {progress.detail}</span>}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="m-0 text-fine text-slate-600">No tests added</p>
+                  )}
                 </li>
               ))}
             </ul>

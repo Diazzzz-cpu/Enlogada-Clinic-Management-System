@@ -36,6 +36,18 @@ listed as "Done <date> by <name>", with "Result given by the X-Ray department" w
 would have View and Print, and the roster reads "2 released · 1 X-ray done". Still nothing pending:
 a test waiting at a department is not on the record until it is finished.
 
+**The front desk sees where each test stands.** Steven: "how about the front desk side?" The desk
+opens a patient's FILE, not their reports, and it listed each visit's test names under one status
+for the whole visit, so "is my result ready?" had no answer there. Each test now says where it
+stands: Released <date>, Done <date> with "Result from the X-Ray department", With <department>,
+Waiting for payment (or Not started yet, once paid) and Cancelled. Dates and states only; what a
+report says stays with whoever reads results. `GET /visits/patient/:id` carries `tests` (status,
+first release, X-ray done) and `is_paid`, and `lib/testProgress.js` words it (6 unit tests).
+
+`npm run demo` now also puts each seeded account back to its one role. Joel (cashier@enlogada.com)
+was given the Receptionist role on Staff Accounts to try it, which worked, and a reset would have
+left him with both; the demo and the specs take him to be a cashier and nothing else.
+
 **A visit asks for every permission it uses.** [1.129.0] made `POST /visits` register the patient,
 open the visit and attach its tests in one request, but it still checked only `visits:create`. An
 account given only "start visits" on the access grid could register patients and attach tests,

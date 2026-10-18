@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const userRepository = require('../repositories/userRepository');
 const logger = require('../config/logger');
+const db = require('../config/database');
 
 /**
  * The demo accounts, one per role. [1.89.0]
@@ -50,6 +51,26 @@ const renameIfPlaceholder = async (existing, u) => {
   logger.info(`Updated ${u.email}: ${renaming ? `${u.placeholder} -> ${name}` : name}${renumbering ? `, number ${u.contact}` : ''}`);
 };
 
+/**
+ * A demo account goes back to its one role. [1.130.0]
+ *
+ * Roles can be changed on Staff Accounts now, and a second role given to a demo account while
+ * trying the feature outlived every reset: `npm run demo` left cashier@enlogada.com a receptionist
+ * too, and the demo and the test suite both take it to be a cashier and nothing else. A real
+ * person's account is not in this list and is never touched.
+ */
+const restoreRole = async (existing, u) => {
+  const held = (existing.roles || []).filter(Boolean).sort();
+  if (held.length === 1 && held[0] === u.role) return;
+  const roleId = await userRepository.findRoleIdByName(u.role);
+  if (!roleId) return;
+  await db.withTransaction(async () => {
+    await userRepository.removeAllRoles(existing.id);
+    await userRepository.assignRoleToUser(existing.id, roleId);
+  });
+  logger.info(`Reset ${u.email} to its demo role: ${held.join(', ') || 'none'} -> ${u.role}`);
+};
+
 const seedUsers = async () => {
   try {
     const salt = await bcrypt.genSalt(10);
@@ -66,6 +87,7 @@ const seedUsers = async () => {
         logger.info(`Seeded user: ${u.email} with role: ${u.role}`);
       } else {
         await renameIfPlaceholder(existing, u);
+        await restoreRole(existing, u);
         logger.info(`User ${u.email} already exists.`);
       }
     }

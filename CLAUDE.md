@@ -156,6 +156,10 @@ people over 60 days, each visit a real mix (`VISIT_KINDS`, weighted so ultrasoun
 in six abnormal, with senior/PWD discounts and approved HMO claims; its notifications are deleted, as
 the staff saw them weeks ago. The reset deletes every account but the nine seeded ones, so list a
 real person's own sign-in in `DEMO_KEEP_ACCOUNTS` (backend `.env`, comma-separated) to keep it.
+`[1.130.0]` `seedUsers.js` also puts each seeded account back to its ONE role: a second role given
+on Staff Accounts while trying it (Joel, cashier@enlogada.com, made a receptionist too) would
+otherwise outlive the reset, and specs like `patient-records-final` take that account to be a
+cashier and nothing else.
 
 The suite now cleans up after itself — `playwright.config.js` wires a global setup/teardown that stamps the run start and then deletes everything the run created (throwaway `@enlogada-e2e.test` accounts, plus any visit, payment, notification or audit row created inside the window). Row counts are identical before and after a run, so a seeded demo dataset survives testing. Set `E2E_SKIP_PURGE=1` to keep the data when debugging a failure. Cleanup never fails the run; if it errors it says so and leaves the data behind.
 
@@ -636,7 +640,9 @@ apart: `released_count` is still reports, `done_count` / `last_done_at` are X-ra
 them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
 shows no Results column. `[1.116.0]` Their name opens the patient's FILE instead
 (`components/patients/PatientFile.jsx`): what else is on file, the visits and the tests each was for,
-and "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather
+each test with where it stands `[1.130.0]` (`lib/testProgress.js`: Released <date>, Done <date> for
+an X-ray, With <department>, Waiting for payment, Cancelled; `patient-file-test` with `data-state`),
+so the desk answers "is my result ready?" without a report, and "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather
 than creating a visit, because the Desk refuses a second visit to someone already in today's queue
 ("Find at the Desk" for them). A permission, not a role list, so granting `results:read`
 to a cashier shows them results with no code change. **Printing and saving a report are logged**:

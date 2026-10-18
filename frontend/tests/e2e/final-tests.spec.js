@@ -87,7 +87,7 @@ test.describe('Final tests, then a final receipt', () => {
     await expect(page.getByText(/RCT-/).first(), 'the payment went through').toBeVisible({ timeout: 20000 });
   });
 
-  test('a paid visit cannot be cancelled, and the Desk does not offer it', async ({ page }) => {
+  test('no visit is cancelled, paid or not, and the Desk offers no Cancel', async ({ page }) => {
     const paid = await walkIn();
     await payAndReleaseWalkIn(ctx, API, paid.visit.id, cashier);
     const unpaid = await walkIn();
@@ -104,12 +104,19 @@ test.describe('Final tests, then a final receipt', () => {
     await expect(page.getByText(paid.person.fullName).first()).toBeVisible({ timeout: 20000 });
     await expect(page.getByRole('button', { name: `Cancel visit for ${paid.person.fullName}` })).toHaveCount(0);
 
-    // And an unpaid visit still can be: the rule is about money taken, not about cancelling.
+    // [1.131.0] Nor an unpaid one: unpaid is temporary, and it is removed on its own if it is not
+    // paid by the end of the day.
+    const unpaidRefused = await ctx.patch(`${API}/visits/${unpaid.visit.id}/status`, {
+      headers: auth(reception), data: { status: 'Cancelled' },
+    });
+    expect(unpaidRefused.status()).toBe(409);
+    expect((await unpaidRefused.json()).message).toMatch(/removed on its own/);
     await box.fill(unpaid.person.fullName);
-    await expect(page.getByRole('button', { name: `Cancel visit for ${unpaid.person.fullName}` })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(unpaid.person.fullName).first()).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('button', { name: `Cancel visit for ${unpaid.person.fullName}` })).toHaveCount(0);
   });
 
-  test('online: the account appears only after the patient confirms the tests, and a paid booking cannot be cancelled', async ({ page }) => {
+  test('online: the account appears only after the patient confirms the tests, and a paid booking is only moved', async ({ page }) => {
     const person = fixturePerson();
     const email = fixtureEmail(person);
     const { token: client } = await registerClient(ctx, { ...person, email, password: PASSWORD });
@@ -143,10 +150,10 @@ test.describe('Final tests, then a final receipt', () => {
     await check.getByRole('checkbox', { name: 'These are the tests I want.' }).check();
     await expect(page.getByLabel('Reference number').first()).toBeVisible();
 
-    // Paid at the counter instead, after which the booking can be moved but not cancelled.
+    // Paid at the counter instead, after which the booking can be moved and nothing else: there
+    // is no cancel route at all [1.131.0], and the portal offers Reschedule, not Cancel.
     await payAndReleaseWalkIn(ctx, API, appointment.patient_visit_id, cashier);
     const cancel = await ctx.put(`${API}/appointments/${appointment.id}/cancel`, { headers: auth(client) });
-    expect(cancel.status()).toBe(409);
-    expect((await cancel.json()).message).toContain('Move it to another day');
+    expect(cancel.status()).toBe(404);
   });
 });

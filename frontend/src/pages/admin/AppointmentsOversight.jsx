@@ -14,12 +14,13 @@ import api from '../../config/api';
 import { CalendarClock } from 'lucide-react';
 import { formatTime12 } from '../../lib/date';
 
-const STATUS_FILTERS = ['All', 'Pending', 'Confirmed', 'Completed', 'Cancelled', 'No Show'];
+// [1.131.0] No 'Cancelled' or 'No Show': an unpaid booking is released when its time is up, a paid one moved.
+const STATUS_FILTERS = ['All', 'Pending', 'Confirmed', 'Completed'];
 
 // Sent to the server as `limit` — GET /appointments pages at the database now [1.29.0].
 const PAGE_SIZE = 15;
 
-// Module 12: appointments oversight — read-only. Rescheduling/cancelling is Receptionist's
+// Module 12: appointments oversight — read-only. Rescheduling is Receptionist's
 // (Module 7) or the Client's own (Module 3) job; this view is visibility only, per
 // MODULE_SCOPE.md's "oversight" wording.
 const AppointmentsOversight = () => {
@@ -75,7 +76,7 @@ const AppointmentsOversight = () => {
       <PageHeader
         icon={CalendarClock}
         title="Appointments"
-        description="Clinic-wide view of every booked appointment. Read-only — rescheduling and cancellation belong to Reception or the patient."
+        description="Clinic-wide view of every booked appointment. Read-only: moving a booking belongs to Reception or the patient, and an unpaid one is released on its own when its time is up."
         actions={
           <RefreshButton onRefresh={() => fetchAppointments(page)} loading={loading} updatedAt={updatedAt} />
         }

@@ -3,7 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { loginAs } from './helpers/ticketRelease.js';
 import { selfPayProfile } from './helpers/patients.js';
 import { nthWorkingDay, dateStr } from './helpers/dates.js';
-import { appointmentForm, bookableTestId } from './helpers/booking.js';
+import { appointmentForm, bookableTestId, removeUnpaid } from './helpers/booking.js';
 
 // Moving a booking instead of cancelling and rebooking it.
 //
@@ -235,7 +235,7 @@ test.describe('Appointment reschedule (API)', () => {
     } finally {
       // Checked in and unpaid is the seeded patient WAITING today, and the next spec's walk-in for
       // them would be refused as a second unpaid visit. [1.124.0]
-      await ctx.put(`${API}/appointments/${appt.id}/cancel`, { headers: auth(clientToken) });
+      removeUnpaid(appt.id);
     }
   });
 });

@@ -29,7 +29,8 @@ import DateTime from '../ui/date-time';
 // (backend/src/constants/visits.js). A value here that the server does not accept is silently
 // dropped there, so the chip would appear to do nothing.
 const VISIT_TYPE_FILTERS = ['All', 'Walk in', 'Appointment'];
-const VISIT_STATUS_FILTERS = ['All', 'Pending', 'Processing', 'Completed', 'Cancelled'];
+// [1.131.0] No 'Cancelled': an unpaid visit is removed when its time is up, a paid one is final.
+const VISIT_STATUS_FILTERS = ['All', 'Pending', 'Processing', 'Completed'];
 
 export default function VisitHistoryPanel({ history, operations, canRecordFeedback = false }) {
   // [1.112.0] The visit whose paper feedback form is being typed in, and the ones done this session
@@ -132,10 +133,6 @@ export default function VisitHistoryPanel({ history, operations, canRecordFeedba
                         </TableCell>
                         <TableCell label="Status">
                           <StatusBadge status={v.visit_status} />
-                          {/* Why it closed unfinished: not paid, or nobody came. [1.130.0] */}
-                          {v.closed_reason && (
-                            <span data-testid="visit-closed-reason" className="mt-1 block max-w-[16rem] text-fine text-slate-500">{v.closed_reason}</span>
-                          )}
                           {/* Feedback is asked of a FINISHED visit. [1.112.0] */}
                           {v.visit_status === 'Completed' && (
                             v.feedback_submitted_at || recorded.has(v.id) ? (

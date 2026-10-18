@@ -5,7 +5,7 @@ const db = require('./config/database');
 
 const { reportPendingRepairs, reportGatewayConfiguration, reportAccountMail } = require('./config/startupAdvisory');
 const reminderScheduler = require('./jobs/reminderScheduler');
-const dayCloseScheduler = require('./jobs/dayCloseScheduler');
+const unpaidExpiryScheduler = require('./jobs/unpaidExpiryScheduler');
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
@@ -16,8 +16,8 @@ const server = app.listen(env.PORT, () => {
   reportAccountMail();
   // [1.130.0] Appointment reminders, sent by the server itself.
   reminderScheduler.start();
-  // [1.130.0] What earlier days left open with nothing able to move it.
-  dayCloseScheduler.start();
+  // [1.131.0] Unpaid walk-ins and bookings whose time is up are removed.
+  unpaidExpiryScheduler.start();
 });
 
 // Handle unhandled promise rejections
@@ -38,7 +38,7 @@ process.on('uncaughtException', (err) => {
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
   reminderScheduler.stop();
-  dayCloseScheduler.stop();
+  unpaidExpiryScheduler.stop();
   server.close(() => {
     db.pool.end();
     logger.info('Process terminated.');

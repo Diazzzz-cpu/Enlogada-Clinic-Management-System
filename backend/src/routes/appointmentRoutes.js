@@ -26,24 +26,15 @@ router.get('/availability', verifyToken, appointmentController.getAvailability);
 // Receptionist verifies appointment by reference (QR scan or manual entry)
 router.get('/verify/:reference', verifyToken, authorizeStaff, authorizePermissions('appointments:read'), appointmentController.verifyReference);
 
-// Client cancels their own appointment; front office cancels on a patient's behalf.
-//
-// This carried verifyToken alone while its sibling /:id/status — a less destructive operation on
-// the same resource — was role-gated. The service's assertClientOwnsPatient returns immediately
-// for any non-Client role, so that asymmetry meant a Laboratory, Xray, Ultrasound or Cashier
-// token could walk PUT /api/appointments/1/cancel … /N/cancel and empty the appointment book,
-// cascading each cancellation to the linked visit.
-router.put('/:id/cancel', verifyToken, authorizeRoles('SuperAdmin', 'Admin', 'Receptionist', 'Client'), authorizePermissions('appointments:cancel'), appointmentController.cancel);
+// [1.131.0] No cancel route: an unpaid booking is released on its own when its time is up, and a
+// paid one is moved, never cancelled (no refunds). appointmentService.updateStatus says the same.
 
 // Move a booking to a different slot. Patient-reachable, so it keeps an explicit role list rather
-// than authorizeStaff — same rule as /cancel above.
+// than authorizeStaff: a patient moves their own booking, staff move one on a patient's behalf.
 //
-// Its own permission rather than reusing appointments:cancel. They are different decisions and a
-// clinic may well want one without the other: reception rescheduling freely while patients are
-// asked to phone in, or the reverse. Reusing the cancel grant would make that undecidable.
 router.put('/:id/reschedule', verifyToken, authorizeRoles('SuperAdmin', 'Admin', 'Receptionist', 'Client'), authorizePermissions('appointments:reschedule'), appointmentController.reschedule);
 
-// Staff updates appointment status (Confirmed, Completed, No Show)
+// Staff check a booking in ('Confirmed'), the one status set by hand. [1.131.0]
 router.put('/:id/status', verifyToken, authorizeStaff, authorizePermissions('appointments:update'), appointmentController.updateStatus);
 router.patch('/:id/status', verifyToken, authorizeStaff, authorizePermissions('appointments:update'), appointmentController.updateStatus);
 

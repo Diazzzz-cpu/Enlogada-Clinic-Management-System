@@ -53,9 +53,6 @@ export default function AppointmentsTab({ bookings }) {
   const earlier = paged.filter((a) => !isOpenBooking(a));
 
   const renderCard = (appt) => {
-    // A paid booking can be moved, not cancelled: a paid receipt is final. [1.122.0]
-    // Nor while a payment the patient sent is waiting to be checked. [1.124.0]
-    const isCancellable = (appt.status === 'Pending' || appt.status === 'Confirmed') && !appt.is_paid && !appt.has_pending_proof;
     const isOpen = appt.status !== 'Cancelled' && appt.status !== 'Completed';
 
     // The QR pass is issued only once the booking is PAID. [1.48.0]
@@ -220,13 +217,10 @@ export default function AppointmentsTab({ bookings }) {
           </>
         )}
 
-        {/* Reschedule sits before Cancel, and only while the booking is still
-            Pending — once reception has checked the patient in, the date is not
-            the thing anyone is changing. Ordering matters here: cancelling used to
-            be the only way to change a booking, so it was doing duty as both, and
-            a patient who only wanted a different Tuesday gave their slot up to get
-            it. The gentler action goes first. */}
-        {(appt.status === 'Pending' || isCancellable) && (
+        {/* Reschedule only while the booking is still Pending: once reception has checked
+            the patient in, the date is not the thing anyone is changing. No Cancel [1.131.0]:
+            an unpaid booking is released on its own when its time is up, and a paid one moves. */}
+        {appt.status === 'Pending' && (
           <div className="flex gap-2 pt-0.5">
             {appt.status === 'Pending' && (
               <Button
@@ -237,17 +231,6 @@ export default function AppointmentsTab({ bookings }) {
               >
                 <CalendarClock className="h-3.5 w-3.5" />
                 <span>Reschedule</span>
-              </Button>
-            )}
-            {isCancellable && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => bookings.requestCancel(appt)}
-                className="flex-1 items-center justify-center gap-1.5 rounded-lg border-rose-200 py-1.5 text-fine font-bold text-rose-600 hover:bg-rose-50"
-              >
-                <XCircle className="h-3.5 w-3.5" />
-                <span>Cancel</span>
               </Button>
             )}
           </div>

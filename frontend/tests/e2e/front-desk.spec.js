@@ -119,7 +119,8 @@ test.describe("The Desk's Who's here box", () => {
     await expect(card).toContainText('Rosario Magbanua');
     await expect(card.getByRole('button', { name: 'Confirm Check-In Patient' })).toBeVisible();
     await expect(card.getByRole('button', { name: /Reschedule this booking/ })).toBeVisible();
-    await expect(card.getByRole('button', { name: /No-Show/ })).toBeVisible();
+    // [1.131.0] No "Mark as No-Show": an unpaid booking nobody comes for is removed after its day.
+    await expect(card.getByRole('button', { name: /No-Show/ })).toHaveCount(0);
     // Unpaid, and the card says so before anyone checks the patient in.
     await expect(card).toContainText(/no confirmed payment/i);
 

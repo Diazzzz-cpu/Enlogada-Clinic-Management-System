@@ -52,7 +52,6 @@ const PERMISSIONS = [
   { name: 'appointments:create', module: 'Appointments', description: 'Book an appointment' },
   { name: 'appointments:read', module: 'Appointments', description: 'View appointments' },
   { name: 'appointments:update', module: 'Appointments', description: 'Check in, mark no-show' },
-  { name: 'appointments:cancel', module: 'Appointments', description: 'Cancel an appointment' },
   // Separate from cancel on purpose. Cancelling gives the slot up; rescheduling holds a slot while
   // swapping it, so a clinic that wants patients to phone in for a change can revoke this and keep
   // cancel, or the other way round. Reusing one grant for both makes that choice unexpressible.
@@ -93,7 +92,7 @@ const PERMISSIONS = [
 const RECEPTION = [
   'patients:create', 'patients:read', 'patients:update',
   'visits:create', 'visits:read', 'visits:update',
-  'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
+  'appointments:read', 'appointments:update', 'appointments:reschedule',
   'tests:assign', 'tests:read_assigned', 'hmo:read', 'hmo:request',
   // Files a proof of payment on a patient's behalf — somebody who paid online and then rang the
   // clinic rather than uploading it themselves. Reception cannot VERIFY one: that is
@@ -143,7 +142,7 @@ const MODALITY = [
 const ADMIN = [
   'patients:create', 'patients:read', 'patients:read_all_departments', 'patients:update',
   'visits:create', 'visits:read', 'visits:update',
-  'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
+  'appointments:read', 'appointments:update', 'appointments:reschedule',
   'tests:manage', 'tests:assign', 'tests:read_assigned',
   'results:read',
   'billing:read', 'billing:discount', 'billing:submit_proof',
@@ -187,6 +186,13 @@ const RETIRED = [
       'refunds were removed in [1.121.0]: a paid receipt is final. The route it gated is gone, and ' +
       'a refund let one person take money and hand it back with nobody else involved.',
   },
+  {
+    permission: 'appointments:cancel',
+    reason:
+      'nothing is cancelled since [1.131.0]: an unpaid booking is temporary and is released on its ' +
+      'own when its time is up, and a paid one is moved, never cancelled (no refunds). The route it ' +
+      'gated is gone.',
+  },
 ];
 
 const REVOKED = [
@@ -220,7 +226,7 @@ const ROLE_PERMISSIONS = {
   // tick can cross — and hmoService checks ownership on both patient-facing routes.
   Client: [
     'patients:create', 'patients:read', 'patients:update',
-    'appointments:create', 'appointments:read', 'appointments:cancel', 'appointments:reschedule',
+    'appointments:create', 'appointments:read', 'appointments:reschedule',
     'tests:assign', 'billing:read', 'billing:submit_proof',
     'visits:read', 'results:read',
     'hmo:request', 'hmo:read',
@@ -294,6 +300,12 @@ const setupRbac = async () => {
       // Grants first: role_permissions references permissions, so the row cannot go while any
       // grant of it survives.
       for (const { permission, reason } of RETIRED) {
+        // And any one person's exception for it, which references it too. [1.131.0]
+        await db.query(
+          `DELETE FROM user_permissions USING permissions p
+            WHERE user_permissions.permission_id = p.id AND p.name = $1`,
+          [permission]
+        );
         const grants = await db.query(
           `DELETE FROM role_permissions
                  USING permissions p

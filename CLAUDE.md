@@ -106,7 +106,7 @@ node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at,
 node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 tables, 6 visit columns, 2 permissions, the paper form's 4 questions (--rollback reverses it)
 node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code per released report version; backfills released ones (--rollback reverses it)
 node src/scripts/migrateExamPerformed.js        # [1.129.0] visit_tests.performed_at/_by: an X-ray exam marked done (--rollback reverses it)
-node src/scripts/migrateVisitClosure.js         # [1.130.0] patient_visits.closed_reason/_at: why a visit closed unfinished (--rollback reverses it)
+node src/scripts/migrateUnpaidIsTemporary.js    # [1.131.0] removes never-paid Cancelled / No Show visits (Activity Log line each), drops [1.130.0]'s closed_reason/_at, retires appointments:cancel
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -135,10 +135,10 @@ node src/scripts/pruneAuditLog.js            # PHI reads 2y, everything else 7y
 node src/scripts/sendAppointmentReminders.js              # each booking owed a reminder, and when (--days=7, --json)
 node src/scripts/sendAppointmentReminders.js --confirm    # send what is due right now
 
-# The end-of-day close is AUTOMATIC too [1.130.0] (every 30 min, finds work once a day): unpaid
-# walk-ins and unpaid bookings nobody came for, from an earlier day, are closed with a reason. This
-# runs it now. Off in the server with DAY_CLOSE=off.
-node src/scripts/closeEarlierDays.js
+# Unpaid is temporary, and removed AUTOMATICALLY when its time is up [1.131.0] (every 5 min): an
+# unpaid walk-in after its day, an unpaid booking after its day or once its time to pay runs out.
+# This runs it now. Off in the server with UNPAID_EXPIRY=off.
+node src/scripts/removeExpiredUnpaid.js
 
 # Retention pass for HMO card images (insurance documents, not medical records). Dry-run by
 # default; --confirm applies. The window is a constant in the script, overridable per run.
@@ -178,7 +178,7 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 ```bash
 cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
 cd frontend && npm run test:unit # 137 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 522 Playwright E2E, ~13m, needs both dev servers
+cd frontend && npm test        # 523 Playwright E2E, ~14m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -197,7 +197,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 87 Playwright specs (522 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 87 Playwright specs (523 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -208,8 +208,11 @@ a day as closed, so a spec booking further out SKIPS itself rather than failing:
 booked at +500 days and went quiet that way. Keep booking dates within ~360 days, and watch the skip
 count. A patient may hold more than one booking a day (fasting bloods in the morning, an ultrasound
 later), so only the same SLOT is a duplicate. A spec that checks in a booking for the seeded client
-cancels it afterwards if unpaid (`ticket-release-gating`): a checked-in, unpaid booking is that
+removes it afterwards if unpaid (`ticket-release-gating`): a checked-in, unpaid booking is that
 patient waiting, and the next spec's walk-in for them is then refused as a second unpaid visit.
+`[1.131.0]` Nothing is cancelled any more, so a spec frees what it booked or opened unpaid with
+`helpers/booking.js` `removeUnpaid(appointmentId)` / `removeUnpaid(visitId, { visit: true })`
+(`e2eRemoveUnpaid.js`, which refuses anything ever paid), never a cancel route: there is none.
 
 **A booking spec must claim its own slot.** `POST /appointments` returns the *existing* booking with 200 when the same patient re-submits the same date and time, so two tests that both take "the first available slot" silently share one visit — and `avail.slots.find(s => s.available)` will not stop them, because a dev database whose cap has been lifted (`cleanE2eData.js --apply --unlimited-slots`, which exists because 18 slots a day cannot absorb repeated runs) reports every slot as available however many bookings it holds. `booking-atomicity.spec.js` and `ticket-release-gating.spec.js` each keep a `claimed` set for this. Symptom when you get it wrong: a create test receives 200 instead of 201, or a test finds a visit some earlier test already checked in.
 
@@ -490,26 +493,31 @@ its ticket and its tests are ONE transaction (`visitService.registerVisit`), so 
 record without its visit. A new record with the same name (case and spacing ignored) and birthdate
 as one on file is 409 with `details.possibleDuplicate` unless `confirmNewPatient`; the Desk asks
 "Use the record on file" or "No, register someone new". The last test on a visit cannot be
-removed (409); cancelling the visit drops everything. A spec that needs "a visit" passes a test.
+removed (409); an unpaid visit is temporary and goes on its own. A spec that needs "a visit" passes a test.
 `[1.130.0]` One request does what three endpoints did, so it answers to all three permissions:
 `visits:create` AND `tests:assign` on the route, and `patients:create` (in the service) when it
 registers a new patient. Checking `visits:create` alone let an account given only "start visits"
 on the grid register patients and attach tests; the Desk gates Start visit and Register Walk-In
 the same way (`can.startVisit`, `can.registerPatient`).
 
-**What an earlier day leaves open is closed, or shown, never left.** `[1.130.0]` Today's queue and
-the till's are today's, so an unpaid walk-in from yesterday could never be paid or served, and
-stayed 'Pending' for good; a booking nobody came for was never a no-show unless someone marked it.
-`jobs/dayCloseScheduler.js` runs `visitRepository.closeEarlierDays` every half hour: an unpaid
-walk-in from before today becomes 'Cancelled' with `closed_reason` "Not paid by the end of <date>",
-an unpaid booking whose day passed becomes 'No Show' and its visit "No show on <date>" (a No Show
-marked by hand closes its visit the same way), each audited as "System (end of day)". Never
-anything waiting on someone (an HMO decision, an online proof to check) and never anything PAID:
-a paid visit still with a department is on the Desk's "From earlier days" table, and a paid booking
-nobody came for is on its "Paid bookings nobody came for" table, to be moved (no refunds). A booking
-not paid within its time to pay released its slot, so it cannot be checked in (409, "start a
-walk-in visit"), and "Still to arrive" names it instead of listing it. `day-close.spec.js`; in a
-spec, `e2eBackdateVisit.js` moves a fixture's visit to an earlier day (and back, for the purge).
+**Unpaid is temporary; paid is final. Nothing is "Cancelled" or a "No Show".** `[1.131.0]`
+Steven's rule: a booking is paid first, a walk-in pays for its tests to go ahead, and once paid
+there are no takebacks; what is never paid was only ever temporary. So there is NO cancel and NO
+no-show, anywhere: `PUT /appointments/:id/cancel` is gone (404), a booking's only manual status is
+'Confirmed' (check-in), a visit's 'Cancelled' is refused (409) paid or not, `appointments:cancel`
+is retired, and the Desk, the portal and Visit History offer and show neither. Instead
+`jobs/unpaidExpiryScheduler.js` runs `unpaidExpiryService.removeExpired` every five minutes, which
+DELETES (`visitRepository.removeVisits`, child to parent, uploaded files after the commit) every
+unpaid visit whose time is up (`findExpiredUnpaid`): a walk-in after its day; a booking after its
+day, staff and HMO bookings included (they take a slot without paying first, but the patient still
+has to come); a patient's own booking once its time to pay lapses. Each leaves one Activity Log
+line (`visit.removed_unpaid`, "System (unpaid, time up)") and a released booking emails its patient
+(`sendBookingReleased`). Never anything waiting on someone (an HMO decision, an online proof to
+check) and never anything that had a receipt. A PAID visit still with a department is on the Desk's
+"From earlier days" table; a paid booking nobody came for is on "Paid bookings nobody came for",
+to be moved. A booking whose time to pay ran out cannot be checked in (409, "start a walk-in
+visit") and, moved by the patient first, gets a fresh time to pay (`restartLapsedHold`).
+`unpaid-expiry.spec.js`; `e2eBackdateVisit.js` moves a fixture's visit to an earlier day.
 
 **Appointment reminders are sent by the server itself.** `[1.130.0]` Steven: automatic, the day
 before, and halfway to the appointment when it is booked later than that. `utils/reminderTiming.js`
@@ -549,15 +557,12 @@ cashier to wait for a pending decision rather than charge for a test the HMO may
 not reintroduce a reversal path.
 
 **No void either, and the tests are confirmed before the money.** `[1.122.0]` Cancelling a PAID
-visit (`visitService.updateStatus`) or a PAID booking (`appointmentService.cancelAppointment` and
-`updateStatus`) kept the money and gave nothing for it: a void by another name. All three refuse
-with 409; a paid booking is moved, not cancelled. The Desk and the portal hide Cancel on a paid one
-(`is_paid` on the queue row and the booking). Because a receipt is final, the tests are confirmed
+visit or booking kept the money and gave nothing for it: a void by another name. Since `[1.131.0]`
+nothing is cancelled at all (see "Unpaid is temporary" above); a paid booking is moved. Because a receipt is final, the tests are confirmed
 first: the till's `PaymentConfirmDialog` lists them and waits for the cashier's tick that the
 patient confirmed them, and the portal's `PayBookingPanel` shows the clinic's account only after
 the patient ticks "These are the tests I want" (bookings carry `booked_tests`).
-`final-tests.spec.js` holds both halves. `[1.123.0]` Nor is a paid booking marked No Show (409,
-and the Desk hides it): that kept the money and closed the booking for good. It is moved.
+`final-tests.spec.js` holds both halves.
 
 **What a final receipt rules out.** `[1.123.0]` Steven's whole-system review; each rule is in
 `process-fixes.spec.js`.
@@ -597,9 +602,9 @@ shapes to keep:
   ~1,400 malformed inputs were 500s quoting the database. A new CHECK or UNIQUE constraint gets a
   sentence there. An error's `details` reach the client on a 4xx (never a 5xx) `[1.129.0]`: that
   is how the Desk learns WHICH record a new patient may duplicate.
-- **Status moves by hand are a short list.** A visit: only Cancelled (Processing keeps its release
-  rule); Completed and Pending belong to the process. A booking: check in, No Show (on or after its
-  day, never after check-in) or Cancelled; Cancelled, No Show and Completed are final. A booking
+- **Status moves by hand are a short list.** `[1.131.0]` A visit: none (Processing keeps its
+  release rule, for SuperAdmin/Admin); Pending, Completed and Cancelled belong to the process, and
+  an unpaid one is removed when its time is up. A booking: check in, and nothing else. A booking
   checked in on another day is moved to today.
 
 **An omitted field is not an instruction to erase.** `testRepository.updateTest` writes every
@@ -660,7 +665,7 @@ apart: `released_count` is still reports, `done_count` / `last_done_at` are X-ra
 them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
 shows no Results column. `[1.116.0]` Their name opens the patient's FILE instead
 (`components/patients/PatientFile.jsx`): what else is on file, the FINISHED visits and how each test
-ended `[1.130.0]` (`lib/testProgress.js`: Released <date>, Done <date> for an X-ray, Cancelled;
+ended `[1.130.0]` (`lib/testProgress.js`: Released <date>, Done <date> for an X-ray;
 `patient-file-test` with `data-state`). A record is final, Steven's rule: a visit still open is not
 listed, and one line (`patient-file-open`) says it exists and that the Desk shows where it stands.
 And "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather

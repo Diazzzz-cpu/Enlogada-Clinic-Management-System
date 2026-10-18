@@ -57,7 +57,7 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
 
   const { patient, visits } = entry;
   const inQueue = visits.find((v) => v.in_todays_queue);
-  const onRecord = visits.filter((v) => v.status === 'Completed' || v.status === 'Cancelled');
+  const onRecord = visits.filter((v) => v.status === 'Completed');
   const stillOpen = visits.filter((v) => v.status === 'Pending' || v.status === 'Processing');
   const shown = onRecord.slice(0, VISITS_SHOWN);
   const onFile = [
@@ -139,10 +139,7 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
                       {v.queue_number && <DataBadge variant="queue" label="Queue ticket">{v.queue_number}</DataBadge>}
                       <span className="font-normal text-slate-500">{v.visit_type}</span>
                     </p>
-                    <span className="text-right">
-                      <StatusBadge status={v.status} className="px-2 py-0.5" />
-                      {v.closed_reason && <span className="mt-0.5 block text-meta text-slate-500">{v.closed_reason}</span>}
-                    </span>
+                    <StatusBadge status={v.status} className="px-2 py-0.5" />
                   </div>
                   {v.tests?.length ? (
                     <ul className="m-0 list-none space-y-0.5 p-0">

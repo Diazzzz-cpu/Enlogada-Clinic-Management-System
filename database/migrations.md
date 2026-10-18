@@ -1,10 +1,42 @@
 # Database Migration & Schema History
 
+## [1.131.0] - 2026-10-19 (Unpaid is temporary; paid is final; nothing is cancelled)
+
+Run on an existing database: `node src/scripts/migrateUnpaidIsTemporary.js`. It removes every
+visit that is Cancelled, or whose booking is Cancelled or a No Show, and that never had a receipt
+(one Activity Log line each; on the dev database: 9, all closed by [1.130.0] hours before), drops
+`patient_visits.closed_reason` / `closed_at`, and retires `appointments:cancel`. `--rollback` puts
+the two columns back empty; removed visits are not restored. [1.130.0]'s `migrateVisitClosure.js`
+is deleted, as what it added is gone. New setting `UNPAID_EXPIRY` (blank keeps it on);
+[1.130.0]'s `DAY_CLOSE` is gone.
+
+Steven, asking what "Cancelled" is for when there are no refunds: "our rule is a booking should be
+paid first ... for the walkin once its processed no takebacks. walkin need to pay in order for
+their test to continue so thats only temporary since they not paid yet and cancelled should be
+removed same in the visit history". His answers: deleted for good with an Activity Log line; no
+manual remove, only expiry; HMO and staff bookings removed after their day like any unpaid one
+("still he need to come").
+- **Unpaid is removed when its time is up**, every five minutes (`jobs/unpaidExpiryScheduler.js`,
+  `removeExpiredUnpaid.js` to run it now): an unpaid walk-in after its day; an unpaid booking after
+  its day (staff and HMO too); a patient's own booking once its time to pay runs out. Its tests,
+  booking, proofs and uploaded files go with it; one Activity Log line stays ("Removed the booking
+  APT-... for Oct 16 (name: tests): nobody came on Oct 16, and it was not paid."), and a released
+  booking emails its patient. Never anything waiting on an HMO decision or an online proof to
+  check, and never anything that ever had a receipt.
+- **Nothing is cancelled or marked a no-show by hand.** The booking cancel route is gone (404), a
+  booking's only manual status is check-in, a visit's Cancelled is refused (409) paid or not. The
+  Desk's Cancel and "Mark as No-Show", the portal's Cancel, Visit History's and Appointments'
+  Cancelled / No Show filters, the reception report's Cancelled count and the "Cancel a booking"
+  switch on Who sees what are gone. The cancellation email is gone; a released booking has its own.
+- [1.130.0]'s end-of-day close becomes this: it closed with a reason, and now removes.
+- Specs free what they booked or opened unpaid with `removeUnpaid()` (`e2eRemoveUnpaid.js`, which
+  refuses anything paid) instead of a cancel route.
+
 ## [1.130.0] - 2026-10-19 (Reminders send themselves; a visit asks for every permission it uses; what a day leaves open is closed)
 
-Run on an existing database: `node src/scripts/migrateVisitClosure.js` (`--rollback` reverses it):
-`patient_visits.closed_reason` and `closed_at`. Folded into `schema.sql`. Two new settings, both on
-when blank: `APPOINTMENT_REMINDERS` and `DAY_CLOSE`.
+Superseded by [1.131.0] the same day: its `migrateVisitClosure.js` (`patient_visits.closed_reason`
+and `closed_at`) and the `DAY_CLOSE` setting are gone, and [1.131.0]'s migration drops the columns.
+Still here: `APPOINTMENT_REMINDERS` (on when blank).
 
 **What an earlier day leaves open.** Steven: "check if everything that all processes MAKE SENSE",
 over Visit History showing walk-ins from Oct 16 and 17 still "Pending". Measured on the dev

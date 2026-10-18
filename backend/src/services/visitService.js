@@ -383,12 +383,15 @@ class VisitService {
       throw error;
     }
 
-    // A paid visit cannot be cancelled. [1.122.0] With no refunds, cancelling one kept the money
-    // as paid and took the tests off every worklist: a void by another name. Nobody, Admin
-    // included, gets an exception, or the void is back.
-    if (status === 'Cancelled' && await paymentRepository.hasPaidPayment(id)) {
+    // No visit is cancelled by hand. [1.131.0] A paid one is final ([1.122.0]: with no refunds,
+    // cancelling it kept the money and took the tests off every worklist, a void by another name),
+    // and an unpaid one is temporary: it is removed on its own once its day ends unpaid
+    // (unpaidExpiryService). Nobody, Admin included, gets an exception.
+    if (status === 'Cancelled') {
       const error = new Error(
-        "This visit has already been paid, so it can't be cancelled. A paid receipt is final; the tests can still be done later."
+        (await paymentRepository.hasPaidPayment(id))
+          ? "This visit has already been paid, so it can't be cancelled. A paid receipt is final; the tests can still be done later."
+          : 'A visit is not cancelled. If it is not paid by the end of the day, it is removed on its own.'
       );
       error.statusCode = 409;
       throw error;

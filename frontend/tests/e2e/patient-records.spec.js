@@ -3,6 +3,8 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { patientTypeId } from './helpers/patients.js';
 import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
+import { reportPart } from './helpers/reportFile.js';
 
 /**
  * The patient roster: browse it, filter it, archive from it. [1.56.0]
@@ -121,13 +123,18 @@ test.describe('Patient records', () => {
         ...person, birthdate: '1975-05-05', sex: 'Male', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
-    const anyTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests.find((t) => t.is_active);
+    // A visit that is over: paid, and its one report released. [1.131.0] An unpaid one is not "over"
+    // any more; it is removed once its time is up, which would leave nothing to keep.
+    const labTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests
+      .find((t) => t.is_active && t.category_name === 'Laboratory');
     const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: deskAuth, data: { patientId: victim.id, visitType: 'Walk in', testIds: [anyTest.id] },
+      headers: deskAuth, data: { patientId: victim.id, visitType: 'Walk in', testIds: [labTest.id] },
     })).json()).data.visit;
-    expect((await ctx.patch(`${API}/visits/${visit.id}/status`, {
-      headers: deskAuth, data: { status: 'Cancelled' },
-    })).status()).toBe(200);
+    await payAndReleaseWalkIn(ctx, API, visit.id);
+    const lab = await login(ctx, 'lab@enlogada.com');
+    const line = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: deskAuth })).json()).data.visitTests[0];
+    await ctx.post(`${API}/results/${line.id}`, { headers: { Authorization: `Bearer ${lab}` }, multipart: { file: reportPart('archive') } });
+    expect((await ctx.post(`${API}/results/${line.id}/release`, { headers: { Authorization: `Bearer ${lab}` } })).status()).toBe(200);
 
     const before = await roster(ctx, sup, { q: person.lastName, limit: 100 });
     const listed = before.patients.find((p) => p.id === victim.id);

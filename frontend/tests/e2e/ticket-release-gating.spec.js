@@ -6,7 +6,7 @@ import { COUNTER_PAYMENT_METHODS } from '../../src/lib/paymentMethods.js';
 import { nthWorkingDay } from './helpers/dates.js';
 import { fixturePerson } from './helpers/people.js';
 import { reportPart } from './helpers/reportFile.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, removeUnpaid } from './helpers/booking.js';
 
 // Ticket Release Gating.
 //
@@ -257,16 +257,15 @@ test.describe('Online appointment gating (API)', () => {
     labToken = await loginAs(apiContext, LAB_STAFF);
   });
 
-  // Cancel what this file booked and left unpaid. [1.124.0] The check-in test leaves the seeded
-  // client's patient checked in and unpaid, which is waiting in today's queue: the next spec to
-  // open a walk-in for that patient is then (rightly) refused a second unpaid visit. A paid
-  // booking cannot be cancelled and is not in the way, so its 409 is expected.
+  // Remove what this file booked and left unpaid. [1.124.0] [1.131.0] The check-in test leaves the
+  // seeded client's patient checked in and unpaid, which is waiting in today's queue: the next spec
+  // to open a walk-in for that patient is then (rightly) refused a second unpaid visit. Nothing is
+  // cancelled any more, so it is removed, as its time running out would. A paid booking is never
+  // removed and is not in the way, so that refusal is expected.
   const made = [];
   test.afterAll(async () => {
     for (const appointment of made) {
-      await apiContext.put(`${API}/appointments/${appointment.id}/cancel`, {
-        headers: { Authorization: `Bearer ${clientToken}` },
-      });
+      try { removeUnpaid(appointment.id); } catch { /* paid: stays, and is not in the way */ }
     }
     await apiContext.dispose();
   });

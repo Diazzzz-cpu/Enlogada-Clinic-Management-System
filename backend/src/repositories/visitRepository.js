@@ -74,81 +74,96 @@ class VisitRepository {
   // to see every unpaid visit at once, not just one page of it. Callers that do paginate
   // (Receptionist's queue table) get total/pendingCount/processingCount/walkinCount back too,
   // computed server-side, so pagination doesn't break their KPI header cards.
-  /** Closes one open visit, saying why: a booking marked a no-show by hand. [1.130.0] */
-  async closeVisit(visitId, reason) {
+  /**
+   * Unpaid visits whose time is up. [1.131.0]
+   *
+   * Steven's rule: nothing goes ahead unpaid, so an unpaid walk-in or booking is temporary, and
+   * once its time is up it is REMOVED, never kept as "Cancelled" or "No Show". Its time is up when
+   *   - a walk-in's day has ended and it was not paid;
+   *   - a booking's day has passed and it was not paid. Staff and HMO bookings too: they hold a
+   *     slot without paying first, but the patient still has to come and settle at the clinic;
+   *   - a patient's own booking was not paid within its time to pay (its hold lapsed).
+   * Never one still waiting on someone (an HMO decision, an online payment proof to check), and
+   * never one that ever had a receipt issued, whatever became of it.
+   */
+  async findExpiredUnpaid() {
     const { rows } = await db.query(
-      `UPDATE patient_visits
-          SET status = 'Cancelled', closed_reason = $2, closed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND status = 'Pending'
-        RETURNING *`,
-      [visitId, reason]
+      `SELECT pv.id, pv.queue_number, pv.created_at, pv.visit_type,
+              p.first_name, p.last_name, COALESCE(u.email, p.email) AS email,
+              a.id AS appointment_id, a.appointment_reference, a.scheduled_date, a.scheduled_time,
+              CASE WHEN a.id IS NULL THEN 'day_ended'
+                   WHEN a.scheduled_date < CURRENT_DATE THEN 'day_passed'
+                   ELSE 'payment_window' END AS why,
+              ARRAY(SELECT t.name FROM visit_tests vt JOIN tests t ON t.id = vt.test_id
+                     WHERE vt.patient_visit_id = pv.id ORDER BY vt.id) AS test_names
+         FROM patient_visits pv
+         JOIN patients p ON p.id = pv.patient_id
+         LEFT JOIN users u ON u.id = p.user_id
+         LEFT JOIN appointments a ON a.patient_visit_id = pv.id
+        WHERE pv.status = 'Pending'
+          AND NOT EXISTS (SELECT 1 FROM payments pay
+                           WHERE pay.patient_visit_id = pv.id
+                             AND (pay.payment_status = 'Paid' OR pay.receipt_number IS NOT NULL))
+          AND NOT EXISTS (SELECT 1 FROM payment_submissions s
+                           WHERE s.patient_visit_id = pv.id AND s.status = 'Pending')
+          AND NOT EXISTS (SELECT 1 FROM hmo_request_tests hrt
+                            JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                           WHERE vt.patient_visit_id = pv.id AND hrt.approval_status = 'Pending')
+          AND (
+                (a.id IS NULL AND pv.created_at < CURRENT_DATE)
+             OR (a.id IS NOT NULL AND a.scheduled_date < CURRENT_DATE)
+             OR (a.id IS NOT NULL AND a.status = 'Pending'
+                 AND a.held_until IS NOT NULL AND a.held_until <= CURRENT_TIMESTAMP)
+          )
+        ORDER BY pv.id`
     );
-    return rows[0] || null;
+    return rows;
   }
 
   /**
-   * The end-of-day close. [1.130.0] Closes what an earlier day left open with nothing able to move
-   * it: a walk-in nobody paid for (in no queue, and the till takes payment only for today's), a
-   * booking nobody came for (unpaid; a paid booking is moved, never written off), and the visit of
-   * a booking already marked a no-show. Each is 'Cancelled' with `closed_reason` saying why.
-   * Never one still waiting on someone: an HMO decision or an online payment proof to check.
-   * Idempotent: a second run finds nothing. Returns what it closed, for the audit.
+   * Deletes visits and everything hung on them, child to parent (several keys do not cascade).
+   * For unpaid visits only: callers decide which. Returns the uploaded files the rows pointed at,
+   * to be removed from disk once the transaction has committed. [1.131.0]
    */
-  async closeEarlierDays() {
-    const waitingOnSomeone = (visit) => `
-      AND NOT EXISTS (SELECT 1 FROM payments pay
-                       WHERE pay.patient_visit_id = ${visit} AND pay.payment_status = 'Paid')
-      AND NOT EXISTS (SELECT 1 FROM payment_submissions s
-                       WHERE s.patient_visit_id = ${visit} AND s.status = 'Pending')
-      AND NOT EXISTS (SELECT 1 FROM hmo_request_tests hrt
-                        JOIN visit_tests vt ON vt.id = hrt.visit_test_id
-                       WHERE vt.patient_visit_id = ${visit} AND hrt.approval_status = 'Pending')`;
-
-    const walkIns = await db.query(
-      `UPDATE patient_visits pv
-          SET status = 'Cancelled',
-              closed_reason = 'Not paid by the end of ' || TO_CHAR(pv.created_at, 'FMMon FMDD, YYYY'),
-              closed_at = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-        WHERE pv.status = 'Pending'
-          AND pv.created_at < CURRENT_DATE
-          AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.patient_visit_id = pv.id)
-          ${waitingOnSomeone('pv.id')}
-        RETURNING pv.id, pv.patient_id, pv.queue_number, pv.created_at, pv.closed_reason`
+  async removeVisits(visitIds) {
+    if (!visitIds.length) return { files: [] };
+    const v = [visitIds];
+    const { rows: files } = await db.query(
+      `SELECT 'doctor-requests' AS dir, doctor_request_file_path AS p FROM patient_visits
+        WHERE id = ANY($1) AND doctor_request_file_path IS NOT NULL
+       UNION ALL
+       SELECT 'payments', proof_file_path FROM payment_submissions
+        WHERE patient_visit_id = ANY($1) AND proof_file_path IS NOT NULL
+       UNION ALL
+       SELECT 'results', tr.file_path FROM test_results tr JOIN visit_tests vt ON vt.id = tr.visit_test_id
+        WHERE vt.patient_visit_id = ANY($1) AND tr.file_path IS NOT NULL`,
+      v
     );
-
-    const noShows = await db.query(
-      `WITH due AS (
-         SELECT a.id, a.patient_visit_id, a.scheduled_date
-           FROM appointments a
-          WHERE a.status = 'Pending'
-            AND a.scheduled_date < CURRENT_DATE
-            ${waitingOnSomeone('a.patient_visit_id')}
-       ), marked AS (
-         UPDATE appointments a
-            SET status = 'No Show', updated_at = CURRENT_TIMESTAMP
-           FROM due
-          WHERE a.id = due.id
-         RETURNING a.id, a.appointment_reference, a.patient_visit_id, due.scheduled_date
-       )
-       SELECT * FROM marked`
+    const { rows: claims } = await db.query(
+      `SELECT DISTINCT hrt.hmo_request_id AS id FROM hmo_request_tests hrt
+         JOIN visit_tests vt ON vt.id = hrt.visit_test_id WHERE vt.patient_visit_id = ANY($1)`,
+      v
     );
-
-    // The visit of every booking marked a no-show, today's run or by hand, that is still open.
-    const noShowVisits = await db.query(
-      `UPDATE patient_visits pv
-          SET status = 'Cancelled',
-              closed_reason = 'No show on ' || TO_CHAR(a.scheduled_date, 'FMMon FMDD, YYYY'),
-              closed_at = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-         FROM appointments a
-        WHERE a.patient_visit_id = pv.id
-          AND a.status = 'No Show'
-          AND pv.status = 'Pending'
-        RETURNING pv.id, pv.patient_id, a.appointment_reference, pv.closed_reason`
+    await db.query(
+      'DELETE FROM hmo_request_tests WHERE visit_test_id IN (SELECT id FROM visit_tests WHERE patient_visit_id = ANY($1))', v
     );
-
-    return { walkIns: walkIns.rows, noShows: noShows.rows, noShowVisits: noShowVisits.rows };
+    if (claims.length) {
+      const { rows: cards } = await db.query(
+        `DELETE FROM hmo_requests hr WHERE hr.id = ANY($1)
+            AND NOT EXISTS (SELECT 1 FROM hmo_request_tests hrt WHERE hrt.hmo_request_id = hr.id)
+          RETURNING card_file_path AS p`,
+        [claims.map((c) => c.id)]
+      );
+      for (const c of cards) if (c.p) files.push({ dir: 'hmo-cards', p: c.p });
+    }
+    await db.query('DELETE FROM test_results WHERE visit_test_id IN (SELECT id FROM visit_tests WHERE patient_visit_id = ANY($1))', v);
+    await db.query('DELETE FROM payment_submissions WHERE patient_visit_id = ANY($1)', v);
+    await db.query('DELETE FROM payments WHERE patient_visit_id = ANY($1)', v);
+    await db.query('DELETE FROM visit_feedback_answers WHERE patient_visit_id = ANY($1)', v);
+    await db.query('DELETE FROM visit_tests WHERE patient_visit_id = ANY($1)', v);
+    await db.query('DELETE FROM appointments WHERE patient_visit_id = ANY($1)', v);
+    await db.query('DELETE FROM patient_visits WHERE id = ANY($1)', v);
+    return { files };
   }
 
   /**

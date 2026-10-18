@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import api from '../config/api';
 
 /**
- * A patient's own bookings: seeing them, cancelling one, moving one, and paying for one.
+ * A patient's own bookings: seeing them, moving one, and paying for one. Nothing is cancelled:
+ * an unpaid booking is released on its own when its time is up, and a paid one is moved. [1.131.0]
  *
  * Paying is here rather than with the payment history because it acts on an appointment — the
  * button sits on the booking card and the checkout is opened for that visit. The history is the
@@ -22,9 +23,6 @@ export function useMyAppointments() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
 
-  const [cancelTarget, setCancelTarget] = useState(null);
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState('');
 
   const [rescheduling, setRescheduling] = useState(null);
 
@@ -61,32 +59,6 @@ export function useMyAppointments() {
     loadGateway();
   }, [load, loadGateway]);
 
-  const requestCancel = (appointment) => {
-    setCancelError('');
-    setCancelTarget(appointment);
-  };
-
-  const dismissCancel = () => {
-    if (cancelling) return;
-    setCancelTarget(null);
-  };
-
-  const confirmCancel = async () => {
-    if (!cancelTarget) return;
-    setCancelling(true);
-    setCancelError('');
-    try {
-      await api.put(`/appointments/${cancelTarget.id}/cancel`);
-      setCancelTarget(null);
-    } catch (err) {
-      setCancelError(err.response?.data?.message || 'Failed to cancel appointment.');
-      return;
-    } finally {
-      setCancelling(false);
-    }
-    load();
-  };
-
   const openReschedule = (appointment) => setRescheduling(appointment);
   const closeReschedule = () => setRescheduling(null);
 
@@ -114,7 +86,6 @@ export function useMyAppointments() {
 
   return {
     appointments, loading, error, page, setPage,
-    cancelTarget, cancelling, cancelError, requestCancel, dismissCancel, confirmCancel,
     rescheduling, openReschedule, closeReschedule,
     gateway, payingId, payError, payOnline, notePaymentCancelled, clearPayError,
     reload: load,

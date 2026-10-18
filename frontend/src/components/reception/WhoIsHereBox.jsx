@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CalendarClock, Camera, CheckCircle2, FileText, Keyboard, Search, UserCheck, UserX } from 'lucide-react';
+import { AlertCircle, CalendarClock, Camera, CheckCircle2, FileText, Keyboard, Search, UserCheck } from 'lucide-react';
 import AttachedFile from '../AttachedFile';
 import { Panel } from '../ui/panel';
 import { Button } from '../ui/button';
@@ -282,7 +282,6 @@ function BookingCard({ booking, checkIn, disposition, can }) {
   const bookedFor = toDateInput(new Date(booking.scheduled_date));
   const today = todayStr();
   const over = ['Cancelled', 'No Show', 'Completed'].includes(booking.status);
-  const canNoShow = !booking.is_paid && booking.status === 'Pending' && bookedFor <= today;
   return (
     <div data-testid="booking-card" className="mt-3 space-y-3 rounded-xl border border-line bg-slate-50/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -352,19 +351,8 @@ function BookingCard({ booking, checkIn, disposition, can }) {
             {showRequest ? "Hide doctor's request / notes" : "View doctor's request / notes"}
           </Button>
         )}
-        {/* A paid booking is moved, not written off as a no-show. [1.123.0] Nor is one already
-            checked in, or one whose day has not come yet. [1.124.0] */}
-        {can.checkIn && canNoShow && (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => disposition.noShow.request(booking)}
-            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-          >
-            <UserX className="h-4 w-4" />
-            Mark as No-Show instead
-          </Button>
-        )}
+        {/* No "Mark as No-Show". [1.131.0] An unpaid booking nobody comes for is removed on its own
+            after its day, and a paid one is moved (Reschedule, above). */}
         <Button type="button" variant="ghost" className="ml-auto" onClick={checkIn.clearResult}>
           Close
         </Button>

@@ -423,14 +423,15 @@ test.describe('Cross-role PHI boundaries', () => {
     expect(res.status()).toBe(200);
   });
 
-  test('diagnostic staff cannot cancel an appointment', async () => {
-    // PUT /:id/cancel carried verifyToken alone while its sibling /:id/status was role-gated, so
-    // any staff token could walk the id space and empty the appointment book — each cancellation
-    // cascading to the linked visit.
-    const res = await apiContext.put(`${API}/appointments/1/cancel`, {
-      headers: { Authorization: `Bearer ${labToken}` },
-    });
-    expect(res.status()).toBe(403);
+  test('nobody cancels an appointment: there is no cancel route', async () => {
+    // [1.131.0] Unpaid is temporary and is released on its own; paid is moved. PUT /:id/cancel is
+    // gone (it once let any staff token walk the id space and empty the appointment book).
+    for (const token of [labToken, receptionToken]) {
+      const res = await apiContext.put(`${API}/appointments/1/cancel`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(404);
+    }
   });
 
   test('patient result history is scoped to the caller\'s own department', async () => {

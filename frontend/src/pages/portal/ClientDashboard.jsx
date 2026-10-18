@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import LoadingState from '../../components/ui/loading-state';
-import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { TabsContent } from '../../components/ui/tabs';
 import RescheduleDialog from '../../components/booking/RescheduleDialog';
 import BookingDialog from '../../components/booking/BookingDialog';
 import ResultDocument from '../../components/ResultDocument';
-import { formatAppointmentDate, formatTime12 } from '../../lib/date';
 import { usePatientProfiles } from '../../hooks/usePatientProfiles';
 import { useMyResultHistory } from '../../hooks/useMyResultHistory';
 import { useMyAppointments } from '../../hooks/useMyAppointments';
@@ -176,19 +174,6 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
           { withRefresh: false }
         )}
       </TabsContent>
-
-      {/* Cancel appointment confirmation */}
-      <ConfirmDialog
-        open={!!bookings.cancelTarget}
-        onOpenChange={(open) => { if (!open) bookings.dismissCancel(); }}
-        title="Cancel Appointment"
-        description={bookings.cancelTarget ? `Cancel your appointment on ${formatAppointmentDate(bookings.cancelTarget.scheduled_date)} at ${formatTime12(bookings.cancelTarget.scheduled_time)}? This cannot be undone.` : ''}
-        confirmLabel="Cancel Appointment"
-        cancelLabel="Keep Appointment"
-        onConfirm={bookings.confirmCancel}
-        loading={bookings.cancelling}
-        error={bookings.cancelError}
-      />
 
       <RescheduleDialog
         open={Boolean(bookings.rescheduling)}

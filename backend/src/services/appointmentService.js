@@ -1,6 +1,5 @@
 const paymentMethodRepository = require('../repositories/paymentMethodRepository');
 const paymentRepository = require('../repositories/paymentRepository');
-const paymentSubmissionRepository = require('../repositories/paymentSubmissionRepository');
 const db = require('../config/database');
 const { formatTime12 } = require('../constants/clockFormat');
 const { isStaffUser } = require('../constants/roles');
@@ -195,30 +194,6 @@ function formatDateOnly(value) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-/**
- * A paid booking cannot be cancelled. [1.122.0] With no refunds, cancelling it kept the money and
- * gave nothing for it. Moving it to another day is the remedy, and the message says so.
- */
-async function assertNotPaid(appointment) {
-  if (await paymentRepository.hasPaidPayment(appointment.patient_visit_id)) {
-    const error = new Error(
-      "This booking has already been paid, so it can't be cancelled. Move it to another day instead."
-    );
-    error.statusCode = 409;
-    throw error;
-  }
-  // [1.124.0] Nor while a payment the patient sent is waiting to be checked: the money has already
-  // left their account, and a cancelled booking cannot be paid, so verifying it afterwards would
-  // be refused and the clinic would hold money with no receipt for it.
-  if (await paymentSubmissionRepository.findPendingForVisit(appointment.patient_visit_id)) {
-    const error = new Error(
-      "A payment for this booking is waiting to be checked, so it can't be cancelled now. Move it to another day instead."
-    );
-    error.statusCode = 409;
-    throw error;
-  }
 }
 
 class AppointmentService {
@@ -618,62 +593,6 @@ class AppointmentService {
   }
 
   /**
-   * Cancels a booking and frees its slot.
-   *
-   * @param {number} id
-   * @param {object} requestingUser  A Client may cancel only their own. Ownership is checked per
-   *   patient PROFILE, since one account may own several.
-   * @returns {Promise<object>}
-   */
-  async cancelAppointment(id, requestingUser) {
-    const appointment = await appointmentRepository.findById(id);
-    if (!appointment) {
-      const error = new Error('Appointment not found');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    await assertClientOwnsPatient(requestingUser, appointment.patient_id);
-
-    if (appointment.status === 'Cancelled') {
-      const error = new Error('Appointment is already cancelled');
-      error.statusCode = 400;
-      throw error;
-    }
-    await assertNotPaid(appointment);
-
-    // Cancelling the appointment and cancelling its visit is one decision, so it is one write.
-    // Split, a failure on the second left the appointment Cancelled while its visit stayed active
-    // — a phantom booking that the patient believes is cancelled and that the front desk still
-    // sees in the queue, still counts toward the slot capacity check in bookAppointment, and
-    // still appears on the cashier's billing list.
-    // Read before the cancel: the context query joins visit_tests, and the row is easier to read
-    // while the booking is still live than to reason about afterwards.
-    const ctx = await appointmentRepository.findEmailContextById(id).catch(() => null);
-
-    const updated = await db.withTransaction(async () => {
-      const result = await appointmentRepository.updateAppointmentStatus(id, 'Cancelled');
-      await visitRepository.updateVisitStatus(appointment.patient_visit_id, 'Cancelled');
-      return result;
-    });
-
-    // After the commit. A patient who cancels needs a record that it actually happened, and one
-    // whose appointment was cancelled *for* them needs to find out some way other than turning up.
-    // Not awaited, for the reason given in createAppointment. [1.74.0]
-    if (ctx) {
-      appointmentEmailService.sendCancellationNotice({
-        to: ctx.email,
-        patientName: `${ctx.first_name} ${ctx.last_name}`,
-        reference: ctx.appointment_reference,
-        date: ctx.scheduled_date,
-        time: ctx.scheduled_time,
-      }).catch((err) => logger.error(`Cancellation email failed for appointment ${id}: ${err.message}`));
-    }
-
-    return updated;
-  }
-
-  /**
    * Emails the patient their own booking. [1.24.0]
    *
    * Wrapped rather than inlined at each call site because all three appointment emails share the
@@ -862,9 +781,10 @@ class AppointmentService {
       error.statusCode = 404;
       throw error;
     }
-    // [1.124.0] What a person may do to a booking by hand: check it in, or mark it a no-show.
-    // A probe CHECKED IN A CANCELLED booking (a ticket in today's queue for a visit nobody owes
-    // anything on). Cancelled, No Show and Completed are final; cancelling has its own route.
+    // What a person may do to a booking by hand: check it in, and nothing else. [1.131.0]
+    // Steven: unpaid is temporary. An unpaid booking whose time is up is removed
+    // (unpaidExpiryService), and a paid one is moved, never written off, so there is no
+    // "Cancelled" and no "No Show" to set. A finished booking cannot change.
     const refuse = (message) => {
       const error = new Error(message);
       error.statusCode = 409;
@@ -873,14 +793,11 @@ class AppointmentService {
     if (['Cancelled', 'No Show', 'Completed'].includes(appointment.status)) {
       refuse(`This booking is ${appointment.status === 'No Show' ? 'marked a no-show' : appointment.status.toLowerCase()}, so it can no longer change.`);
     }
-    if (!['Confirmed', 'No Show', 'Cancelled'].includes(status)) {
-      refuse('A booking can be checked in, marked a no-show or cancelled.');
+    if (status !== 'Confirmed') {
+      refuse('A booking is checked in, or moved. An unpaid one is released on its own when its time is up.');
     }
     const bookedFor = formatDateOnly(appointment.scheduled_date);
     const today = todayLocalDateString();
-    if (status === 'No Show') {
-      if (appointment.status === 'Confirmed') refuse('This patient has already been checked in, so they are not a no-show.');
-    }
     // [1.130.0] A booking whose time to pay ran out released its slot ([1.123.0]), and someone else
     // may hold that slot now. Checking it in would seat two patients in one slot; the patient who
     // comes anyway is a walk-in.
@@ -889,21 +806,6 @@ class AppointmentService {
       refuse('This booking was not paid in time, so its slot was released. Start a walk-in visit for the patient instead.');
     }
 
-    // The same rule as cancelAppointment, on the route that can also set Cancelled. [1.122.0]
-    if (status === 'Cancelled') await assertNotPaid(appointment);
-    // A paid booking is moved, not written off as a no-show. [1.123.0] With no refunds, No Show
-    // on a paid booking kept the money and closed the booking for good, since a no-show cannot be
-    // moved. The patient paid for the test; they get another day.
-    if (status === 'No Show' && await paymentRepository.hasPaidPayment(appointment.patient_visit_id)) {
-      const error = new Error(
-        "This booking has already been paid, so it isn't marked a no-show. Move it to another day instead."
-      );
-      error.statusCode = 409;
-      throw error;
-    }
-    if (status === 'No Show' && bookedFor > today) {
-      refuse(`This booking is for ${bookedFor}. It can be marked a no-show from that day.`);
-    }
     // Checking a patient in is only meaningful against the booking the receptionist just looked
     // at. Passing the status they read makes this a compare-and-swap against a reschedule landing
     // in the same instant — without it, a move that commits while this call waits on the row lock
@@ -918,14 +820,8 @@ class AppointmentService {
     // appointment row.
     let joined = null;
     const updated = await db.withTransaction(async () => {
-      const row = status === 'Confirmed'
-        ? await appointmentRepository.updateAppointmentStatus(id, status, { expectedStatus: appointment.status })
-        : await appointmentRepository.updateAppointmentStatus(id, status);
-      // [1.130.0] A no-show's visit is over too. It stayed 'Pending' on Visit History for good.
-      if (row && status === 'No Show') {
-        await visitRepository.closeVisit(appointment.patient_visit_id, `No show on ${bookedFor}`);
-      }
-      if (row && status === 'Confirmed' && appointment.status !== 'Confirmed') {
+      const row = await appointmentRepository.updateAppointmentStatus(id, status, { expectedStatus: appointment.status });
+      if (row && appointment.status !== 'Confirmed') {
         joined = await visitRepository.joinTodaysQueue(appointment.patient_visit_id);
         // [1.124.0] Checked in on another day than the booking's: the patient is seen today, so
         // the booking is today's. Left alone, it was served today AND still held its own date's

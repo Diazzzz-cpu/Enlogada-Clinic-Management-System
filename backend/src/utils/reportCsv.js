@@ -186,7 +186,6 @@ function operationsCsv(report, startDate, endDate) {
         ['Walk-ins', f.integer(r.walk_ins)],
         ['Appointments', f.integer(r.appointments)],
         ['Completed', f.integer(r.completed)],
-        ['Cancelled', f.integer(r.cancelled)],
         ['Average Wait to Billing (mins)', f.integer(r.avg_wait_minutes)],
         ['Median Wait to Billing (mins)', f.integer(r.median_wait_minutes)],
       ],

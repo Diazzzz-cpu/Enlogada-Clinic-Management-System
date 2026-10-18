@@ -214,22 +214,28 @@ class AppointmentEmailService {
     });
   }
 
-  /** Sent when a booking is cancelled, so the patient has a record that it really was. */
-  async sendCancellationNotice({ to, patientName, reference, date, time }) {
+  /**
+   * Sent when an unpaid booking is released because its time is up. [1.131.0] It disappears from
+   * the portal, so the patient is told why, and how to book again.
+   */
+  async sendBookingReleased({ to, patientName, reference, date, time, unpaidInTime }) {
     if (!to) return { skipped: true };
 
     return sendEmail({
       to,
-      subject: `Your appointment on ${readableDate(date)} has been cancelled`,
+      subject: `Your booking for ${readableDate(date)} has been released`,
       html: shell(`Hello ${patientName},`, `
-        <p>Your appointment on <strong>${esc(readableDate(date))}</strong> at
-           <strong>${esc(readableTime(time))}</strong> (reference ${esc(reference)}) has been
-           cancelled, and the slot has been released.</p>
-        <p style="font-size:14px;">If this was not you, please contact the clinic — nobody will
-           be expecting you at that time.</p>
+        <p>Your booking for <strong>${esc(readableDate(date))}</strong> at
+           <strong>${esc(readableTime(time))}</strong> (reference ${esc(reference)}) has been released,
+           ${unpaidInTime
+             ? 'because it was not paid within its time to pay. Its slot is open to other patients again.'
+             : 'because it was not paid and nobody came on the day.'}</p>
+        <p style="font-size:14px;">You are welcome to book again from your patient portal whenever
+           suits you. A booking is held once it is paid.</p>
       `),
     });
   }
+
   /**
    * Their online payment was accepted, so the booking pass now exists.
    *

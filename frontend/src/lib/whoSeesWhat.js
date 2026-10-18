@@ -116,12 +116,11 @@ const AREAS = [
       { name: 'appointments:create', label: 'Book an appointment' },
       { name: 'appointments:update', label: 'Check in a booking, or mark a no-show' },
       { name: 'appointments:reschedule', label: 'Move a booking to another time' },
-      { name: 'appointments:cancel', label: 'Cancel a booking' },
     ],
     summarize: (h) => {
       const verbs = [
         h('appointments:read') && 'see', h('appointments:create') && 'book', h('appointments:update') && 'check in',
-        h('appointments:reschedule') && 'move', h('appointments:cancel') && 'cancel',
+        h('appointments:reschedule') && 'move',
       ];
       return verbs.some(Boolean) ? sentence(verbs) : 'No';
     },

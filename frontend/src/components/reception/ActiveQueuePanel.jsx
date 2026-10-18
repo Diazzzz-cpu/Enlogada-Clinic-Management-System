@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ShieldAlert, UserCheck, Volume2, XCircle } from 'lucide-react';
+import { AlertCircle, ShieldAlert, UserCheck, Volume2 } from 'lucide-react';
 import DataBadge from '../ui/data-badge';
 import EtaBadge from '../ui/eta-badge';
 import WaitBadge from '../ui/wait-badge';
@@ -29,7 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
  *   here box above IS the search and narrows this list to the same name — two boxes would ask the
  *   same question twice. On for anyone who gets no box: the Cashier's read-only view. [1.75.0]
  */
-export default function ActiveQueuePanel({ queue, disposition, hmo, testAssignment, onCallPatient, showSearch = true }) {
+export default function ActiveQueuePanel({ queue, hmo, testAssignment, onCallPatient, showSearch = true }) {
   /**
    * The queue is a BORROWED screen for anyone who is not the front desk. [1.53.0]
    *
@@ -290,18 +290,8 @@ export default function ActiveQueuePanel({ queue, disposition, hmo, testAssignme
                                 Edit Tests
                               </Button>
                             )}
-                            {/* A paid visit cannot be cancelled: a paid receipt is final. [1.122.0] */}
-                            {!['Completed', 'Cancelled'].includes(visit.visit_status) && !visit.is_paid && (
-                              <button
-                                type="button"
-                                onClick={() => disposition.cancel.request(visit)}
-                                title="Cancel this visit"
-                                aria-label={`Cancel visit for ${visit.first_name} ${visit.last_name}`}
-                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                              >
-                                <XCircle className="h-3.5 w-3.5" />
-                              </button>
-                            )}
+                            {/* No Cancel. [1.131.0] A paid visit is final, and an unpaid one is
+                                removed on its own if it is not paid by the end of the day. */}
                           </div>
                         </TableCell>
                       </TableRow>

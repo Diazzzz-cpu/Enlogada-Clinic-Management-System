@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { selfPayProfile } from './helpers/patients.js';
-import { appointmentForm, bookableTestId } from './helpers/booking.js';
+import { appointmentForm, bookableTestId, removeUnpaid } from './helpers/booking.js';
 import { nthWorkingDay, dateStr } from './helpers/dates.js';
 import { runScript } from './helpers/backendScript.js';
 
@@ -67,10 +67,10 @@ test('a booking is planned a reminder for the evening before, and a move plans i
     expect(res.status(), await res.text()).toBe(200);
     expect(planFor(appt.appointment_reference)?.dueAt, 'the reminder follows the booking').toBe(eveningBefore(moved));
   } finally {
-    await ctx.put(`${API}/appointments/${appt.id}/cancel`, { headers: auth });
+    removeUnpaid(appt.id);
   }
 
-  // Cancelled: nobody is reminded about it.
+  // Removed (unpaid, as its time running out would): nobody is reminded about it.
   expect(planFor(appt.appointment_reference)).toBeUndefined();
   await ctx.dispose();
 });

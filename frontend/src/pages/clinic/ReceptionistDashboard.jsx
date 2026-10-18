@@ -130,18 +130,8 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
     document.getElementById('whos-here')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
 
-  const disposition = useVisitDisposition({
-    // Every disposition changes who is waiting, so the queue is always re-read. A no-show also
-    // clears the verified booking: leaving it on screen invites checking in someone who is not
-    // coming.
-    onChanged: ({ type }) => {
-      if (type === 'noShow') {
-        checkIn.clearResult();
-        arrivals.reload();
-      }
-      queue.refresh();
-    },
-  });
+  // [1.131.0] Moving a booking is the one disposition left: nothing is cancelled or written off.
+  const disposition = useVisitDisposition();
 
   const testAssignment = useTestAssignment({ onAssigned: () => queue.refresh() });
 
@@ -244,7 +234,6 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
             <DeskCounts queue={queue} />
             <ActiveQueuePanel
               queue={queue}
-              disposition={disposition}
               hmo={hmo}
               testAssignment={testAssignment}
               onCallPatient={speakQueueNumber}
@@ -510,28 +499,6 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
             </div>
           )}
         </ConfirmDialog>
-
-        <ConfirmDialog
-          open={!!disposition.cancel.target}
-          onOpenChange={(open) => { if (!open) disposition.cancel.dismiss(); }}
-          title="Cancel Visit"
-          description={disposition.cancel.target && `Cancel the visit for ${disposition.cancel.target.first_name} ${disposition.cancel.target.last_name} (Queue ${disposition.cancel.target.queue_number})? This removes it from the active queue.`}
-          confirmLabel="Cancel Visit"
-          onConfirm={disposition.cancel.confirm}
-          loading={disposition.cancel.submitting}
-          error={disposition.cancel.error}
-        />
-
-        <ConfirmDialog
-          open={!!disposition.noShow.target}
-          onOpenChange={(open) => { if (!open) disposition.noShow.dismiss(); }}
-          title="Mark as No-Show"
-          description={disposition.noShow.target && `Mark ${disposition.noShow.target.first_name} ${disposition.noShow.target.last_name}'s appointment (${disposition.noShow.target.appointment_reference}) as a no-show? This does not check them in.`}
-          confirmLabel="Mark No-Show"
-          onConfirm={disposition.noShow.confirm}
-          loading={disposition.noShow.submitting}
-          error={disposition.noShow.error}
-        />
 
         {/* Same dialog the patient sees on their own booking, so the receptionist on the phone and
             the patient on the app are working from one set of rules and one availability grid. */}

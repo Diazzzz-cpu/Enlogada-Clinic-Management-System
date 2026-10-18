@@ -7,7 +7,7 @@ import {
 // The clinic's default templates, as backend/src/scripts/setupRbac.js seeds them.
 const RECEPTION = [
   'patients:create', 'patients:read', 'patients:update', 'visits:create', 'visits:read', 'visits:update',
-  'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
+  'appointments:read', 'appointments:update', 'appointments:reschedule',
   'tests:assign', 'tests:read_assigned', 'hmo:read', 'hmo:request',
   'billing:submit_proof', 'billing:discount', 'patients:read_all_departments',
 ];
@@ -22,7 +22,7 @@ const MODALITY = [
 const ADMIN = [
   'patients:create', 'patients:read', 'patients:read_all_departments', 'patients:update',
   'visits:create', 'visits:read', 'visits:update',
-  'appointments:read', 'appointments:update', 'appointments:cancel', 'appointments:reschedule',
+  'appointments:read', 'appointments:update', 'appointments:reschedule',
   'tests:manage', 'tests:assign', 'tests:read_assigned', 'results:read',
   'billing:read', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve', 'reports:view', 'audit:view', 'staff:manage',
@@ -44,7 +44,8 @@ describe('a cell reads like the picture', () => {
     const d = fresh();
     expect(areaCell(area('patients'), d, DESK)).toEqual({ mark: 'yes', text: 'Find, register and edit, every department' });
     expect(areaCell(area('queue'), d, DESK)).toEqual({ mark: 'yes', text: 'See and manage it' });
-    expect(areaCell(area('bookings'), d, DESK).text).toBe('See, check in, move and cancel');
+    // [1.131.0] No cancel: an unpaid booking is released when its time is up, a paid one is moved.
+    expect(areaCell(area('bookings'), d, DESK).text).toBe('See, check in and move');
     expect(areaCell(area('money'), d, DESK)).toEqual({ mark: 'part', text: "Discount and send in online proofs; can't see takings" });
   });
 

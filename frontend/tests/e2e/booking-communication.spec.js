@@ -3,7 +3,7 @@ import { test, expect, request } from 'playwright/test';
 import { signIn } from './helpers/auth.js';
 import { openBooking } from './helpers/portal.js';
 import { selfPayProfile } from './helpers/patients.js';
-import { appointmentForm, bookableTestId } from './helpers/booking.js';
+import { appointmentForm, bookableTestId, removeUnpaid } from './helpers/booking.js';
 
 // What the patient is told about their own booking. [1.24.0]
 //
@@ -115,7 +115,7 @@ test.describe('Booking communication and preparation', () => {
     });
     expect(booked.status()).toBe(201);
 
-    // And the same for a reschedule and a cancel, which also send now.
+    // And the same for a reschedule, which also sends now.
     const appt = (await booked.json()).data.appointment;
     const later = slots[1] || slots[0];
     const moved = await ctx.put(`${API}/appointments/${appt.id}/reschedule`, {
@@ -123,8 +123,8 @@ test.describe('Booking communication and preparation', () => {
     });
     expect(moved.status()).toBe(200);
 
-    const cancelled = await ctx.put(`${API}/appointments/${appt.id}/cancel`, { headers: auth(clientToken) });
-    expect(cancelled.status()).toBe(200);
+    // Nothing is cancelled [1.131.0]: the unpaid booking is removed, as its time running out would.
+    removeUnpaid(appt.id);
   });
 });
 

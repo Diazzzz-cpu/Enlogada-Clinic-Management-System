@@ -3,7 +3,8 @@ import { test, expect, request } from 'playwright/test';
 import { patientTypeId } from './helpers/patients.js';
 import { fixturePerson, fixtureEmail, FIXTURE_CONTACT } from './helpers/people.js';
 import { registerClient } from './helpers/accounts.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, removeUnpaid } from './helpers/booking.js';
+import { runScript } from './helpers/backendScript.js';
 import { nthWorkingDay, dateStr, todayStr } from './helpers/dates.js';
 import { submitProof, ensureMethod } from './helpers/payments.js';
 import { payAndReleaseWalkIn } from './helpers/ticketRelease.js';
@@ -100,7 +101,7 @@ test.describe('Process rules the server enforces', () => {
     } finally { await clearOverride(day); }
   });
 
-  test('a booking checked in on another day moves to today; a checked-in one is no no-show', async () => {
+  test('a booking checked in on another day moves to today; check-in is the only status set by hand', async () => {
     const c = await client();
     const appt = (await (await book(c, nthWorkingDay(243), '09:00')).json()).data.appointment;
     expect((await ctx.patch(`${API}/appointments/${appt.id}/status`, { headers: auth(desk), data: { status: 'No Show' } })).status(), 'not yet its day').toBe(409);
@@ -111,20 +112,25 @@ test.describe('Process rules the server enforces', () => {
     expect((await ctx.patch(`${API}/appointments/${appt.id}/status`, { headers: auth(desk), data: { status: 'No Show' } })).status()).toBe(409);
   });
 
-  test('a cancelled booking is final, and one whose proof waits cannot be cancelled', async () => {
+  // [1.131.0] Unpaid is temporary: nothing is cancelled or marked a no-show by hand, and an unpaid
+  // booking is removed once its time is up, unless it is waiting on someone (a proof to check).
+  test('nothing is cancelled by hand; an unpaid booking is removed, not one whose proof waits', async () => {
     const c = await client();
     const gone = (await (await book(c, nthWorkingDay(244), '09:00')).json()).data.appointment;
-    expect((await ctx.put(`${API}/appointments/${gone.id}/cancel`, { headers: auth(c.token) })).status()).toBe(200);
-    expect((await ctx.patch(`${API}/appointments/${gone.id}/status`, { headers: auth(desk), data: { status: 'Confirmed' } })).status(), 'check in a cancelled booking').toBe(409);
-    const method = (await (await ctx.get(`${API}/payment-methods`)).json()).data.methods[0];
-    expect((await submitProof(ctx, c.token, gone.patient_visit_id, { amount: 100, reference: `G${Date.now()}`, methodId: method.id })).status(), 'a proof for a cancelled booking').toBe(409);
+    expect((await ctx.put(`${API}/appointments/${gone.id}/cancel`, { headers: auth(c.token) })).status(), 'no cancel route').toBe(404);
+    for (const status of ['Cancelled', 'No Show']) {
+      expect((await ctx.patch(`${API}/appointments/${gone.id}/status`, { headers: auth(desk), data: { status } })).status(), status).toBe(409);
+    }
+    removeUnpaid(gone.id);
+    expect((await ctx.patch(`${API}/appointments/${gone.id}/status`, { headers: auth(desk), data: { status: 'Confirmed' } })).status(), 'check in a removed booking').toBe(404);
 
+    const method = (await (await ctx.get(`${API}/payment-methods`)).json()).data.methods[0];
     const d = await client();
     const waiting = (await (await book(d, nthWorkingDay(245), '09:00')).json()).data.appointment;
     expect((await submitProof(ctx, d.token, waiting.patient_visit_id, { amount: 100, reference: `W${Date.now()}`, methodId: method.id })).status()).toBe(201);
-    expect((await ctx.put(`${API}/appointments/${waiting.id}/cancel`, { headers: auth(d.token) })).status()).toBe(409);
+    runScript('removeExpiredUnpaid.js', [], 'remove expired unpaid');
     const mine = (await (await ctx.get(`${API}/appointments/my-bookings`, { headers: auth(d.token) })).json()).data;
-    expect((mine.appointments || mine.bookings || []).find((a) => a.id === waiting.id).has_pending_proof).toBe(true);
+    expect((mine.appointments || mine.bookings || []).find((a) => a.id === waiting.id)?.has_pending_proof, 'still there, waiting to be checked').toBe(true);
   });
 
   test('a paid booking re-sent with an extra test is refused, not quietly extended', async () => {
@@ -143,18 +149,18 @@ test.describe('Process rules the server enforces', () => {
     const empty = await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: someone.patient.id, visitType: 'Walk in' } });
     expect(empty.status(), 'a visit with no tests').toBe(400);
     const gone = await walkIn();
-    await ctx.patch(`${API}/visits/${gone.visit.id}/status`, { headers: auth(desk), data: { status: 'Cancelled' } });
-    expect((await pay(gone.visit.id)).status(), 'a cancelled visit').toBe(409);
+    removeUnpaid(gone.visit.id, { visit: true });
+    const late = await ctx.post(`${API}/payments`, { headers: auth(cashier), data: { patientVisitId: gone.visit.id, paymentMethod: 'Cash', amount: 100 } });
+    expect(late.status(), 'a removed visit').toBeGreaterThanOrEqual(400);
     const live = await walkIn();
     expect((await ctx.post(`${API}/payments`, { headers: auth(cashier), data: { patientVisitId: live.visit.id, paymentMethod: 'Bitcoin', amount: await billTotal(live.visit.id) } })).status(), 'an unknown method').toBe(400);
   });
 
-  test('a visit status is the process\'s to set: no Completed by hand, no un-cancelling', async () => {
+  test('a visit status is the process\'s to set: no Completed and no Cancelled by hand', async () => {
     const w = await walkIn();
     expect((await ctx.patch(`${API}/visits/${w.visit.id}/status`, { headers: auth(desk), data: { status: 'Completed' } })).status()).toBe(409);
-    await ctx.patch(`${API}/visits/${w.visit.id}/status`, { headers: auth(desk), data: { status: 'Cancelled' } });
-    expect((await ctx.patch(`${API}/visits/${w.visit.id}/status`, { headers: auth(desk), data: { status: 'Pending' } })).status()).toBe(409);
-    expect((await ctx.post(`${API}/tests/visit-tests`, { headers: auth(desk), data: { patientVisitId: w.visit.id, testIds: [labTests[1].id] } })).status(), 'tests on a cancelled visit').toBe(409);
+    // [1.131.0] Unpaid is temporary: it is removed on its own, never cancelled.
+    expect((await ctx.patch(`${API}/visits/${w.visit.id}/status`, { headers: auth(desk), data: { status: 'Cancelled' } })).status()).toBe(409);
   });
 
   test('one unpaid visit at a time; a paid one does not block the next', async () => {

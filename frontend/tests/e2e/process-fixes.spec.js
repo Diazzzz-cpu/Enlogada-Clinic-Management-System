@@ -171,7 +171,8 @@ test.describe('Processes that make sense', () => {
       headers: auth(reception), data: { status: 'No Show' },
     });
     expect(res.status()).toBe(409);
-    expect((await res.json()).message).toContain('Move it to another day');
+    // [1.131.0] No booking is marked a no-show by hand at all: it is checked in, or moved.
+    expect((await res.json()).message).toMatch(/checked in, or moved/);
   });
 
   test('5. a patient with a paid visit can be given another visit at the Desk', async ({ page }) => {

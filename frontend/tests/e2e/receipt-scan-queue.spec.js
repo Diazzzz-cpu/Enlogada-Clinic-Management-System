@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
 import { nthWorkingDay } from './helpers/dates.js';
-import { appointmentForm, bookableTestId } from './helpers/booking.js';
+import { appointmentForm, bookableTestId, removeUnpaid } from './helpers/booking.js';
 
 // Two features that both offer a number to a person, and must never be mistaken for deciding one.
 // [1.62.0]
@@ -242,7 +242,7 @@ test.describe('Queue wait estimates', () => {
 
       expect(compared, 'no booking could be matched to a queue row').toBeGreaterThan(0);
     } finally {
-      await ctx.put(`${API}/appointments/${booked.id}/cancel`, { headers: auth(client) });
+      removeUnpaid(booked.id);
     }
   });
 

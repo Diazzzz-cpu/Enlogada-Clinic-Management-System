@@ -193,7 +193,6 @@ export const ReceptionThroughputPanel = ({ reception, loading, error, onRetry, d
             tone={reception.median_wait_minutes > 30 ? 'warn' : 'good'}
           />
           <Stat label="Completed" value={reception.completed} />
-          <Stat label="Cancelled" value={reception.cancelled} tone={reception.cancelled > 0 ? 'warn' : 'default'} />
         </div>
       )}
     </PanelBody>

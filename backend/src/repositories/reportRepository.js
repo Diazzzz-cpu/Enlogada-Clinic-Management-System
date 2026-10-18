@@ -325,7 +325,6 @@ class ReportRepository {
         COUNT(*)::int                                                    AS visits,
         COUNT(*) FILTER (WHERE pv.visit_type = 'Walk in')::int           AS walk_ins,
         COUNT(*) FILTER (WHERE pv.visit_type <> 'Walk in')::int          AS appointments,
-        COUNT(*) FILTER (WHERE pv.status = 'Cancelled')::int             AS cancelled,
         COUNT(*) FILTER (WHERE pv.status = 'Completed')::int             AS completed,
         -- Only a visit paid AFTER it joined the queue waited for the till. A booking paid from
         -- home joins the queue at check-in, after its payment [1.92.0], and would otherwise

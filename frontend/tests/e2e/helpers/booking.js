@@ -1,3 +1,5 @@
+import { runScript } from './backendScript.js';
+
 /**
  * A patient's booking, as the API now requires it. [1.106.0]
  *
@@ -67,4 +69,15 @@ export function appointmentForm(body, { doctorRequest = true, hmoCard = false } 
     form.append('hmoCard', new Blob([DOCTOR_REQUEST_PNG], { type: 'image/png' }), 'card.png');
   }
   return form;
+}
+
+/**
+ * Removes an unpaid booking (or, with `{ visit: true }`, an unpaid visit) now. [1.131.0]
+ *
+ * Nothing is cancelled any more: unpaid is temporary, and the server removes it once its time is
+ * up. A spec cannot wait for that, and must free its slot (or its patient) for the specs after it,
+ * so it removes its own. The script refuses anything ever paid.
+ */
+export function removeUnpaid(id, { visit = false } = {}) {
+  runScript('e2eRemoveUnpaid.js', [visit ? `--visit=${id}` : `--appointment=${id}`], 'remove unpaid');
 }

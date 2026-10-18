@@ -90,6 +90,8 @@ test.describe('Borrowed screens offer only what the borrower can do', () => {
 
     // The queue itself renders — the screen is legitimately theirs.
     await expect(page.getByRole('heading', { name: 'Desk', exact: true, level: 1 })).toBeVisible({ timeout: 20000 });
+    // [1.130.0] And it says where registering comes from, rather than telling them to do it.
+    await expect(page.getByText(/come with the Receptionist role, which an Admin adds on Staff Accounts/)).toBeVisible();
 
     for (const { label, permission } of QUEUE_ACTIONS) {
       await expect(

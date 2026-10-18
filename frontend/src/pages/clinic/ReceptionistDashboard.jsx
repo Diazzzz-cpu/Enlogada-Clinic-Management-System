@@ -188,7 +188,11 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
         <PageHeader
           icon={PAGE_ICONS[view]}
           title={PAGE_TITLES[view]}
-          description={PAGE_BLURBS[view]}
+          description={onDesk && !showWho
+            // [1.130.0] Someone who only reads the queue (a Cashier) was told to "register someone
+            // new" with no way to, and read the missing button as a fault. Say where it comes from.
+            ? "Who is in today's queue. Registering walk-ins and checking in bookings come with the Receptionist role, which an Admin adds on Staff Accounts, under Roles."
+            : PAGE_BLURBS[view]}
           actions={
             /* Only for someone who can actually register one. [1.53.0] Gated on the permission the
                endpoint itself demands, so the button and the API agree. The one Register button on

@@ -38,6 +38,9 @@ which `patients:create` and `tests:assign` were there to decide. The route now r
   "Register new patients", in Patient records), and the footer warns when a switch is on without
   what it needs: "Cashier can start a visit and give a queue ticket only with 'Add or remove tests
   on a visit' as well." Ticking it alone used to look like a grant and give nothing.
+- A Cashier opening the Desk was told to "register someone new" with no button to do it, and read
+  that as a fault (Joel Cabahug, Cashier only). The Desk now tells someone who can only read the
+  queue that registering and check-in come with the Receptionist role, added on Staff Accounts.
 
 Steven also asked whether the sidebar follows a person's access by itself. It does, and nothing
 in this changes that: every screen and button is shown by the permissions the account holds (all

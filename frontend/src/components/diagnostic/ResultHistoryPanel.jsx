@@ -9,12 +9,12 @@ import DataBadge from '../ui/data-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { SearchInput } from '../ui/search-input';
 import Pagination from '../ui/pagination';
-import { formatDateTime } from '../../lib/date';
 import { SkeletonRows } from '../ui/skeleton';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { TurnaroundPanel } from '../reports/OperationsPanels';
 import { useAuth } from '../../contexts/AuthContext';
 import { HISTORY_PAGE_SIZE } from '../../hooks/useDiagnosticWorklist';
+import DateTime from '../ui/date-time';
 
 /**
  * Reports this department has already released, and its throughput beside them.
@@ -139,14 +139,14 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                     <TableCell label={reportsHere ? 'Released' : 'Done'} className="py-3.5 text-fine text-slate-600">
                       {test.performed_at ? (
                         <>
-                          {formatDateTime(test.performed_at)}
+                          <DateTime value={test.performed_at} />
                           {test.performed_by_first_name && (
                             <span className="block text-meta text-slate-500">by {test.performed_by_first_name} {test.performed_by_last_name}</span>
                           )}
                         </>
                       ) : (
                         <>
-                          {test.released_at ? formatDateTime(test.released_at) : '—'}
+                          <DateTime value={test.released_at} />
                           {test.released_by_first_name && (
                             <span className="block text-meta text-slate-500">by {test.released_by_first_name} {test.released_by_last_name}</span>
                           )}
@@ -160,7 +160,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                         <span className="inline-flex items-center gap-1.5 font-semibold text-brand-700">
                           <MailCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
                           <span>
-                            {formatDateTime(test.emailed_at)}
+                            <DateTime value={test.emailed_at} />
                             <span className="block font-normal text-meta text-slate-500">
                               {test.emailed_to}
                               {test.email_count > 1 && ` · sent ${test.email_count}×`}

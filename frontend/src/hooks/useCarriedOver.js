@@ -11,6 +11,7 @@ import { usePolling } from './usePolling';
  */
 export function useCarriedOver({ enabled = true } = {}) {
   const [visits, setVisits] = useState([]);
+  const [missedBookings, setMissedBookings] = useState([]);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState('');
 
@@ -18,6 +19,7 @@ export function useCarriedOver({ enabled = true } = {}) {
     try {
       const res = await api.get('/visits/carried-over');
       setVisits(res.data.data.visits || []);
+      setMissedBookings(res.data.data.missedBookings || []);
       setError('');
     } catch (err) {
       console.error('Failed to fetch carried-over visits:', err);
@@ -33,7 +35,7 @@ export function useCarriedOver({ enabled = true } = {}) {
 
   usePolling(load, 60000, { enabled });
 
-  return { visits, loading, error, reload: load };
+  return { visits, missedBookings, loading, error, reload: load };
 }
 
 export default useCarriedOver;

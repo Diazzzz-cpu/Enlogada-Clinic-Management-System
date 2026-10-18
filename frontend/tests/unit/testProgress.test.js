@@ -43,6 +43,12 @@ describe('testProgress', () => {
       .toBeUndefined();
   });
 
+  it('a test left unfinished on a closed visit ended with it', () => {
+    expect(testProgress({ category: 'Laboratory', status: 'Pending' }, { visitStatus: 'Cancelled' }).state).toBe('cancelled');
+    expect(testProgress({ category: 'Laboratory', status: 'Completed', released_at: ON }, { visitStatus: 'Cancelled' }).state)
+      .toBe('released');
+  });
+
   it('a cancelled test says so', () => {
     expect(testProgress({ category: 'Laboratory', status: 'Cancelled' }).state).toBe('cancelled');
   });

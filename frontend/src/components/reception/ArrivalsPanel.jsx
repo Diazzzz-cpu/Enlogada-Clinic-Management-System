@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CalendarCheck } from 'lucide-react';
+import { AlertCircle, CalendarCheck, CalendarClock } from 'lucide-react';
 import { Button } from '../ui/button';
 import { StatusBadge } from '../ui/status-badge';
 import { Panel, PanelBody } from '../ui/panel';
@@ -21,13 +21,15 @@ const PAGE_SIZE = 8;
  * bookings, so it pages in the browser. `arrivals` is useTodaysBookings, shared with the box,
  * which still finds a booking by name or reference.
  */
-export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn }) {
+export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn, canReschedule, onReschedule }) {
   const [page, setPage] = useState(1);
   const total = arrivals.bookings.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const shown = arrivals.bookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const columns = canCheckIn ? 6 : 5;
+  const hasActions = canCheckIn || canReschedule;
+  const columns = hasActions ? 6 : 5;
+  const lapsed = arrivals.lapsed || [];
 
   return (
     <div data-testid="arrivals">
@@ -44,7 +46,7 @@ export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn }) {
                 <TableHead>Patient Category</TableHead>
                 <TableHead>Booked Tests</TableHead>
                 <TableHead>Payment</TableHead>
-                {canCheckIn && <TableHead className="text-right">Actions</TableHead>}
+                {hasActions && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -84,6 +86,13 @@ export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn }) {
                     <TableCell label="Patient Name" className="font-semibold text-slate-900">
                       {name}
                       <span className="block font-mono text-meta font-normal text-slate-400">{b.appointment_reference}</span>
+                      {/* Moved, and why. [1.105.0] Shown here too, so the desk sees it before the patient says so. */}
+                      {b.rescheduled_at && (
+                        <span className="mt-0.5 flex items-center gap-1 text-fine font-normal text-slate-500">
+                          <CalendarClock className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                          Moved · {b.reschedule_reason || 'no reason recorded'}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell label="Patient Category" className="text-slate-500">
                       {b.patient_type_name || '—'}
@@ -95,11 +104,20 @@ export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn }) {
                       {/* As on the booking's check-in card: paid from home, or to pay at the counter. */}
                       <StatusBadge status={b.is_paid ? 'Paid' : 'Pending'} />
                     </TableCell>
-                    {canCheckIn && (
+                    {hasActions && (
                       <TableCell className="text-right">
-                        <Button size="xs" variant="outline" onClick={() => onCheckIn(b)} aria-label={`Check in ${name}`}>
-                          Check in
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          {canReschedule && (
+                            <Button size="xs" variant="outline" onClick={() => onReschedule(b)} aria-label={`Reschedule ${name}`}>
+                              Reschedule
+                            </Button>
+                          )}
+                          {canCheckIn && (
+                            <Button size="xs" onClick={() => onCheckIn(b)} aria-label={`Check in ${name}`}>
+                              Check in
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>
@@ -110,6 +128,15 @@ export default function ArrivalsPanel({ arrivals, canCheckIn, onCheckIn }) {
         </PanelBody>
         {!arrivals.error && total > 0 && (
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} total={total} pageSize={PAGE_SIZE} />
+        )}
+        {/* [1.130.0] Not paid within their time to pay, so their slots were released and they are
+            not listed above. Named, so a patient who comes anyway is not a surprise. */}
+        {!arrivals.error && lapsed.length > 0 && (
+          <p data-testid="arrivals-lapsed" className="m-0 border-t border-line px-4 py-2.5 text-fine text-slate-500">
+            Not listed: {lapsed.map((b) => `${b.first_name} ${b.last_name} (${formatTime12(b.scheduled_time)})`).join(', ')}.{' '}
+            {lapsed.length === 1 ? 'The booking was' : 'These bookings were'} not paid in time, so the slot was released.
+            If they come, start a walk-in visit.
+          </p>
         )}
       </Panel>
     </div>

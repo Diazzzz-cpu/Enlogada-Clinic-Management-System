@@ -251,9 +251,19 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
               showSearch={!showWho}
             />
             {can.seeBookings && (
-              <ArrivalsPanel arrivals={arrivals} canCheckIn={can.checkIn} onCheckIn={checkInBooking} />
+              <ArrivalsPanel
+                arrivals={arrivals}
+                canCheckIn={can.checkIn}
+                onCheckIn={checkInBooking}
+                canReschedule={can.reschedule}
+                onReschedule={(booking) => disposition.reschedule.open(booking)}
+              />
             )}
-            <CarriedOverPanel carried={carried} />
+            <CarriedOverPanel
+              carried={carried}
+              canReschedule={can.reschedule}
+              onReschedule={(booking) => disposition.reschedule.open(booking)}
+            />
           </>
         )}
 
@@ -533,8 +543,11 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
             // Keep the booking on screen showing its new time, rather than clearing the card and
             // making the receptionist look it up again to confirm the move landed. A booking moved
             // to another day also leaves today's "still to arrive".
-            checkIn.applyToResult(moved);
+            // Only onto the card if it is this booking's: a row in "Still to arrive" can be moved
+            // while another booking's card is open. [1.130.0]
+            if (!checkIn.result || !moved?.id || checkIn.result.id === moved.id) checkIn.applyToResult(moved);
             arrivals.reload();
+            carried.reload();
             toastSuccess('Appointment rescheduled.');
           }}
         />

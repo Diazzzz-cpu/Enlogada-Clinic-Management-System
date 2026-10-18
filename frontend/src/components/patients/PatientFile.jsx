@@ -139,12 +139,15 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
                       {v.queue_number && <DataBadge variant="queue" label="Queue ticket">{v.queue_number}</DataBadge>}
                       <span className="font-normal text-slate-500">{v.visit_type}</span>
                     </p>
-                    <StatusBadge status={v.status} className="px-2 py-0.5" />
+                    <span className="text-right">
+                      <StatusBadge status={v.status} className="px-2 py-0.5" />
+                      {v.closed_reason && <span className="mt-0.5 block text-meta text-slate-500">{v.closed_reason}</span>}
+                    </span>
                   </div>
                   {v.tests?.length ? (
                     <ul className="m-0 list-none space-y-0.5 p-0">
                       {v.tests.map((t) => {
-                        const progress = testProgress(t, { paid: v.is_paid, since: v.created_at });
+                        const progress = testProgress(t, { paid: v.is_paid, since: v.created_at, visitStatus: v.status });
                         return (
                           <li
                             key={t.id}

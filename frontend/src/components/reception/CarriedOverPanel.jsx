@@ -8,7 +8,7 @@ import Toolbar from '../ui/toolbar';
 import EmptyState from '../ui/empty-state';
 import Pagination from '../ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { formatDate } from '../../lib/date';
+import { formatDate, formatTime12 } from '../../lib/date';
 import { testProgress } from '../../lib/testProgress';
 
 const PAGE_SIZE = 8;
@@ -27,15 +27,64 @@ const TONE = {
  * stands, to answer the patient who comes back or calls. Nothing to do from here: the work is the
  * department's. Shown only when there is something to show, or when it could not be checked.
  */
-export default function CarriedOverPanel({ carried }) {
+export default function CarriedOverPanel({ carried, canReschedule = false, onReschedule }) {
   const [page, setPage] = useState(1);
   const total = carried.visits.length;
+  const missed = carried.missedBookings || [];
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-  if (carried.loading || (!carried.error && total === 0)) return null;
+  if (carried.loading || (!carried.error && total === 0 && missed.length === 0)) return null;
   const shown = carried.visits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
+    <div className="space-y-6">
+    {missed.length > 0 && (
+      <div data-testid="missed-bookings">
+        <Toolbar attached>
+          <h2 className="m-0 text-note font-semibold text-slate-900">Paid bookings nobody came for</h2>
+          <span className="text-fine text-slate-500">A paid booking is moved, never written off: contact the patient for a new date.</span>
+        </Toolbar>
+        <Panel className="overflow-hidden rounded-t-none">
+          <PanelBody flush>
+            <Table stack>
+              <TableHeader sticky>
+                <TableRow>
+                  <TableHead>Booked For</TableHead>
+                  <TableHead>Patient Name</TableHead>
+                  <TableHead>Booked Tests</TableHead>
+                  {canReschedule && <TableHead className="text-right">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {missed.map((b) => (
+                  <TableRow key={b.id} data-testid="missed-booking-row">
+                    <TableCell label="Booked For" className="whitespace-nowrap font-semibold text-slate-900">
+                      {formatDate(b.scheduled_date)}
+                      <span className="block font-normal text-fine text-slate-500">{formatTime12(b.scheduled_time)}</span>
+                    </TableCell>
+                    <TableCell label="Patient Name" className="font-semibold text-slate-900">
+                      {b.first_name} {b.last_name}
+                      <span className="block font-mono text-meta font-normal text-slate-400">{b.appointment_reference}</span>
+                    </TableCell>
+                    <TableCell label="Booked Tests" className="text-fine text-slate-600">
+                      {(b.booked_test_names || []).join(', ') || '—'}
+                    </TableCell>
+                    {canReschedule && (
+                      <TableCell className="text-right">
+                        <Button size="xs" variant="outline" onClick={() => onReschedule(b)} aria-label={`Reschedule ${b.first_name} ${b.last_name}`}>
+                          Reschedule
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </PanelBody>
+        </Panel>
+      </div>
+    )}
+    {(total > 0 || carried.error) && (
     <div data-testid="carried-over">
       <Toolbar attached>
         <h2 className="m-0 text-note font-semibold text-slate-900">From earlier days, still with a department</h2>
@@ -101,6 +150,8 @@ export default function CarriedOverPanel({ carried }) {
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} total={total} pageSize={PAGE_SIZE} />
         )}
       </Panel>
+    </div>
+    )}
     </div>
   );
 }

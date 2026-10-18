@@ -160,3 +160,20 @@ export function formatTime12(value) {
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hour12}:${minutes} ${suffix}`;
 }
+
+/**
+ * A date and a time as two pieces, for text that may wrap. [1.130.0]
+ *
+ * `formatDateTime` is one string, and a narrow table column broke it before "PM" ("Oct 18, 2026,
+ * 7:35" / "PM"). `DateTime` (components/ui/date-time.jsx) keeps each piece whole, so a column can
+ * only break between the date and the time.
+ */
+export function formatDateTimeParts(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return {
+    date: d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+    time: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
+  };
+}

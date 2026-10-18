@@ -876,6 +876,13 @@ class AppointmentService {
     if (status === 'No Show') {
       if (appointment.status === 'Confirmed') refuse('This patient has already been checked in, so they are not a no-show.');
     }
+    // [1.130.0] A booking whose time to pay ran out released its slot ([1.123.0]), and someone else
+    // may hold that slot now. Checking it in would seat two patients in one slot; the patient who
+    // comes anyway is a walk-in.
+    if (status === 'Confirmed' && appointment.status === 'Pending' && appointment.held_until
+      && new Date(appointment.held_until) < new Date()) {
+      refuse('This booking was not paid in time, so its slot was released. Start a walk-in visit for the patient instead.');
+    }
 
     // The same rule as cancelAppointment, on the route that can also set Cancelled. [1.122.0]
     if (status === 'Cancelled') await assertNotPaid(appointment);
@@ -909,6 +916,10 @@ class AppointmentService {
       const row = status === 'Confirmed'
         ? await appointmentRepository.updateAppointmentStatus(id, status, { expectedStatus: appointment.status })
         : await appointmentRepository.updateAppointmentStatus(id, status);
+      // [1.130.0] A no-show's visit is over too. It stayed 'Pending' on Visit History for good.
+      if (row && status === 'No Show') {
+        await visitRepository.closeVisit(appointment.patient_visit_id, `No show on ${bookedFor}`);
+      }
       if (row && status === 'Confirmed' && appointment.status !== 'Confirmed') {
         joined = await visitRepository.joinTodaysQueue(appointment.patient_visit_id);
         // [1.124.0] Checked in on another day than the booking's: the patient is seen today, so

@@ -10,9 +10,10 @@ const logger = require('../config/logger');
 class AuditService {
   // req.user (the JWT payload) only carries {userId, roles, permissions} — no name — so this
   // resolves the actor's display name itself rather than making every call site look it up.
-  async log({ actorId, action, entityType, entityId, description }) {
+  // `actorName` names a system actor (the end-of-day close) when there is no account behind it.
+  async log({ actorId, actorName: systemActor = null, action, entityType, entityId, description }) {
     try {
-      let actorName = 'Unknown';
+      let actorName = systemActor || 'Unknown';
       if (actorId) {
         const actor = await userRepository.findById(actorId);
         if (actor) actorName = `${actor.first_name} ${actor.last_name}`;

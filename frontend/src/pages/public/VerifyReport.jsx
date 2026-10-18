@@ -7,7 +7,8 @@ import PageShell from '../../components/ui/page-shell';
 import { Button } from '../../components/ui/button';
 import api from '../../config/api';
 import { useClinic } from '../../lib/clinic';
-import { formatDate, formatDateTime } from '../../lib/date';
+import { formatDate } from '../../lib/date';
+import DateTime from '../../components/ui/date-time';
 
 /**
  * Is this report genuine? [1.126.0]
@@ -93,7 +94,7 @@ function Answer({ state, clinic }) {
               <span className="font-normal text-slate-500"> · {report.department}</span>
             </Row>
             <Row label="Patient">{report.patientInitials || '—'}</Row>
-            <Row label="Released">{formatDateTime(report.releasedAt)}</Row>
+            <Row label="Released"><DateTime value={report.releasedAt} /></Row>
             {report.version > 1 && <Row label="Version">Corrected report, version {report.version}</Row>}
             <Row label="Code"><span className="font-mono tracking-wider">{report.code}</span></Row>
           </dl>

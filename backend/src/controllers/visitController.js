@@ -68,8 +68,8 @@ class VisitController {
   /** GET /visits/carried-over: earlier days' visits still with a department. [1.130.0] */
   async getCarriedOver(req, res, next) {
     try {
-      const visits = await visitService.getCarriedOver();
-      return res.status(200).json({ status: 'success', data: { visits } });
+      const { visits, missedBookings } = await visitService.getCarriedOver();
+      return res.status(200).json({ status: 'success', data: { visits, missedBookings } });
     } catch (err) {
       next(err);
     }

@@ -1,7 +1,8 @@
 import React from 'react';
 
 import { useClinic } from '../lib/clinic';
-import { formatDateTime, formatDate } from '../lib/date';
+import { formatDate } from '../lib/date';
+import DateTime from './ui/date-time';
 
 /**
  * The clinical result document — one rendering, for every screen that prints one. [1.50.0]
@@ -150,7 +151,7 @@ export default function ResultReport({
           that can, and the query has carried it all along. */}
       {result.released_at && (
         <p className="m-0 text-fine text-slate-400">
-          Released {formatDateTime(result.released_at)}
+          Released <DateTime value={result.released_at} />
           {result.released_by_first_name
             && ` by ${result.released_by_first_name} ${result.released_by_last_name || ''}`.trimEnd()}
         </p>

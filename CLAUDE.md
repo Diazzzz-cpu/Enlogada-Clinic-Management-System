@@ -106,6 +106,7 @@ node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at,
 node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 tables, 6 visit columns, 2 permissions, the paper form's 4 questions (--rollback reverses it)
 node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code per released report version; backfills released ones (--rollback reverses it)
 node src/scripts/migrateExamPerformed.js        # [1.129.0] visit_tests.performed_at/_by: an X-ray exam marked done (--rollback reverses it)
+node src/scripts/migrateVisitClosure.js         # [1.130.0] patient_visits.closed_reason/_at: why a visit closed unfinished (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -133,6 +134,11 @@ node src/scripts/pruneAuditLog.js            # PHI reads 2y, everything else 7y
 # shows the plan, and can run one sweep by hand; safe beside the server, as each is claimed first.
 node src/scripts/sendAppointmentReminders.js              # each booking owed a reminder, and when (--days=7, --json)
 node src/scripts/sendAppointmentReminders.js --confirm    # send what is due right now
+
+# The end-of-day close is AUTOMATIC too [1.130.0] (every 30 min, finds work once a day): unpaid
+# walk-ins and unpaid bookings nobody came for, from an earlier day, are closed with a reason. This
+# runs it now. Off in the server with DAY_CLOSE=off.
+node src/scripts/closeEarlierDays.js
 
 # Retention pass for HMO card images (insurance documents, not medical records). Dry-run by
 # default; --confirm applies. The window is a constant in the script, overridable per run.
@@ -171,8 +177,8 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 
 ```bash
 cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
-cd frontend && npm run test:unit # 136 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 517 Playwright E2E, ~13m, needs both dev servers
+cd frontend && npm run test:unit # 137 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 522 Playwright E2E, ~13m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -191,7 +197,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 86 Playwright specs (517 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 87 Playwright specs (522 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -490,6 +496,20 @@ removed (409); cancelling the visit drops everything. A spec that needs "a visit
 registers a new patient. Checking `visits:create` alone let an account given only "start visits"
 on the grid register patients and attach tests; the Desk gates Start visit and Register Walk-In
 the same way (`can.startVisit`, `can.registerPatient`).
+
+**What an earlier day leaves open is closed, or shown, never left.** `[1.130.0]` Today's queue and
+the till's are today's, so an unpaid walk-in from yesterday could never be paid or served, and
+stayed 'Pending' for good; a booking nobody came for was never a no-show unless someone marked it.
+`jobs/dayCloseScheduler.js` runs `visitRepository.closeEarlierDays` every half hour: an unpaid
+walk-in from before today becomes 'Cancelled' with `closed_reason` "Not paid by the end of <date>",
+an unpaid booking whose day passed becomes 'No Show' and its visit "No show on <date>" (a No Show
+marked by hand closes its visit the same way), each audited as "System (end of day)". Never
+anything waiting on someone (an HMO decision, an online proof to check) and never anything PAID:
+a paid visit still with a department is on the Desk's "From earlier days" table, and a paid booking
+nobody came for is on its "Paid bookings nobody came for" table, to be moved (no refunds). A booking
+not paid within its time to pay released its slot, so it cannot be checked in (409, "start a
+walk-in visit"), and "Still to arrive" names it instead of listing it. `day-close.spec.js`; in a
+spec, `e2eBackdateVisit.js` moves a fixture's visit to an earlier day (and back, for the purge).
 
 **Appointment reminders are sent by the server itself.** `[1.130.0]` Steven: automatic, the day
 before, and halfway to the appointment when it is booked later than that. `utils/reminderTiming.js`
@@ -941,6 +961,7 @@ and the copies had drifted apart:
 | `.field-label` / `.alert` | two component classes in `index.css`, for the form label and the inline alert. Leaf elements, so a class is the right unit |
 | `button.jsx` | `<Button loading>` for anything in flight — spinner, disable and `aria-busy`, and the **label stays put**. Never swap it for "Saving…": on `ConfirmDialog` that erased which of a refund, a cancellation or a release the person had just agreed to. `[1.39.0]` |
 | `date-field.jsx` / `calendar.jsx` | every date input. Keeps the native `<input type="date">` and replaces only the picker, so ISO values, `min`/`max`, `required` and the phone's OS picker all still work. Where the browser's glyph cannot be hidden — Firefox, measured, no CSS exists — it renders nothing custom rather than showing a second icon. `RANGE_PRESETS` for filters, `BIRTHDATE_YEAR_RANGE` for birthdates. See migrations.md [1.34.0] |
+| `date-time.jsx` | a date and a time that wraps only BETWEEN the two, never before "PM" (`formatDateTimeParts`). Use it wherever a table shows `formatDateTime`. `[1.130.0]` |
 | `sheet.jsx` | a panel that slides in from the right, over the screen it belongs to. The same Radix dialog as `dialog.jsx` (focus trap, Escape, the date-popover rule), full height. For work that must not take someone off the list they are watching: the Desk's walk-in registration. `[1.75.0]` |
 
 - **Printing an element uses `lib/printArea.js`, never a print stylesheet alone.** `[1.52.0]` The

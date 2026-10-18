@@ -88,6 +88,9 @@ module.exports = {
   // APPOINTMENT_REMINDERS=off, e.g. on a second server sharing one database, which would otherwise
   // sweep too (harmless: each reminder is claimed before it is sent, so it still goes out once).
   APPOINTMENT_REMINDERS: process.env.APPOINTMENT_REMINDERS !== 'off',
+  // [1.130.0] Closes what earlier days left open (jobs/dayCloseScheduler.js): unpaid walk-ins and
+  // unpaid bookings nobody came for. Off with DAY_CLOSE=off.
+  DAY_CLOSE: process.env.DAY_CLOSE !== 'off',
   VAT_RATE: parseFloat(process.env.VAT_RATE || '0.12'),
 
   /**

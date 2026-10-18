@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/button';
 import Pagination from '../../components/ui/pagination';
 import api from '../../config/api';
 import { Activity as ActivityIcon, ScrollText } from 'lucide-react';
-import { formatDateTime } from '../../lib/date';
+import DateTime from '../../components/ui/date-time';
 
 // Server-side paged: the API takes this as `limit`, and the footer states the range it covers.
 const PAGE_SIZE = 25;
@@ -136,7 +136,7 @@ const ActivityLog = () => {
                   <div className="min-w-0">
                     <p className="m-0 text-note font-medium text-slate-800">{entry.description}</p>
                     <p className="m-0 mt-0.5 text-fine text-slate-500">
-                      {entry.actor_name} &middot; {formatDateTime(entry.created_at)}
+                      {entry.actor_name} &middot; <DateTime value={entry.created_at} />
                     </p>
                   </div>
                   <span

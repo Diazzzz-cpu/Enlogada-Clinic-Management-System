@@ -268,6 +268,10 @@ CREATE TABLE patient_visits (
     feedback_language VARCHAR(3),          -- the language they answered in
     feedback_recorded_by INT,              -- who typed in a paper form
     feedback_name_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Why the visit was closed without being finished, and when. [1.130.0] Set by the end-of-day
+    -- close (jobs/dayCloseScheduler.js) on a walk-in never paid, or a booking nobody came for.
+    closed_reason VARCHAR(200),
+    closed_at TIMESTAMP,
     CONSTRAINT fk_visits_patient FOREIGN KEY (patient_id) REFERENCES patients(id),
     CONSTRAINT fk_visits_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_visits_discount_type FOREIGN KEY (discount_type_id) REFERENCES discount_types(id),

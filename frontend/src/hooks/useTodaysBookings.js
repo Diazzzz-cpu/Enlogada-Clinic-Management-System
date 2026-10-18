@@ -20,6 +20,7 @@ import { todayStr } from '../lib/date';
  */
 export function useTodaysBookings({ enabled = true } = {}) {
   const [bookings, setBookings] = useState([]);
+  const [lapsed, setLapsed] = useState([]);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState('');
 
@@ -29,8 +30,14 @@ export function useTodaysBookings({ enabled = true } = {}) {
       const res = await api.get('/appointments', {
         params: { status: 'Pending', dateFrom: today, dateTo: today, limit: 100 },
       });
-      const rows = res.data.data.appointments || [];
-      setBookings([...rows].sort((a, b) => String(a.scheduled_time).localeCompare(String(b.scheduled_time))));
+      const rows = [...(res.data.data.appointments || [])]
+        .sort((a, b) => String(a.scheduled_time).localeCompare(String(b.scheduled_time)));
+      // [1.130.0] A booking not paid within its window released its slot, so it is not arriving:
+      // the desk would check in a patient whose slot may be someone else's. Counted, not listed.
+      const now = Date.now();
+      const isLapsed = (b) => !b.is_paid && b.held_until && new Date(b.held_until).getTime() < now;
+      setBookings(rows.filter((b) => !isLapsed(b)));
+      setLapsed(rows.filter(isLapsed));
       setError('');
     } catch (err) {
       console.error("Failed to fetch today's bookings:", err);
@@ -47,7 +54,7 @@ export function useTodaysBookings({ enabled = true } = {}) {
   // Bookings made online after the desk opened, and check-ins at a second terminal.
   usePolling(load, 30000, { enabled });
 
-  return { bookings, loading, error, reload: load };
+  return { bookings, lapsed, loading, error, reload: load };
 }
 
 export default useTodaysBookings;

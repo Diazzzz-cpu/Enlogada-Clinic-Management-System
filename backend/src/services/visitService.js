@@ -63,9 +63,13 @@ class VisitService {
    * registering a returning patient again splits their history across two records. A match is
    * refused with the record in `details`, unless `confirmNewPatient` says this is someone else.
    */
-  /** Unfinished work from earlier days, for the Desk. [1.130.0] */
+  /** Unfinished work from earlier days, for the Desk: visits, and paid bookings to move. [1.130.0] */
   async getCarriedOver() {
-    return visitRepository.findCarriedOver();
+    const [visits, missedBookings] = await Promise.all([
+      visitRepository.findCarriedOver(),
+      visitRepository.findMissedPaidBookings(),
+    ]);
+    return { visits, missedBookings };
   }
 
   async registerVisit({

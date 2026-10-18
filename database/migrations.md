@@ -1,8 +1,42 @@
 # Database Migration & Schema History
 
-## [1.130.0] - 2026-10-19 (Reminders send themselves; a visit asks for every permission it uses)
+## [1.130.0] - 2026-10-19 (Reminders send themselves; a visit asks for every permission it uses; what a day leaves open is closed)
 
-No schema change; nothing to run. One new setting, `APPOINTMENT_REMINDERS` (blank keeps it on).
+Run on an existing database: `node src/scripts/migrateVisitClosure.js` (`--rollback` reverses it):
+`patient_visits.closed_reason` and `closed_at`. Folded into `schema.sql`. Two new settings, both on
+when blank: `APPOINTMENT_REMINDERS` and `DAY_CLOSE`.
+
+**What an earlier day leaves open.** Steven: "check if everything that all processes MAKE SENSE",
+over Visit History showing walk-ins from Oct 16 and 17 still "Pending". Measured on the dev
+database: 7 unpaid walk-ins from earlier days and 3 bookings whose day had passed, all 'Pending'
+for good. Today's queue is today's, and so is the till's, so nothing could pay for them or serve
+them, and Visit History read them as waiting.
+- The server closes them (`jobs/dayCloseScheduler.js`, every half hour; `closeEarlierDays.js` runs
+  it now): an unpaid walk-in becomes Cancelled, "Not paid by the end of Oct 16, 2026"; an unpaid
+  booking nobody came for becomes a No Show, its visit "No show on Oct 16, 2026". Each is in the
+  Activity Log by "System (end of day)". First run on the dev database: 6 walk-ins and 3 no-shows;
+  the seventh walk-in waits on an HMO decision and was left, as anything waiting on someone is.
+- Never anything paid. A paid booking nobody came for is listed on the Desk, "Paid bookings nobody
+  came for", with Reschedule: with no refunds, it is moved.
+- A No Show marked by hand closes its visit too; it used to stay 'Pending'.
+- Visit History and the patient's record say why a visit closed, under its status.
+- A booking not paid within its time to pay released its slot ([1.123.0]) but was still listed in
+  "Still to arrive" with Check in, where the desk could seat it on top of whoever took the slot.
+  It is named under the table instead ("not paid in time, so the slot was released; if they come,
+  start a walk-in visit") and check-in refuses it.
+- Everything else checked consistent: no finished visit with an unfinished test, no payment on a
+  cancelled visit, no unpaid work at a department, no Processing visit with every test done.
+
+**"PM" on a line of its own.** Visit History's Date column broke "Oct 18, 2026, 7:35 PM" before
+"PM". `components/ui/date-time.jsx` keeps the date and the time each whole, so a narrow column
+breaks only between them; used in every table that shows a date and time (Visit History, a
+department's History, Transaction History, Cashier Monitoring, the Activity Log, report versions,
+the verification page).
+
+**Where a reschedule is seen.** Steven asked where. The patient moves a booking from the portal
+(Appointments, "Moved · reason" on the card), the Desk from a booking's check-in card, and Admin's
+Appointments screen lists the move and why. "Still to arrive" now shows it too ("Moved · reason")
+and has its own Reschedule button on every row.
 
 **Reminders are automatic.** Steven: send the reminder the day before, and when the appointment
 is closer than that, at half the time left (30 minutes away: 15 minutes before; 2 hours away: 1

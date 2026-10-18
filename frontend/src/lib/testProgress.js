@@ -13,9 +13,13 @@ import { categoryLabel, issuesReports } from './categories';
  * Laboratory" on its own read as current, and a test paid yesterday and never started is a
  * different conversation with the patient from one sent to the lab an hour ago.
  */
-export function testProgress(test, { paid = false, since = null, today = todayStr() } = {}) {
+export function testProgress(test, { paid = false, since = null, today = todayStr(), visitStatus = null } = {}) {
   const dept = categoryLabel(test.category);
   const carried = since && toDateInput(new Date(since)) < today ? `Since ${formatDate(since)}` : null;
+  // A test left unfinished on a visit that was closed (not paid, or a no-show) ended with it.
+  if (visitStatus === 'Cancelled' && test.status !== 'Completed') {
+    return { state: 'cancelled', label: 'Cancelled', tone: 'quiet' };
+  }
   switch (test.status) {
     case 'Completed':
       if (test.released_at) {

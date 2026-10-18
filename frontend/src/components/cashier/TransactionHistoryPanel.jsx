@@ -11,13 +11,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { StatusBadge } from '../ui/status-badge';
 import { SkeletonRows } from '../ui/skeleton';
 import Pagination from '../ui/pagination';
-import { formatDateTime } from '../../lib/date';
 import { formatCurrency } from '../../lib/currency';
 import { isCrossDayReversal } from '../../lib/collections';
 import { BillingTotalsPanel, SalesByServicePanel } from '../reports/OperationsPanels';
 import { HISTORY_PAGE_SIZE } from '../../hooks/useTransactionHistory';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 import DataBadge from '../ui/data-badge';
+import DateTime from '../ui/date-time';
 
 /**
  * Receipts issued over a chosen range, for the daily cash-up.
@@ -143,7 +143,7 @@ export default function TransactionHistoryPanel({ history, receipt, operations }
                             it belongs to this range's takings or only to its reversals. */}
                         {t.refunded_at && (
                           <span className="mt-1 block whitespace-nowrap text-fine font-semibold text-rose-600">
-                            {formatDateTime(t.refunded_at)}
+                            <DateTime value={t.refunded_at} />
                           </span>
                         )}
                         {t.refund_reason && (
@@ -153,7 +153,7 @@ export default function TransactionHistoryPanel({ history, receipt, operations }
                         )}
                       </TableCell>
                       <TableCell label="Paid at" className="whitespace-nowrap text-right text-fine text-slate-500">
-                        {formatDateTime(t.paid_at)}
+                        <DateTime value={t.paid_at} />
                         {/* The case the log could not represent before this range matched on
                             either date: taken on one day, reversed on another. Flagged because
                             the two readings of such a row are opposites — it is in this range's

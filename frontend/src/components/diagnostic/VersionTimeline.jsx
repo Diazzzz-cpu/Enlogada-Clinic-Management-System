@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, FileClock, History, Paperclip } from 'lucide
 import { cn } from '../../lib/utils';
 import LoadingState from '../ui/loading-state';
 import FindingsText from './FindingsText';
-import { formatDateTime } from '../../lib/date';
+import DateTime from '../ui/date-time';
 
 /**
  * What this report used to say, and why it changed. [1.63.0]
@@ -73,7 +73,7 @@ const VersionEntry = ({ version, isLatest }) => {
         </div>
 
         <p className="m-0 text-fine text-ink-muted">
-          {version.released_at ? formatDateTime(version.released_at) : 'Not yet released'}
+          {version.released_at ? <DateTime value={version.released_at} /> : 'Not yet released'}
           {version.released_by_first_name && (
             <> · released by {version.released_by_first_name} {version.released_by_last_name}</>
           )}

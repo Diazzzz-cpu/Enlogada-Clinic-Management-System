@@ -10,11 +10,12 @@ import { Button } from '../../components/ui/button';
 import { SkeletonRows } from '../../components/ui/skeleton';
 import Pagination from '../../components/ui/pagination';
 import api from '../../config/api';
-import { todayStr, formatDateTime } from '../../lib/date';
+import { todayStr } from '../../lib/date';
 import { formatCurrency } from '../../lib/currency';
 import { METHOD_FILTERS, METHOD_FILTER_ALL } from '../../lib/paymentMethods';
 import { ExternalLink, Receipt, RefreshCw, Banknote, Hash, UserCircle2, Undo2 } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
+import DateTime from '../../components/ui/date-time';
 
 // Visual Design Improvement Plan Phase V1 — see VISUAL_IDENTITY.md §3a #11.
 const PAGE_SIZE = 20;
@@ -263,7 +264,7 @@ const CashierMonitoring = () => {
                       >
                         {formatCurrency(t.amount)}
                       </TableCell>
-                      <TableCell label="Paid at" className="text-right text-fine text-slate-500">{formatDateTime(t.paid_at)}</TableCell>
+                      <TableCell label="Paid at" className="text-right text-fine text-slate-500"><DateTime value={t.paid_at} /></TableCell>
                       {/* Oversight could read a receipt NUMBER here and never open the receipt —
                           so answering "send me a copy of RCT-…" meant asking a cashier to do it
                           from their own console. billing:read is what the route asks for, and an

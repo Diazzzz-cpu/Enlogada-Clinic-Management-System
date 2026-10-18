@@ -11,11 +11,11 @@ import { SearchInput } from '../ui/search-input';
 import { StatusBadge } from '../ui/status-badge';
 import Pagination from '../ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { formatDateTime } from '../../lib/date';
 import { ReceptionThroughputPanel } from '../reports/OperationsPanels';
 import { HISTORY_PAGE_SIZE } from '../../hooks/useVisitHistory';
 import { DateField, RANGE_PRESETS } from '../ui/date-field';
 import PaperFeedbackDialog from './PaperFeedbackDialog';
+import DateTime from '../ui/date-time';
 
 /**
  * Past visits over a chosen range, with the desk's own throughput beside them.
@@ -132,6 +132,10 @@ export default function VisitHistoryPanel({ history, operations, canRecordFeedba
                         </TableCell>
                         <TableCell label="Status">
                           <StatusBadge status={v.visit_status} />
+                          {/* Why it closed unfinished: not paid, or nobody came. [1.130.0] */}
+                          {v.closed_reason && (
+                            <span data-testid="visit-closed-reason" className="mt-1 block max-w-[16rem] text-fine text-slate-500">{v.closed_reason}</span>
+                          )}
                           {/* Feedback is asked of a FINISHED visit. [1.112.0] */}
                           {v.visit_status === 'Completed' && (
                             v.feedback_submitted_at || recorded.has(v.id) ? (
@@ -154,7 +158,7 @@ export default function VisitHistoryPanel({ history, operations, canRecordFeedba
                           )}
                         </TableCell>
                         <TableCell label="Date" className="text-right text-fine text-slate-500">
-                          {formatDateTime(v.created_at)}
+                          <DateTime value={v.created_at} />
                         </TableCell>
                       </TableRow>
                     ))

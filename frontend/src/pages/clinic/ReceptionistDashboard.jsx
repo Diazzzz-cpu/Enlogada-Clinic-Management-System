@@ -22,6 +22,9 @@ import { useReceptionQueue } from '../../hooks/useReceptionQueue';
 import { useClinicReferenceData } from '../../hooks/useClinicReferenceData';
 import { useAppointmentCheckIn } from '../../hooks/useAppointmentCheckIn';
 import { useTodaysBookings } from '../../hooks/useTodaysBookings';
+import { useCarriedOver } from '../../hooks/useCarriedOver';
+import ArrivalsPanel from '../../components/reception/ArrivalsPanel';
+import CarriedOverPanel from '../../components/reception/CarriedOverPanel';
 import { useVisitDisposition } from '../../hooks/useVisitDisposition';
 import { useTestAssignment } from '../../hooks/useTestAssignment';
 import { useHmoLogging } from '../../hooks/useHmoLogging';
@@ -100,6 +103,9 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
   const reference = useClinicReferenceData();
   const history = useVisitHistory({ enabled: view === 'reception-history' });
   const arrivals = useTodaysBookings({ enabled: onDesk && can.seeBookings });
+  // [1.130.0] Earlier days' visits still with a department: today's queue does not hold them.
+  const carried = useCarriedOver({ enabled: onDesk });
+
   // Existing Patient Lookup State (Module 7: patient record lookup)
   const lookup = usePatientLookup();
 
@@ -116,6 +122,13 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
       queue.refresh();
     },
   });
+  // A booking checked in from the arrivals table opens its card in the Who's here box, which is
+  // above it on the page, so the box is brought into view.
+  const checkInBooking = (booking) => {
+    checkIn.verify(null, booking.appointment_reference);
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('whos-here')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  };
 
   const disposition = useVisitDisposition({
     // Every disposition changes who is waiting, so the queue is always re-read. A no-show also
@@ -237,6 +250,10 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
               onCallPatient={speakQueueNumber}
               showSearch={!showWho}
             />
+            {can.seeBookings && (
+              <ArrivalsPanel arrivals={arrivals} canCheckIn={can.checkIn} onCheckIn={checkInBooking} />
+            )}
+            <CarriedOverPanel carried={carried} />
           </>
         )}
 

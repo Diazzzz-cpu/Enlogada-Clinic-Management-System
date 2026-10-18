@@ -171,8 +171,8 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 
 ```bash
 cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
-cd frontend && npm run test:unit # 129 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 513 Playwright E2E, ~13m, needs both dev servers
+cd frontend && npm run test:unit # 136 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 517 Playwright E2E, ~13m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -191,7 +191,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 85 Playwright specs (513 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 86 Playwright specs (517 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -639,10 +639,11 @@ which had dropped out once X-ray stopped issuing reports. Nothing pending. The r
 apart: `released_count` is still reports, `done_count` / `last_done_at` are X-rays done. The front desk and the till see who the patient is and when they were here; the roster sends
 them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
 shows no Results column. `[1.116.0]` Their name opens the patient's FILE instead
-(`components/patients/PatientFile.jsx`): what else is on file, the visits and the tests each was for,
-each test with where it stands `[1.130.0]` (`lib/testProgress.js`: Released <date>, Done <date> for
-an X-ray, With <department>, Waiting for payment, Cancelled; `patient-file-test` with `data-state`),
-so the desk answers "is my result ready?" without a report, and "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather
+(`components/patients/PatientFile.jsx`): what else is on file, the FINISHED visits and how each test
+ended `[1.130.0]` (`lib/testProgress.js`: Released <date>, Done <date> for an X-ray, Cancelled;
+`patient-file-test` with `data-state`). A record is final, Steven's rule: a visit still open is not
+listed, and one line (`patient-file-open`) says it exists and that the Desk shows where it stands.
+And "Start a visit", which opens the Desk with the name in "Who's here?" (the `find` intent) rather
 than creating a visit, because the Desk refuses a second visit to someone already in today's queue
 ("Find at the Desk" for them). A permission, not a role list, so granting `results:read`
 to a cashier shows them results with no code change. **Printing and saving a report are logged**:
@@ -1036,7 +1037,13 @@ with a link to the printable document.
   (`useReceptionQueue.appliedSearch`), and the queue matches a full name, not only either half. Registration is a `Sheet`
   titled "Walk-In Registration" holding the unchanged form (`#wi-*`, "Register Walk-In & Issue Queue
   Ticket"). Test contracts: the nav button "Desk", the searchbox named "Who's here?", the header
-  button "Register Walk-In", `data-testid="desk-match"` and `"booking-card"`. A Cashier gets no box,
+  button "Register Walk-In", `data-testid="desk-match"` and `"booking-card"`.
+  `[1.130.0]` Below the queue, two tables in its style: **Still to arrive today** (`ArrivalsPanel`,
+  `arrivals` / `arrival-row`: time, patient and reference, category, booked tests, paid, Check in,
+  which opens the card in the box and scrolls to it), which replaced a row of name buttons in the
+  box; and **From earlier days, still with a department** (`CarriedOverPanel`, `carried-over` /
+  `carried-over-row`, `GET /visits/carried-over`), shown only when there is any. Today's queue is
+  today's, so a visit paid yesterday and still being done was on no Desk screen at all. A Cashier gets no box,
   and keeps the queue's own "Search patient name or Queue #..." field. The till (C3) is headed
   "Billing Queue", and its collections are one line whose first label is "Collected Today".
 - `SidebarLayout.jsx` is the shared shell for staff/admin consoles. Its nav column scrolls

@@ -13,7 +13,6 @@ import { ageFromBirthdate, formatAppointmentDate, formatTime12, toDateInput, tod
 /** A booking reference as the clinic issues it: `APT-` and hex digits (appointmentRepository). */
 const REFERENCE = /^apt-?[0-9a-f]{2,}$/i;
 const LOOKUP_DEBOUNCE_MS = 350;
-const TO_ARRIVE_SHOWN = 8;
 // Two letters match half the patient file. Past this the list pushed the queue off the screen,
 // which is the thing the box sits above so as not to hide.
 const RECORDS_SHOWN = 6;
@@ -31,7 +30,8 @@ const fullName = (p) => `${p.first_name} ${p.last_name}`;
  *   a name        → today's bookings under that name (Check in), records on file (Start visit),
  *                   and the queue below narrows to the same name
  *   a reference   → Enter looks the booking up, as the old check-in screen did; so does a scan
- *   nothing typed → today's bookings still to arrive, one press from their check-in card
+ *   nothing typed → nothing; today's bookings still to arrive are the table below the queue
+ *                   (ArrivalsPanel), whose Check in opens the same card here [1.130.0]
  *
  * Nothing here writes on its own. A booking goes `checkIn.verify` → the card → `checkIn.request`,
  * and a record goes `checkIn.request('walkin')` — the old screens' flows, and the same confirmation
@@ -99,7 +99,7 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
   const looking = typed && !isReference && (lookup.searching || !queueAnswered);
 
   return (
-    <Panel className="p-4 sm:p-5">
+    <Panel id="whos-here" className="scroll-mt-4 p-4 sm:p-5">
       <form onSubmit={onSubmit}>
         <label htmlFor="desk-who" className="field-label">Who's here?</label>
         <div className="mt-1.5 flex flex-wrap gap-2">
@@ -262,50 +262,8 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
         </div>
       )}
 
-      {!typed && !checkIn.result && can.seeBookings && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-fine">
-          <span className="font-semibold text-slate-500">Still to arrive today:</span>
-          {arrivals.error ? (
-            <span className="text-rose-700">
-              Couldn't load today's bookings.{' '}
-              <button
-                type="button"
-                onClick={arrivals.reload}
-                className="cursor-pointer border-0 bg-transparent p-0 font-bold text-rose-800 underline underline-offset-2"
-              >
-                Try again
-              </button>
-            </span>
-          ) : arrivals.loading ? (
-            <span className="text-slate-400">Loading…</span>
-          ) : arrivals.bookings.length === 0 ? (
-            <span className="text-slate-500">No bookings left to arrive today.</span>
-          ) : (
-            <>
-              {arrivals.bookings.slice(0, TO_ARRIVE_SHOWN).map((b) => (can.checkIn ? (
-                <Button
-                  key={b.id}
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  onClick={() => checkIn.verify(null, b.appointment_reference)}
-                >
-                  {formatTime12(b.scheduled_time)} · {fullName(b)}
-                </Button>
-              ) : (
-                <Badge key={b.id} variant="outline" className="text-slate-600">
-                  {formatTime12(b.scheduled_time)} · {fullName(b)}
-                </Badge>
-              )))}
-              {arrivals.bookings.length > TO_ARRIVE_SHOWN && (
-                <span className="text-slate-500">
-                  and {arrivals.bookings.length - TO_ARRIVE_SHOWN} more. Type a name to find them.
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {/* Today's bookings still to arrive are a table of their own below the queue now (ArrivalsPanel):
+          a row of name buttons here stopped at eight and crowded the box on a busy day. [1.130.0] */}
     </Panel>
   );
 }

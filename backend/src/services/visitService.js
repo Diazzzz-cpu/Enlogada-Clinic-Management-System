@@ -63,6 +63,11 @@ class VisitService {
    * registering a returning patient again splits their history across two records. A match is
    * refused with the record in `details`, unless `confirmNewPatient` says this is someone else.
    */
+  /** Unfinished work from earlier days, for the Desk. [1.130.0] */
+  async getCarriedOver() {
+    return visitRepository.findCarriedOver();
+  }
+
   async registerVisit({
     patientId, patient: newPatient, confirmNewPatient = false, visitType, notes, createdBy,
     referringPhysician, referringPhysicianPrc, testIds = [], packageIds = [], requestingUser = null,

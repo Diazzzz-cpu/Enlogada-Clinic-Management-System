@@ -26,8 +26,10 @@ const TONE = {
  * way to start their next visit without typing them in again. Never a result, and never the
  * details the row above it already shows (sex, birthdate, contact, type): a fact said once.
  *
- * [1.130.0] Each test says where it stands (released, X-ray done, with which department, waiting
- * for payment, cancelled), so "is my result ready?" is answered here without opening a report.
+ * [1.130.0] A record holds what is FINAL, as Steven asked of Patient Records: finished visits, each
+ * test with how it ended (released, X-ray done, cancelled). A visit still open is not on the
+ * record; one line says it exists and that the Desk shows where it stands (today's queue, or its
+ * "From earlier days" table), which is where work in progress belongs.
  *
  * "Start a visit" goes to the Desk with the patient already found, rather than creating the visit
  * here, because the Desk is where a visit is started safely: it will not offer a second visit to
@@ -55,7 +57,9 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
 
   const { patient, visits } = entry;
   const inQueue = visits.find((v) => v.in_todays_queue);
-  const shown = visits.slice(0, VISITS_SHOWN);
+  const onRecord = visits.filter((v) => v.status === 'Completed' || v.status === 'Cancelled');
+  const stillOpen = visits.filter((v) => v.status === 'Pending' || v.status === 'Processing');
+  const shown = onRecord.slice(0, VISITS_SHOWN);
   const onFile = [
     ['Address', patient.address],
     ['Email', patient.email],
@@ -109,11 +113,21 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
 
       <section aria-label="Visits" className="min-w-0 space-y-2">
         <h3 className="m-0 text-meta font-semibold uppercase tracking-wider text-slate-500">Visits</h3>
+        {stillOpen.length > 0 && (
+          <p data-testid="patient-file-open" className="m-0 text-fine text-slate-600">
+            {stillOpen.length === 1
+              ? `A visit from ${formatDate(stillOpen[0].created_at)} is still open`
+              : `${stillOpen.length} visits are still open (${stillOpen.map((v) => formatDate(v.created_at)).join(', ')})`}
+            , and goes on the record once it is finished. The Desk shows where {stillOpen.length === 1 ? 'it stands' : 'they stand'}.
+          </p>
+        )}
         {visits.length === 0 ? (
           <p className="m-0 flex items-center gap-1.5 text-fine text-slate-500">
             <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
             No visits yet. The record was registered and has not been used.
           </p>
+        ) : onRecord.length === 0 ? (
+          <p className="m-0 text-fine text-slate-500">Nothing finished on the record yet.</p>
         ) : (
           <>
             <ul data-testid="patient-file-visits" className="m-0 list-none divide-y divide-line rounded-lg border border-line bg-surface p-0">
@@ -153,9 +167,9 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
                 </li>
               ))}
             </ul>
-            {visits.length > VISITS_SHOWN && (
+            {onRecord.length > VISITS_SHOWN && (
               <p className="m-0 text-meta text-slate-500">
-                And {visits.length - VISITS_SHOWN} earlier visit{visits.length - VISITS_SHOWN === 1 ? '' : 's'}.
+                And {onRecord.length - VISITS_SHOWN} earlier visit{onRecord.length - VISITS_SHOWN === 1 ? '' : 's'}.
               </p>
             )}
           </>

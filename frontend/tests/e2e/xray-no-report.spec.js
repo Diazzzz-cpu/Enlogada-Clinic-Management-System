@@ -105,8 +105,8 @@ test.describe('X-ray: marked done, never reported here', () => {
     await ctx?.dispose();
   });
 
-  test('nothing is uploaded, released or emailed for an X-ray; the exam is marked done', async () => {
-    const { visit, lineFor } = await paidVisit([xrayTest.id]);
+  test('nothing is uploaded, released or emailed for an X-ray; the exam is marked done', async ({ page }) => {
+    const { person, visit, lineFor } = await paidVisit([xrayTest.id]);
     const line = lineFor(xrayTest.id);
 
     const upload = await ctx.post(`${API}/results/${line}`, { headers: auth(xray), multipart: { file: reportPart('xray') } });
@@ -137,6 +137,19 @@ test.describe('X-ray: marked done, never reported here', () => {
     expect(row, 'a done exam is on X-ray History').toBeTruthy();
     expect(row.performed_at).toBeTruthy();
     expect(row.performed_by_first_name).toBeTruthy();
+
+    // [1.130.0] Finished, so it is on the patient's record at the front desk, as Done.
+    await signInTo(page, 'receptionist@enlogada.com', 'Patient Records');
+    await page.getByRole('searchbox', { name: 'Search patient records' }).fill(person.fullName);
+    await page.getByRole('button', { name: 'Apply' }).click();
+    const patientRow = page.locator(`[data-testid="patient-row"][data-patient-id="${visit.patient_id}"]`);
+    await expect(patientRow).toBeVisible({ timeout: 20000 });
+    await patientRow.getByTestId('patient-records-toggle').click();
+    const file = page.getByTestId('patient-file');
+    await expect(file.getByTestId('patient-file-visit')).toHaveCount(1);
+    await expect(file.getByTestId('patient-file-test')).toHaveAttribute('data-state', 'done');
+    await expect(file.getByTestId('patient-file-test')).toContainText('Result from the X-Ray department');
+    await expect(file.getByTestId('patient-file-open')).toHaveCount(0);
   });
 
   test('a visit with X-ray and laboratory work ends when both are finished', async () => {

@@ -328,9 +328,20 @@ class AppointmentRepository {
     const countRes = await db.query(`SELECT COUNT(*)::int AS total ${fromClause}`, params);
     const total = countRes.rows[0].total;
 
+    // [1.130.0] What the Desk's "Still to arrive" table shows: the patient's category, the tests
+    // booked, and whether it is paid (paid from home or not).
     let queryText = `
       SELECT a.*, pv.patient_id, pv.visit_type, pv.status as visit_status, pv.queue_number,
-             p.first_name, p.last_name
+             p.first_name, p.last_name,
+             (SELECT pt.name FROM patient_types pt WHERE pt.id = p.patient_type_id) AS patient_type_name,
+             ARRAY(
+               SELECT t.name FROM visit_tests vt JOIN tests t ON t.id = vt.test_id
+                WHERE vt.patient_visit_id = pv.id ORDER BY vt.id
+             ) AS booked_test_names,
+             EXISTS (
+               SELECT 1 FROM payments pay
+                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid'
+             ) AS is_paid
       ${fromClause}
       ORDER BY a.scheduled_date DESC, a.scheduled_time DESC
     `;

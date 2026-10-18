@@ -36,15 +36,25 @@ listed as "Done <date> by <name>", with "Result given by the X-Ray department" w
 would have View and Print, and the roster reads "2 released · 1 X-ray done". Still nothing pending:
 a test waiting at a department is not on the record until it is finished.
 
-**The front desk sees where each test stands.** Steven: "how about the front desk side?" The desk
-opens a patient's FILE, not their reports, and it listed each visit's test names under one status
-for the whole visit, so "is my result ready?" had no answer there. Each test now says where it
-stands: Released <date>, Done <date> with "Result from the X-Ray department", With <department>,
-Waiting for payment (or Not started yet, once paid) and Cancelled. Dates and states only; what a
-report says stays with whoever reads results. `GET /visits/patient/:id` carries `tests` (status,
-first release, X-ray done) and `is_paid`, and `lib/testProgress.js` words it (7 unit tests).
-Unfinished work from an earlier day says since when ("With Laboratory · Since Oct 18"): Steven
-found a visit paid at 7:44 PM on the 18th, none of its 8 tests started, reading as current.
+**The front desk's record is final too; work in progress is on the Desk.** Steven: "how about the
+front desk side?", then, of a visit from the day before still "Processing": "patient record would
+be like the final record not the processing status since its called record ... that part can be
+showed in the desk". The desk opens a patient's FILE, not their reports.
+- The file lists FINISHED visits only, each test with how it ended: Released <date>, Done <date>
+  with "Result from the X-Ray department", or Cancelled. A visit still open is one line: "A visit
+  from Oct 18 is still open, and goes on the record once it is finished. The Desk shows where it
+  stands." `GET /visits/patient/:id` carries `tests` (status, first release, X-ray done) and
+  `is_paid`; `lib/testProgress.js` words a test's state (7 unit tests).
+- **The Desk shows earlier days' unfinished work.** Today's queue is today's, so the visit Steven
+  found (paid at 7:44 PM on the 18th, none of its 8 tests started) was on no Desk screen: the Desk
+  read "Nobody is waiting, 0 in a department". A table below the queue, "From earlier days, still
+  with a department" (`GET /visits/carried-over`, `visits:read`), lists each with its tests and
+  where each stands, oldest first, and only appears when there is any. 7 on the dev database.
+- **Still to arrive is a table.** It was a row of name buttons in the Who's here box, eight and
+  then "and N more", which Steven pointed out would be a wall of buttons on a busy day. It is now a
+  table in the queue's style below it: time, patient and reference, category, booked tests, paid or
+  not, and Check in (which opens the booking's card in the box, and scrolls to it), paged by 8.
+  `GET /appointments` carries `patient_type_name`, `booked_test_names` and `is_paid` for it.
 
 `npm run demo` now also puts each seeded account back to its one role. Joel (cashier@enlogada.com)
 was given the Receptionist role on Staff Accounts to try it, which worked, and a reset would have

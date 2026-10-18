@@ -23,6 +23,8 @@ router.post('/', verifyToken, authorizeStaff, authorizePermissions('visits:creat
 
 // Active visits for front desk / cashier dashboard
 router.get('/active', verifyToken, authorizeStaff, authorizePermissions('visits:read'), visitController.getActiveVisits);
+// [1.130.0] Visits from earlier days still with a department, which today's queue does not hold.
+router.get('/carried-over', verifyToken, authorizeStaff, authorizePermissions('visits:read'), visitController.getCarriedOver);
 
 // UI/UX Phase 2: any-status, date-ranged visit history for Reception's Visit History view.
 // Must be registered before '/:id' so 'history' isn't swallowed as an :id param.

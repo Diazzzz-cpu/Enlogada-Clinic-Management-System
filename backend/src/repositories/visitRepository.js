@@ -74,6 +74,40 @@ class VisitRepository {
   // to see every unpaid visit at once, not just one page of it. Callers that do paginate
   // (Receptionist's queue table) get total/pendingCount/processingCount/walkinCount back too,
   // computed server-side, so pagination doesn't break their KPI header cards.
+  /**
+   * Visits from an EARLIER day still with a department: paid, released, not finished. [1.130.0]
+   *
+   * Today's queue holds today's visits only, so a visit paid yesterday whose tests are still being
+   * done was on no screen the front desk uses, and Patient Records was the only place it showed.
+   * Oldest first, each with its tests and where each stands.
+   */
+  async findCarriedOver() {
+    const { rows } = await db.query(
+      `SELECT pv.id, pv.created_at, pv.queue_number, pv.visit_type, pv.status AS visit_status,
+              p.id AS patient_id, p.first_name, p.last_name,
+              (SELECT pt.name FROM patient_types pt WHERE pt.id = p.patient_type_id) AS patient_type_name,
+              COALESCE((
+                SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                         'id', vt.id, 'name', t.name, 'category', tc.name, 'status', vt.status,
+                         'released_at', (SELECT MIN(tr.authorised_at) FROM test_results tr
+                                          WHERE tr.visit_test_id = vt.id AND tr.authorised_at IS NOT NULL),
+                         'done_at', vt.performed_at
+                       ) ORDER BY vt.id)
+                  FROM visit_tests vt
+                  JOIN tests t            ON t.id = vt.test_id
+                  JOIN test_categories tc ON tc.id = t.category_id
+                 WHERE vt.patient_visit_id = pv.id
+              ), '[]') AS tests
+         FROM patient_visits pv
+         JOIN patients p ON p.id = pv.patient_id
+        WHERE pv.status = 'Processing'
+          AND pv.created_at < CURRENT_DATE
+        ORDER BY pv.created_at ASC
+        LIMIT 200`
+    );
+    return rows;
+  }
+
   async findActiveVisits({ search, status, limit, offset } = {}) {
     // Who is in today's queue is one shared rule (constants/queueMembership.js): opened today,
     // Pending or Processing, and checked in if it came from a booking. [1.92.0] Its date test is a

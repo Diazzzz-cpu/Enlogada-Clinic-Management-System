@@ -203,15 +203,11 @@ test.describe('Patient Records: final results only', () => {
 
     const file = page.getByTestId('patient-file');
     await expect(file).toBeVisible({ timeout: 15000 });
-    await expect(file.getByTestId('patient-file-visit')).toHaveCount(1);
-    await expect(file.getByTestId('patient-file-visit')).toContainText(released.test_name);
-    // [1.130.0] Each test says where it stands, so "is my result ready?" is answered here: the
-    // released one is, the one with its report still being written is with the laboratory.
-    const tests = file.getByTestId('patient-file-test');
-    await expect(tests.filter({ hasText: released.test_name })).toHaveAttribute('data-state', 'released');
-    await expect(tests.filter({ hasText: released.test_name })).toContainText('Released');
-    await expect(tests.filter({ hasText: draft.test_name })).toHaveAttribute('data-state', 'in-progress');
-    await expect(tests.filter({ hasText: draft.test_name })).toContainText('With Laboratory');
+    // [1.130.0] A record holds what is final. This visit still has a report being written, so it
+    // is not on the record yet: the file says it is open, and the Desk is where it stands.
+    await expect(file.getByTestId('patient-file-visit')).toHaveCount(0);
+    await expect(file.getByTestId('patient-file-open')).toContainText('still open');
+    await expect(file).not.toContainText('With Laboratory');
     await expect(file).toContainText('Emergency contact');
     await expect(page.getByTestId('patient-results')).toHaveCount(0);
     await expect(file.getByRole('button', { name: /View|Print/ })).toHaveCount(0);

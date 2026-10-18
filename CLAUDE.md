@@ -128,16 +128,11 @@ node src/scripts/pruneNotifications.js
 node src/scripts/pruneAuditLog.js --dry-run
 node src/scripts/pruneAuditLog.js            # PHI reads 2y, everything else 7y
 
-# Day-before appointment reminders. Schedule DAILY, in the evening. Dry-run by default.
-#
-# The clinic has counted 'No Show' since [1.0.0] with no tool against it; this is the standard
-# one. It also carries the preparation instructions, which is where they matter most — "nothing
-# to eat after 10pm tonight" is actionable the evening before and forgotten at booking time.
-#
-# Safe to re-run: each appointment is stamped once handled, so a second run finds nothing. That
-# is what makes it safe to schedule.
-node src/scripts/sendAppointmentReminders.js              # report only
-node src/scripts/sendAppointmentReminders.js --confirm    # actually send
+# Appointment reminders are AUTOMATIC [1.130.0]: the server sweeps every minute and sends each
+# when it falls due (see "Appointment reminders" under Database). Nothing to schedule. This script
+# shows the plan, and can run one sweep by hand; safe beside the server, as each is claimed first.
+node src/scripts/sendAppointmentReminders.js              # each booking owed a reminder, and when (--days=7, --json)
+node src/scripts/sendAppointmentReminders.js --confirm    # send what is due right now
 
 # Retention pass for HMO card images (insurance documents, not medical records). Dry-run by
 # default; --confirm applies. The window is a constant in the script, overridable per run.
@@ -171,9 +166,9 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 **There are now two test tiers, and they answer different questions.** `[1.63.0]`
 
 ```bash
-cd backend  && npm test        # 129 unit tests, node:test, ZERO dependencies, ~0.7s
-cd frontend && npm run test:unit # 128 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 510 Playwright E2E, ~14m, needs both dev servers
+cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
+cd frontend && npm run test:unit # 129 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 513 Playwright E2E, ~13m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -192,7 +187,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 84 Playwright specs (510 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 85 Playwright specs (513 tests, ~13m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -486,6 +481,26 @@ record without its visit. A new record with the same name (case and spacing igno
 as one on file is 409 with `details.possibleDuplicate` unless `confirmNewPatient`; the Desk asks
 "Use the record on file" or "No, register someone new". The last test on a visit cannot be
 removed (409); cancelling the visit drops everything. A spec that needs "a visit" passes a test.
+`[1.130.0]` One request does what three endpoints did, so it answers to all three permissions:
+`visits:create` AND `tests:assign` on the route, and `patients:create` (in the service) when it
+registers a new patient. Checking `visits:create` alone let an account given only "start visits"
+on the grid register patients and attach tests; the Desk gates Start visit and Register Walk-In
+the same way (`can.startVisit`, `can.registerPatient`).
+
+**Appointment reminders are sent by the server itself.** `[1.130.0]` Steven: automatic, the day
+before, and halfway to the appointment when it is booked later than that. `utils/reminderTiming.js`
+(pure, unit-tested) decides: the evening before at 18:00 (preparation is acted on the night
+before, not 24 hours before an 08:00 slot); otherwise halfway between the last email about the slot
+(its booking, or its latest move: `COALESCE(rescheduled_at, created_at)`) and the appointment; never
+within 30 minutes of that email (the confirmation is the reminder, so a booking 30 minutes away gets
+none), never 21:00-07:00 (a night halfway point moves to 07:00), never under 30 minutes before.
+`jobs/reminderScheduler.js` sweeps every minute through `reminderService.sweep`, which CLAIMS each
+reminder (`claimReminder`) before sending, so two servers on one database send it once, and gives
+a failed send back to retry after 10 minutes. Late is sent, not lost: a reminder due while the
+server was off goes out at the next sweep, after 07:00, unless the appointment is under 15 minutes
+away. It waits while outbound mail is unconfigured, and `APPOINTMENT_REMINDERS=off` stops it.
+Appointment emails go to the account's address, else the address on the patient's record, so a
+booking made at the desk reaches them too. `appointment-reminders.spec.js` checks the plan.
 
 **A PAID visit is finished in both directions.** `[1.55.0]` Tests cannot be added to it and
 cannot be removed from it. Removal would change a bill the patient holds a receipt for. ADDING was
@@ -1092,6 +1107,9 @@ with a link to the printable document.
     department)" when they do not match. "Each department" splits it into three.
   - Nothing saves until Save. The footer states each change in words, and warns when a permission
     would be left to SuperAdmin alone. Save sends only the changed roles, through the old endpoint.
+  - It also warns when a switch is on without what its endpoint needs as well (`NEEDS` in
+    `lib/whoSeesWhat.js`, `data-testid="who-needs"`) `[1.130.0]`: "start a visit" needs "add tests",
+    because a visit is opened with them. Add an entry when an endpoint starts asking for two.
   - `rbac:manage` is shown and locked. **One person**, the per-account exceptions, is unchanged.
   - Test contracts: `data-testid="who-sees-what"`; `who-row` with `data-area`; `who-cell` with
     `data-column` and `data-mark`; `who-permission` with `data-permission`; `who-changes`. Each

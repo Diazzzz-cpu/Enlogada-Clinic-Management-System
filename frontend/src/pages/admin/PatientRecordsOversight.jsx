@@ -72,7 +72,7 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
   const { hasPermission } = useAuth();
   const canReadResults = hasPermission('results:read');
   const canEditPatients = hasPermission('patients:update');
-  const canStartVisit = hasPermission('visits:create') && Boolean(onSelectNav);
+  const canStartVisit = hasPermission('visits:create') && hasPermission('tests:assign') && Boolean(onSelectNav);
   const [editingPatient, setEditingPatient] = useState(null);
   const [patientTypes, setPatientTypes] = useState([]);
 

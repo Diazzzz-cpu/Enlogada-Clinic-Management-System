@@ -14,7 +14,11 @@ const db = require('../config/database');
 const testService = require('./testService');
 const packageService = require('./packageService');
 const patientService = require('./patientService');
-const { ValidationError, ConflictError } = require('../errors');
+const { ValidationError, ConflictError, ForbiddenError } = require('../errors');
+
+/** SuperAdmin bypasses, as `authorizePermissions` does; everyone else holds it or not. */
+const holds = (user, permission) =>
+  (user?.roles || []).includes('SuperAdmin') || (user?.permissions || []).includes(permission);
 
 const VALID_VISIT_STATUSES = ['Pending', 'Processing', 'Completed', 'Cancelled'];
 
@@ -61,7 +65,7 @@ class VisitService {
    */
   async registerVisit({
     patientId, patient: newPatient, confirmNewPatient = false, visitType, notes, createdBy,
-    referringPhysician, referringPhysicianPrc, testIds = [], packageIds = [],
+    referringPhysician, referringPhysicianPrc, testIds = [], packageIds = [], requestingUser = null,
   }) {
     const referral = normaliseReferral({ referringPhysician, referringPhysicianPrc });
     const ids = (list) => [...new Set((Array.isArray(list) ? list : [list]).filter((v) => v !== undefined && v !== null && v !== '').map((v) => parseInt(v, 10)))];
@@ -75,6 +79,11 @@ class VisitService {
     }
 
     if (newPatient) {
+      // One request does what POST /patients would, so it answers to the same permission: an account
+      // allowed to start visits but not to register people must not register them this way.
+      if (!holds(requestingUser, 'patients:create')) {
+        throw new ForbiddenError('Registering a new patient needs permission to create patient records.');
+      }
       const record = patientService.prepareStaffRecord(newPatient);
       if (!confirmNewPatient) {
         const same = await patientRepository.findSameNameAndBirthdate(record.firstName, record.lastName, record.birthdate);

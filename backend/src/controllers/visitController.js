@@ -31,6 +31,7 @@ class VisitController {
         referringPhysicianPrc,
         testIds,
         packageIds,
+        requestingUser: req.user,
       });
 
       return res.status(201).json({

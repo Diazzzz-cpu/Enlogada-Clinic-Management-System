@@ -380,13 +380,16 @@ class AppointmentRepository {
    * `u.email` is LEFT JOINed: a walk-in registered at the desk has no user account, so this
    * returns a row with a null email rather than no row at all. The caller treats that as "no
    * email to send", which is different from "this booking does not exist".
+   *
+   * [1.130.0] The account's address first (a parent who booked for a child reads it), else the
+   * address on the patient's own record, so a booking made at the desk reaches them too.
    */
   async findEmailContextById(appointmentId) {
     const queryText = `
       SELECT a.appointment_reference, a.scheduled_date, a.scheduled_time,
              pv.queue_number,
              p.first_name, p.last_name,
-             u.email,
+             COALESCE(u.email, p.email) AS email,
              COALESCE(
                ARRAY_AGG(
                  JSON_BUILD_OBJECT('test_name', t.name, 'preparation', t.preparation)
@@ -401,10 +404,66 @@ class AppointmentRepository {
       LEFT JOIN visit_tests vt ON vt.patient_visit_id = pv.id
       LEFT JOIN tests t ON vt.test_id = t.id
       WHERE a.id = $1
-      GROUP BY a.id, pv.queue_number, p.first_name, p.last_name, u.email
+      GROUP BY a.id, pv.queue_number, p.first_name, p.last_name, u.email, p.email
     `;
     const result = await db.query(queryText, [appointmentId]);
     return result.rows[0];
+  }
+
+  /**
+   * Bookings whose reminder has not gone out, from today to `days` ahead. [1.130.0]
+   *
+   * Only a 'Pending' booking: 'Confirmed' is checked in, and the rest are finished. Not one whose
+   * payment window ran out, as its slot is gone. `starts_at` is the appointment in the clinic's
+   * own time; `booked_at` is the last time the patient was emailed about this slot, its booking or
+   * its latest move, which is what a late booking's reminder is timed from.
+   */
+  async findReminderCandidates(days = 2) {
+    const { rows } = await db.query(
+      `SELECT a.id, a.appointment_reference, a.scheduled_date, a.scheduled_time,
+              (a.scheduled_date + a.scheduled_time) AS starts_at,
+              COALESCE(a.rescheduled_at, a.created_at) AS booked_at,
+              pv.queue_number, p.first_name, p.last_name,
+              COALESCE(u.email, p.email) AS email,
+              COALESCE(
+                ARRAY_AGG(
+                  JSON_BUILD_OBJECT('test_name', t.name, 'preparation', t.preparation)
+                  ORDER BY t.name
+                ) FILTER (WHERE t.id IS NOT NULL),
+                '{}'
+              ) AS tests
+         FROM appointments a
+         JOIN patient_visits pv ON a.patient_visit_id = pv.id
+         JOIN patients p ON pv.patient_id = p.id
+         LEFT JOIN users u ON p.user_id = u.id
+         LEFT JOIN visit_tests vt ON vt.patient_visit_id = pv.id
+         LEFT JOIN tests t ON vt.test_id = t.id
+        WHERE a.reminder_sent_at IS NULL
+          AND a.status = 'Pending'
+          AND (a.held_until IS NULL OR a.held_until > CURRENT_TIMESTAMP)
+          AND a.scheduled_date >= CURRENT_DATE AND a.scheduled_date < CURRENT_DATE + $1::int
+        GROUP BY a.id, pv.queue_number, p.first_name, p.last_name, u.email, p.email
+        ORDER BY a.scheduled_date, a.scheduled_time`,
+      [days]
+    );
+    return rows;
+  }
+
+  /**
+   * Takes a reminder for sending: true for exactly one caller, so two servers on one database
+   * never send the same reminder twice. The stamp means "handled"; a failed send gives it back.
+   */
+  async claimReminder(appointmentId) {
+    const { rowCount } = await db.query(
+      `UPDATE appointments SET reminder_sent_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND reminder_sent_at IS NULL AND status = 'Pending'`,
+      [appointmentId]
+    );
+    return rowCount === 1;
+  }
+
+  async releaseReminderClaim(appointmentId) {
+    await db.query('UPDATE appointments SET reminder_sent_at = NULL WHERE id = $1', [appointmentId]);
   }
 
   // Moves a booking to a different slot.

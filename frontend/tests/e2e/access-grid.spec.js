@@ -106,6 +106,23 @@ test.describe('Who sees what', () => {
     expect((await matrix()).rolePermissions.Cashier).toContain('billing:process');
   });
 
+  // [1.130.0] Starting a visit attaches its tests, so the server asks for both. A switch that is on
+  // without what it needs grants nothing, and the screen says so before Save.
+  test('a switch that needs another says so', async ({ page }) => {
+    const grid = await openGrid(page);
+    await openRow(grid, 'queue');
+    const startVisits = grid.getByRole('checkbox', { name: 'Cashier: Start a visit and give a queue ticket' });
+    await expect(startVisits).toHaveAttribute('aria-checked', 'false');
+    await startVisits.click();
+    await expect(page.getByTestId('who-needs'))
+      .toHaveText('Cashier can start a visit and give a queue ticket only with “Add or remove tests on a visit” as well.');
+
+    await grid.getByRole('checkbox', { name: 'Cashier: Add or remove tests on a visit' }).click();
+    await expect(page.getByTestId('who-needs')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Discard' }).click();
+    expect((await matrix()).rolePermissions.Cashier).not.toContain('visits:create');
+  });
+
   test('who sees what itself stays with SuperAdmin', async ({ page }) => {
     const grid = await openGrid(page);
     await openRow(grid, 'staff');

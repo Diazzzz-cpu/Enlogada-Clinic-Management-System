@@ -193,6 +193,12 @@ export default function WhoSeesWhat({ access, grid }) {
                   After this, only SuperAdmin could {grid.newlyUnheld.map((name) => permissionLabel(grid.areas, name).toLowerCase()).join('; ')}.
                 </p>
               )}
+              {grid.incomplete.map((gap) => (
+                <p key={gap.permission} data-testid="who-needs" className="m-0 flex items-start gap-1.5 text-fine font-medium text-amber-800">
+                  <AlertTriangle aria-hidden="true" className="mt-px h-3.5 w-3.5 flex-shrink-0" />
+                  {gap.text}
+                </p>
+              ))}
             </>
           ) : grid.savedAt ? (
             <span role="status" className="inline-flex items-center gap-1 text-fine font-semibold text-emerald-700">

@@ -97,14 +97,14 @@ const AREAS = [
     key: 'queue', label: "Today's queue", note: 'visits and their tests',
     permissions: [
       { name: 'visits:read', label: "See today's queue and visit history" },
-      { name: 'visits:create', label: 'Register a walk-in and give a queue ticket' },
+      { name: 'visits:create', label: 'Start a visit and give a queue ticket' },
       { name: 'visits:update', label: 'Change or cancel a visit' },
       { name: 'tests:assign', label: 'Add or remove tests on a visit' },
       { name: 'tests:read_assigned', label: 'See which tests are on a visit' },
     ],
     summarize: (h, all) => {
       if (all) return 'See and manage it';
-      const verbs = [h('visits:read') && 'see it', h('visits:create') && 'register walk-ins', h('visits:update') && 'change visits', h('tests:assign') && 'add tests'];
+      const verbs = [h('visits:read') && 'see it', h('visits:create') && 'start visits', h('visits:update') && 'change visits', h('tests:assign') && 'add tests'];
       if (verbs.some(Boolean)) return sentence(verbs);
       return h('tests:read_assigned') ? 'See the tests on a visit' : 'No';
     },
@@ -309,6 +309,32 @@ export function describeChanges(original, draft, areas) {
     ...g,
     text: `${whoLabel(g.roles)} ${g.on ? 'can now' : 'can no longer'} ${lowerFirst(permissionLabel(areas, g.permission))}.`,
   }));
+}
+
+/**
+ * A permission that does nothing without another, because the endpoint behind it asks for both.
+ * [1.130.0] Ticking "start a visit" alone looked like a grant: the Desk would not offer it, or the
+ * server refused it, and nothing on this screen said why. Each entry is enforced on the server.
+ */
+export const NEEDS = {
+  'visits:create': ['tests:assign'],            // a visit is opened with its tests
+  'appointments:update': ['appointments:read'], // checking a booking in starts from finding it
+};
+
+/**
+ * Who would hold a permission without what it needs, as sentences: "Cashier can start a visit and
+ * give a queue ticket only with “Add or remove tests on a visit” as well."
+ */
+export function missingCompanions(draft, areas) {
+  return Object.entries(NEEDS).flatMap(([permission, needs]) => {
+    const roles = GRID_ROLES.filter((role) => draft[role]?.has(permission) && needs.some((n) => !draft[role].has(n)));
+    if (!roles.length) return [];
+    const missing = needs.filter((n) => roles.some((role) => !draft[role].has(n)));
+    return [{
+      permission, roles, missing,
+      text: `${whoLabel(roles)} can ${lowerFirst(permissionLabel(areas, permission))} only with ${listWords(missing.map((n) => `“${permissionLabel(areas, n)}”`))} as well.`,
+    }];
+  });
 }
 
 /**

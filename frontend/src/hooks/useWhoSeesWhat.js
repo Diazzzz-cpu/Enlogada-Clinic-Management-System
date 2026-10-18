@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import api from '../config/api';
 import { toastSuccess } from '../lib/toast';
 import {
-  COLUMNS, SPLIT_COLUMNS, ROLE_LABEL, areasFor, changedRoles, describeChanges, draftFrom, heldByNobody, toggle,
+  COLUMNS, SPLIT_COLUMNS, ROLE_LABEL, areasFor, changedRoles, describeChanges, draftFrom, heldByNobody,
+  missingCompanions, toggle,
 } from '../lib/whoSeesWhat';
 
 const ROOM_ROLES = ['Laboratory Staff', 'Xray Staff', 'Ultrasound Staff'];
@@ -46,6 +47,9 @@ export function useWhoSeesWhat(access) {
     const before = new Set(heldByNobody(original, areas));
     return heldByNobody(working, areas).filter((name) => !before.has(name));
   }, [original, working, areas]);
+
+  // [1.130.0] A switch that is on without what it needs grants nothing; say so beside the changes.
+  const incomplete = useMemo(() => missingCompanions(working, areas), [working, areas]);
 
   const flip = (permission, column) => {
     setDraft((current) => toggle(current || original, permission, column.roles));
@@ -97,7 +101,7 @@ export function useWhoSeesWhat(access) {
   };
 
   return {
-    areas, columns, draft: working, changes, newlyUnheld,
+    areas, columns, draft: working, changes, newlyUnheld, incomplete,
     split, toggleSplit: () => setSplit((s) => !s),
     open, toggleArea, allOpen, toggleAll,
     flip, discard, save, saving, saveError, savedAt,

@@ -112,6 +112,52 @@ test.describe('Staff roles', () => {
     expect((await setRoles(admin, clinicAdmin.id, ['Cashier'])).status(), 'an Admin account').toBe(403);
   });
 
+  // [1.129.0] One request now registers the patient, opens the visit and attaches its tests, so it
+  // answers to all three permissions those steps always needed, whichever one a person was given.
+  test('starting a visit asks for every permission it uses, and the Desk offers only what it may', async ({ page }) => {
+    const matrix = (await (await ctx.get(`${API}/rbac/matrix`, { headers: auth(superAdmin) })).json()).data;
+    const permissionId = (name) => matrix.permissions.find((p) => p.name === name).id;
+    const setOverrides = async (overrides) => expect((await ctx.put(`${API}/rbac/users/${account.id}/overrides`, {
+      headers: auth(superAdmin), data: { overrides },
+    })).status()).toBe(200);
+
+    const token = await login(email);
+    const labTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests
+      .find((t) => t.is_active && t.category_name === 'Laboratory');
+    const typeId = await patientTypeId(ctx, API, token, 'Self Pay');
+    const someone = () => {
+      const p = fixturePerson();
+      return { patientTypeId: typeId, firstName: p.firstName, lastName: p.lastName, birthdate: '1984-10-04', sex: 'Female', contactNumber: FIXTURE_CONTACT };
+    };
+    const onFile = (await (await ctx.post(`${API}/patients`, { headers: auth(token), data: someone() })).json()).data.patient;
+
+    try {
+      // May start visits, may not register people.
+      await setOverrides([{ permissionId: permissionId('patients:create'), effect: 'revoke' }]);
+      const newOne = await ctx.post(`${API}/visits`, {
+        headers: auth(token), data: { patient: someone(), visitType: 'Walk in', testIds: [labTest.id] },
+      });
+      expect(newOne.status(), 'a new patient, without patients:create').toBe(403);
+      const known = await ctx.post(`${API}/visits`, {
+        headers: auth(token), data: { patientId: onFile.id, visitType: 'Walk in', testIds: [labTest.id] },
+      });
+      expect(known.status(), 'a record on file').toBe(201);
+
+      // The Desk: Start visit on a record, no Register Walk-In.
+      await signInTo(page, email, 'Desk');
+      await expect(page.getByRole('searchbox', { name: "Who's here?" })).toBeVisible({ timeout: 15000 });
+      await expect(page.getByRole('button', { name: 'Register Walk-In', exact: true })).toHaveCount(0);
+
+      // Without tests:assign there is no visit to open at all: every visit carries tests.
+      await setOverrides([{ permissionId: permissionId('tests:assign'), effect: 'revoke' }]);
+      expect((await ctx.post(`${API}/visits`, {
+        headers: auth(token), data: { patientId: onFile.id, visitType: 'Walk in', testIds: [labTest.id] },
+      })).status(), 'without tests:assign').toBe(403);
+    } finally {
+      await setOverrides([]);
+    }
+  });
+
   test('Staff Accounts changes them from the row', async ({ page }) => {
     await signInTo(page, 'clinicadmin@enlogada.com', 'Staff Accounts');
     await page.getByPlaceholder('Search name, email, or role…').fill(email);

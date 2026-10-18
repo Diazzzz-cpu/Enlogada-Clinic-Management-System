@@ -47,7 +47,7 @@ export default function ActiveQueuePanel({ queue, disposition, hmo, testAssignme
    * actually holds, same as everyone else.
    */
   const { hasPermission } = useAuth();
-  const canRegisterWalkIn = hasPermission('visits:create');
+  const canRegisterWalkIn = hasPermission('visits:create') && hasPermission('tests:assign') && hasPermission('patients:create');
   const canAttachTests = hasPermission('tests:assign');
   const canRaiseHmo = hasPermission('hmo:request');
 

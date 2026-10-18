@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   COLUMNS, SPLIT_COLUMNS, LOCKED, areasFor, areaCell, cellState, changedRoles, describeChanges,
-  draftFrom, heldByNobody, toggle,
+  draftFrom, heldByNobody, missingCompanions, toggle,
 } from '../../src/lib/whoSeesWhat.js';
 
 // The clinic's default templates, as backend/src/scripts/setupRbac.js seeds them.
@@ -105,6 +105,16 @@ describe('the unsaved changes', () => {
     ]);
     expect(changedRoles(original, d)).toEqual(['Receptionist', 'Laboratory Staff', 'Xray Staff', 'Ultrasound Staff']);
     expect(changedRoles(original, toggle(d, 'billing:read', DESK.roles))).not.toContain('Receptionist');
+  });
+
+  // [1.130.0] Starting a visit attaches its tests, so the server asks for both.
+  it('say when a switch is on without what it needs', () => {
+    expect(missingCompanions(fresh(), areas)).toEqual([]);
+    const d = toggle(fresh(), 'visits:create', TILL.roles);
+    expect(missingCompanions(d, areas).map((g) => g.text)).toEqual([
+      'Cashier can start a visit and give a queue ticket only with “Add or remove tests on a visit” as well.',
+    ]);
+    expect(missingCompanions(toggle(d, 'tests:assign', TILL.roles), areas)).toEqual([]);
   });
 
   it('say when nobody but SuperAdmin would be able to do something', () => {

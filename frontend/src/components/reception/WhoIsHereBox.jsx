@@ -248,7 +248,7 @@ export default function WhoIsHereBox({ lookup, checkIn, disposition, arrivals, q
           {nothing && (
             <p className="m-0 text-fine text-slate-500">
               Nobody by that name is booked today or on file.
-              {can.startVisit && ' Register them with Register Walk-In, above.'}
+              {can.registerPatient && ' Register them with Register Walk-In, above.'}
             </p>
           )}
           {alreadyQueued > 0 && (

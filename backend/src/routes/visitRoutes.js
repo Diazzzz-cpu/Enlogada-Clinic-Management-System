@@ -17,7 +17,9 @@ const router = express.Router();
 // open internet may see more. Do not add a route here that returns rows.
 router.get('/queue-status', visitController.getPublicQueueStatus);
 
-router.post('/', verifyToken, authorizeStaff, authorizePermissions('visits:create'), visitController.registerVisit);
+// [1.129.0] A visit is opened WITH its tests, so starting one is also assigning them. A new patient
+// registered in the same request needs patients:create as well, checked in visitService.
+router.post('/', verifyToken, authorizeStaff, authorizePermissions('visits:create', 'tests:assign'), visitController.registerVisit);
 
 // Active visits for front desk / cashier dashboard
 router.get('/active', verifyToken, authorizeStaff, authorizePermissions('visits:read'), visitController.getActiveVisits);

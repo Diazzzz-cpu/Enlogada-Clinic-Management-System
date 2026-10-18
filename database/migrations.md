@@ -1,5 +1,49 @@
 # Database Migration & Schema History
 
+## [1.130.0] - 2026-10-19 (Reminders send themselves; a visit asks for every permission it uses)
+
+No schema change; nothing to run. One new setting, `APPOINTMENT_REMINDERS` (blank keeps it on).
+
+**Reminders are automatic.** Steven: send the reminder the day before, and when the appointment
+is closer than that, at half the time left (30 minutes away: 15 minutes before; 2 hours away: 1
+hour before), "if you have better logic for the caveat, let's implement that". Until now it was a
+script someone had to schedule every evening ([1.25.0]). The server now sweeps every minute
+(`jobs/reminderScheduler.js`), and `utils/reminderTiming.js` (11 unit tests) decides when:
+- **The evening before, at 6:00 PM**, not 24 hours before. The reminder carries the preparation
+  ("nothing to eat after 10 PM"), which is acted on the night before; 24 hours before an 8:00 AM
+  appointment is 8:00 AM the day before.
+- **Booked later than that: halfway** between the booking and the appointment, Steven's rule, with
+  three guards. Never within 30 minutes of the booking: the confirmation went out at that moment
+  with the same date, time and preparation, so a booking 30 minutes away gets no second email, and
+  one 2 hours away is reminded an hour before. Never 9:00 PM to 7:00 AM: a halfway point at 3:00 AM
+  for an 8:00 AM appointment moves to 7:00 AM. Never under 30 minutes before the appointment.
+- **A moved booking is timed from its move**, which sends its own email and clears the reminder.
+- **Late, not lost.** One that fell due while the server was off goes out at the next sweep, after
+  7:00 AM, unless the appointment is under 15 minutes away; that is recorded as handled.
+- Each reminder is claimed in the database before it is sent, so two servers sharing one database
+  send it once, and a failed send is tried again after 10 minutes. Nothing sweeps while outbound
+  mail is not configured.
+- Appointment emails (confirmation, move, cancellation, reminder) now go to the account's address,
+  else the address on the patient's own record, so a booking made at the desk reaches the patient.
+- `sendAppointmentReminders.js` now shows the plan (each booking owed a reminder, when it is due,
+  what a sweep would do now; `--json`), and `--confirm` runs one sweep by hand.
+
+**A visit asks for every permission it uses.** [1.129.0] made `POST /visits` register the patient,
+open the visit and attach its tests in one request, but it still checked only `visits:create`. An
+account given only "start visits" on the access grid could register patients and attach tests,
+which `patients:create` and `tests:assign` were there to decide. The route now requires
+`visits:create` and `tests:assign`, and registering a new patient with it requires
+`patients:create`. The Desk shows Start visit and Register Walk-In by the same rule.
+- On "Who sees what", the switch is now "Start a visit and give a queue ticket" (a NEW patient is
+  "Register new patients", in Patient records), and the footer warns when a switch is on without
+  what it needs: "Cashier can start a visit and give a queue ticket only with 'Add or remove tests
+  on a visit' as well." Ticking it alone used to look like a grant and give nothing.
+
+Steven also asked whether the sidebar follows a person's access by itself. It does, and nothing
+in this changes that: every screen and button is shown by the permissions the account holds (all
+its roles, plus or minus its own exceptions), read again every minute and whenever the window
+comes back into focus. `staff-roles.spec.js` checks it with a revoked permission.
+
 ## [1.129.0] - 2026-10-18 (Two roles at once; a visit is for something; X-ray is marked done)
 
 Run on an existing database: `node src/scripts/migrateExamPerformed.js` (`--rollback` reverses

@@ -4,6 +4,7 @@ const logger = require('./config/logger');
 const db = require('./config/database');
 
 const { reportPendingRepairs, reportGatewayConfiguration, reportAccountMail } = require('./config/startupAdvisory');
+const reminderScheduler = require('./jobs/reminderScheduler');
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
@@ -12,6 +13,8 @@ const server = app.listen(env.PORT, () => {
   reportPendingRepairs();
   reportGatewayConfiguration();
   reportAccountMail();
+  // [1.130.0] Appointment reminders, sent by the server itself.
+  reminderScheduler.start();
 });
 
 // Handle unhandled promise rejections
@@ -31,6 +34,7 @@ process.on('uncaughtException', (err) => {
 // Handle system shutdown signals (graceful close)
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
+  reminderScheduler.stop();
   server.close(() => {
     db.pool.end();
     logger.info('Process terminated.');

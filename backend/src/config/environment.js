@@ -84,6 +84,10 @@ module.exports = {
   // Deliberately gates RELEASE and not recording. A technologist still parks a ticket in
   // 'Waiting for Release' while the report is being produced, which is what that state is for.
   RESULTS_REQUIRE_FILE: process.env.RESULTS_REQUIRE_FILE !== 'false',
+  // [1.130.0] The server sends appointment reminders by itself (jobs/reminderScheduler.js). Off with
+  // APPOINTMENT_REMINDERS=off, e.g. on a second server sharing one database, which would otherwise
+  // sweep too (harmless: each reminder is claimed before it is sent, so it still goes out once).
+  APPOINTMENT_REMINDERS: process.env.APPOINTMENT_REMINDERS !== 'off',
   VAT_RATE: parseFloat(process.env.VAT_RATE || '0.12'),
 
   /**

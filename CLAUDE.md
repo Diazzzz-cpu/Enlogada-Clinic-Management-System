@@ -629,7 +629,10 @@ typed. They now count a test once, at its FIRST authorised version (`FIRST_RELEA
 **Patient Records shows the final record, and only to whoever may read results.** `[1.108.0]` Any
 holder of `results:read` opens a patient's name and gets their authorised results, newest visit
 first, each with View and Print (`GET /results/history/:id?released=true`; a department sees its
-own). The front desk and the till see who the patient is and when they were here; the roster sends
+own). `[1.130.0]` The final record is every FINISHED test: a released report, or an X-ray marked
+done (`result_id` null, `performed_at` set, "Result given by the X-Ray department", no buttons),
+which had dropped out once X-ray stopped issuing reports. Nothing pending. The roster counts them
+apart: `released_count` is still reports, `done_count` / `last_done_at` are X-rays done. The front desk and the till see who the patient is and when they were here; the roster sends
 them no result columns (`patientRepository.findPatients({ includeResults })`), and the screen
 shows no Results column. `[1.116.0]` Their name opens the patient's FILE instead
 (`components/patients/PatientFile.jsx`): what else is on file, the visits and the tests each was for,

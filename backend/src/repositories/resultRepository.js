@@ -313,17 +313,23 @@ class ResultRepository {
       categoryFilter = `AND tc.name = ANY($${params.length}::text[])`;
     }
     const { rows } = await db.query(
+      // [1.130.0] The final record is every FINISHED test: its latest authorised report, or an
+      // exam marked done in a department that issues no report here (X-ray), which had dropped
+      // out of Patient Records altogether once [1.129.0] stopped X-ray reports. Nothing pending.
       `SELECT vt.id AS visit_test_id, t.name AS test_name, tc.name AS category_name,
               pv.id AS visit_id, pv.created_at AS visit_date,
               fin.id AS result_id, fin.version, fin.authorised_at,
-              (fin.file_path IS NOT NULL) AS has_file,
+              COALESCE(fin.file_path IS NOT NULL, false) AS has_file,
               fin.file_original_name, fin.file_mime_type,
-              u.first_name AS released_by_first_name, u.last_name AS released_by_last_name
+              u.first_name AS released_by_first_name, u.last_name AS released_by_last_name,
+              vt.performed_at,
+              perf.first_name AS performed_by_first_name, perf.last_name AS performed_by_last_name
          FROM visit_tests vt
          JOIN tests t            ON t.id = vt.test_id
          JOIN test_categories tc ON tc.id = t.category_id
          JOIN patient_visits pv  ON pv.id = vt.patient_visit_id
-         JOIN LATERAL (
+         LEFT JOIN users perf    ON perf.id = vt.performed_by
+         LEFT JOIN LATERAL (
               SELECT tr.id, tr.version, tr.authorised_at, tr.released_by,
                      tr.file_path, tr.file_original_name, tr.file_mime_type
                 FROM test_results tr
@@ -333,8 +339,9 @@ class ResultRepository {
          ) fin ON TRUE
          LEFT JOIN users u ON u.id = fin.released_by
         WHERE pv.patient_id = $1
+          AND (fin.id IS NOT NULL OR vt.performed_at IS NOT NULL)
         ${categoryFilter}
-        ORDER BY pv.created_at DESC, fin.authorised_at DESC`,
+        ORDER BY pv.created_at DESC, COALESCE(fin.authorised_at, vt.performed_at) DESC`,
       params
     );
     return rows;

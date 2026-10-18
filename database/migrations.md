@@ -28,6 +28,14 @@ script someone had to schedule every evening ([1.25.0]). The server now sweeps e
 - `sendAppointmentReminders.js` now shows the plan (each booking owed a reminder, when it is due,
   what a sweep would do now; `--json`), and `--confirm` runs one sweep by hand.
 
+**Patient Records keeps the final status of every finished test.** Steven: "in patient records it
+should record the final status of the patient". [1.108.0] made a patient's record the FINAL record
+(released reports only, nothing pending); [1.129.0] then stopped X-ray reports, so every X-ray
+dropped out of Patient Records altogether. A finished X-ray is part of the record again: it is
+listed as "Done <date> by <name>", with "Result given by the X-Ray department" where a report
+would have View and Print, and the roster reads "2 released · 1 X-ray done". Still nothing pending:
+a test waiting at a department is not on the record until it is finished.
+
 **A visit asks for every permission it uses.** [1.129.0] made `POST /visits` register the patient,
 open the visit and attach its tests in one request, but it still checked only `visits:create`. An
 account given only "start visits" on the access grid could register patients and attach tests,

@@ -1,7 +1,9 @@
 const db = require('../config/database');
 
 /**
- * What a patient's record holds that is FINAL: tests with an authorised report. [1.108.0]
+ * What a patient's record holds that is FINAL: tests with an authorised report. [1.108.0] And
+ * [1.130.0] X-ray exams marked done, which issue no report here ([1.129.0]) and had dropped out of
+ * the record altogether. Counted apart (`done_count`), so `released_count` still means reports.
  *
  * `authorised_at`, never `released_at`: released_at defaults to CURRENT_TIMESTAMP when a result is
  * SAVED, so `released_at IS NOT NULL` counted every draft as released. An amendment still being
@@ -28,7 +30,22 @@ function releasedColumns(deptRef) {
           JOIN visit_tests vt    ON vt.id = tr.visit_test_id
           JOIN patient_visits pv ON pv.id = vt.patient_visit_id
           ${inDept}
-        ) as last_released_at`;
+        ) as last_released_at,
+        -- Exams marked done with no report here (X-ray). One with an old released report is
+        -- already counted above.
+        (
+          SELECT COUNT(*) FROM visit_tests vt
+          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+          ${inDept}
+            AND vt.performed_at IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM test_results tr
+                             WHERE tr.visit_test_id = vt.id AND tr.authorised_at IS NOT NULL)
+        ) as done_count,
+        (
+          SELECT MAX(vt.performed_at) FROM visit_tests vt
+          JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+          ${inDept}
+        ) as last_done_at`;
 }
 
 class PatientRepository {

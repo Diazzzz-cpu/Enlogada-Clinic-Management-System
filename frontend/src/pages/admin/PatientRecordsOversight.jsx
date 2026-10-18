@@ -22,6 +22,7 @@ import {
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
 import { formatDate } from '../../lib/date';
 import { previewKindFor } from '../../lib/preview';
+import { categoryLabel } from '../../lib/categories';
 import { toastSuccess, toastError } from '../../lib/toast';
 
 // UI/UX Modernization Phase 4: search results come back in one shot with no server-side
@@ -331,6 +332,9 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
                   results.map((patient) => {
                     const open = expandedId === patient.id;
                     const released = Number(patient.released_count) || 0;
+                    // [1.130.0] X-rays marked done: final, with no report here.
+                    const done = Number(patient.done_count) || 0;
+                    const lastFinal = [patient.last_released_at, patient.last_done_at].filter(Boolean).sort().pop();
                     const visits = Number(patient.visit_count) || 0;
                     return (
                       <Fragment key={patient.id}>
@@ -387,10 +391,12 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
                           {canReadResults && (
                             <TableCell label="Results" className="py-3.5 text-xs">
                               <span className="font-semibold tabular-nums text-slate-700">
-                                {released > 0 ? `${released} released` : 'None released yet'}
+                                {released + done > 0
+                                  ? [released > 0 && `${released} released`, done > 0 && `${done} X-ray${done === 1 ? '' : 's'} done`].filter(Boolean).join(' · ')
+                                  : 'Nothing final yet'}
                               </span>
-                              {patient.last_released_at && (
-                                <span className="block text-meta text-gray-400">Last {formatDate(patient.last_released_at)}</span>
+                              {lastFinal && (
+                                <span className="block text-meta text-gray-400">Last {formatDate(lastFinal)}</span>
                               )}
                             </TableCell>
                           )}
@@ -496,7 +502,8 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
 };
 
 /**
- * The released results under a patient's name, newest visit first.
+ * The final record under a patient's name, newest visit first: each released report, and each
+ * X-ray marked done, whose result the X-ray department gives (no report here). [1.130.0]
  *
  * A report that is a PDF or an image can be printed from here; a Word document or a spreadsheet
  * cannot be printed by a browser, so it offers View, which opens it to download.
@@ -525,10 +532,10 @@ function PatientResults({ id, entry, scoped, onRetry, onView, onPrint }) {
         <EmptyState
           compact
           icon={FileX2}
-          title="No released results yet"
+          title="Nothing final yet"
           description={scoped
-            ? 'Nothing from your department has been released for this patient.'
-            : 'A result appears here once its report has been released.'}
+            ? 'Nothing from your department is finished for this patient yet.'
+            : 'A test appears here once it is finished: its report released, or its X-ray marked done.'}
         />
       </div>
     );
@@ -539,6 +546,32 @@ function PatientResults({ id, entry, scoped, onRetry, onView, onPrint }) {
       {entry.rows.map((row) => {
         const printable = Boolean(previewKindFor(row.file_mime_type));
         const releasedBy = [row.released_by_first_name, row.released_by_last_name].filter(Boolean).join(' ');
+        // An exam marked done with no report here (X-ray). [1.130.0]
+        if (!row.result_id) {
+          const doneBy = [row.performed_by_first_name, row.performed_by_last_name].filter(Boolean).join(' ');
+          return (
+            <li
+              key={row.visit_test_id}
+              data-testid="patient-result"
+              data-final="done"
+              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:pl-10"
+            >
+              <div className="min-w-0">
+                <p className="m-0 flex flex-wrap items-center gap-1.5 text-note font-semibold text-slate-900">
+                  {row.test_name}
+                  <Badge variant="outline">{categoryLabel(row.category_name)}</Badge>
+                </p>
+                <p className="m-0 text-fine text-slate-500">
+                  Visit {formatDate(row.visit_date)} · Done {formatDate(row.performed_at)}
+                  {doneBy ? ` by ${doneBy}` : ''}
+                </p>
+              </div>
+              <span className="text-fine text-slate-500">
+                Result given by the {categoryLabel(row.category_name)} department
+              </span>
+            </li>
+          );
+        }
         return (
           <li
             key={row.visit_test_id}

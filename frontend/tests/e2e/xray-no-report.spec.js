@@ -150,6 +150,42 @@ test.describe('X-ray: marked done, never reported here', () => {
     expect(await visitStatus(visit.id)).toBe('Completed');
   });
 
+  // [1.130.0] Patient Records is the final record, and an X-ray done is final with no report. It
+  // listed released reports only, so X-rays dropped out of every patient's record.
+  test('Patient Records keeps an X-ray done in the final record, and nothing pending', async ({ page }) => {
+    const { person, visit, lineFor } = await paidVisit([xrayTest.id, labTest.id]);
+    const patientId = visit.patient_id;
+    const records = async () => (await (await ctx.get(`${API}/results/history/${patientId}`, {
+      headers: auth(admin), params: { released: 'true' },
+    })).json()).data.results;
+
+    expect(await records(), 'nothing is final yet').toHaveLength(0);
+    expect((await markDone(xray, lineFor(xrayTest.id))).status()).toBe(200);
+
+    const rows = await records();
+    expect(rows.map((r) => r.visit_test_id), 'the X-ray, and not the laboratory test still waiting')
+      .toEqual([lineFor(xrayTest.id)]);
+    expect(rows[0].result_id).toBeNull();
+    expect(rows[0].performed_at).toBeTruthy();
+
+    const roster = (await (await ctx.get(`${API}/patients/search`, {
+      headers: auth(admin), params: { q: person.fullName, limit: 50 },
+    })).json()).data.patients.find((p) => p.id === patientId);
+    expect(Number(roster.done_count)).toBe(1);
+    expect(Number(roster.released_count), 'released still means reports').toBe(0);
+
+    await signInTo(page, 'clinicadmin@enlogada.com', 'Patient Records');
+    await page.getByLabel('Search patient records').fill(person.fullName);
+    await page.getByRole('button', { name: 'Apply' }).click();
+    const row = page.locator(`[data-testid="patient-row"][data-patient-id="${patientId}"]`);
+    await expect(row).toContainText('1 X-ray done', { timeout: 20000 });
+    await row.getByTestId('patient-records-toggle').click();
+    const done = page.getByTestId('patient-results').locator('[data-final="done"]');
+    await expect(done).toContainText(xrayTest.name);
+    await expect(done).toContainText('Result given by the X-Ray department');
+    await expect(page.getByTestId('patient-results')).not.toContainText(labTest.name);
+  });
+
   test('a department that issues reports is finished by its report, not by a status', async () => {
     const { lineFor } = await paidVisit([labTest.id]);
     const res = await markDone(lab, lineFor(labTest.id));

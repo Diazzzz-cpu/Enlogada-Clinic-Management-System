@@ -56,8 +56,9 @@ test.describe('The sidebar', () => {
         birthdate: '1990-04-02', sex: 'Male', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
+    const anyTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests.find((t) => t.is_active);
     const visit = await ctx.post(`${API}/visits`, {
-      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e sidebar count' },
+      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e sidebar count', testIds: [anyTest.id] },
     });
     expect(visit.status()).toBe(201);
     await ctx.dispose();

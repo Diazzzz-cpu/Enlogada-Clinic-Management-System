@@ -34,9 +34,16 @@ async function loginAs(apiContext, creds) {
   return (await res.json()).data.token;
 }
 
-/** A throwaway walk-in to attach things to. */
-async function makeWalkIn(api, token) {
+/**
+ * A throwaway walk-in. [1.129.0] A visit is opened with what it is for, so the caller names its
+ * tests or packages; one that only needs "a visit" gets a single ordinary test.
+ */
+async function makeWalkIn(api, token, { testIds = [], packageIds = [] } = {}) {
   const H = { Authorization: `Bearer ${token}` };
+  if (testIds.length === 0 && packageIds.length === 0) {
+    const tests = (await (await api.get(`${API}/tests`)).json()).data.tests;
+    testIds = [tests.find((t) => t.is_active && Number(t.price) > 0).id];
+  }
 
   const typesRes = await api.get(`${API}/patients/types`, { headers: H });
   const selfPay = (await typesRes.json()).data.patientTypes.find((t) => t.name === 'Self Pay');
@@ -53,7 +60,7 @@ async function makeWalkIn(api, token) {
 
   const visitRes = await api.post(`${API}/visits`, {
     headers: H,
-    data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e package' },
+    data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e package', testIds, packageIds },
   });
   return (await visitRes.json()).data.visit;
 }
@@ -87,8 +94,9 @@ test.describe('Package deals', () => {
 
     const { packages } = (await (await api.get(`${API}/packages`)).json()).data;
     const pkg = packages[0];
-    const visit = await makeWalkIn(api, token);
+    const visit = await makeWalkIn(api, token, { packageIds: [pkg.id] });
 
+    // Attaching it again changes nothing and answers with the visit's lines.
     const attachRes = await api.post(`${API}/tests/visit-tests`, {
       headers: H,
       data: { patientVisitId: visit.id, packageIds: [pkg.id] },
@@ -123,7 +131,7 @@ test.describe('Package deals', () => {
 
     const { packages } = (await (await api.get(`${API}/packages`)).json()).data;
     const pkg = packages[0];
-    const visit = await makeWalkIn(api, recToken);
+    const visit = await makeWalkIn(api, recToken, { packageIds: [pkg.id] });
 
     await api.post(`${API}/tests/visit-tests`, {
       headers: { Authorization: `Bearer ${recToken}` },
@@ -174,12 +182,7 @@ test.describe('Package deals', () => {
 
     const { packages } = (await (await api.get(`${API}/packages`)).json()).data;
     const pkg = packages[0];
-    const visit = await makeWalkIn(api, token);
-
-    await api.post(`${API}/tests/visit-tests`, {
-      headers: H,
-      data: { patientVisitId: visit.id, packageIds: [pkg.id] },
-    });
+    const visit = await makeWalkIn(api, token, { packageIds: [pkg.id] });
 
     const listRes = await api.get(`${API}/tests/visit-tests/${visit.id}`, { headers: H });
     const rows = (await listRes.json()).data.visitTests;
@@ -278,6 +281,9 @@ test.describe('Package deals', () => {
     const token = await loginAs(api, RECEPTIONIST);
     const H = { Authorization: `Bearer ${token}` };
     const visit = await makeWalkIn(api, token);
+    const linesNow = async () =>
+      (await (await api.get(`${API}/tests/visit-tests/${visit.id}`, { headers: H })).json()).data.visitTests.length;
+    const before = await linesNow();
 
     const res = await api.post(`${API}/tests/visit-tests`, {
       headers: H,
@@ -287,8 +293,7 @@ test.describe('Package deals', () => {
 
     // The whole attach runs in one transaction, so a rejected id must leave the visit untouched
     // rather than billed for whatever happened to resolve before the bad one.
-    const listRes = await api.get(`${API}/tests/visit-tests/${visit.id}`, { headers: H });
-    expect((await listRes.json()).data.visitTests.length).toBe(0);
+    expect(await linesNow()).toBe(before);
 
     await api.dispose();
   });
@@ -315,9 +320,10 @@ test.describe('Package deals', () => {
     const pkg = packages.find((p) => (p.tests || []).length > 1);
     test.skip(!pkg, 'Need a package with components.');
     const component = pkg.tests[0];
-    const visit = await makeWalkIn(api, token);
+    // CALL ONE is the visit itself: opened with the component on its own, at list price.
+    const visit = await makeWalkIn(api, token, { testIds: [component.id] });
 
-    // CALL ONE — the component on its own, at list price. This is the row that used to survive.
+    // Asked for again, which changes nothing. This is the row that used to survive.
     const loose = await api.post(`${API}/tests/visit-tests`, {
       headers: H, data: { patientVisitId: visit.id, testIds: [component.id] },
     });

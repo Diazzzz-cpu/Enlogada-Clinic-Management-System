@@ -69,15 +69,11 @@ test.describe('Emailing a released report', () => {
       },
     })).json()).data.patient;
 
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(rec), data: { patientId: patient.id, visitType: 'Walk in' },
-    })).json()).data.visit;
-
     const labTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests
       .find((t) => t.is_active && t.category_name === 'Laboratory' && Number(t.price) > 0);
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, testIds: [labTest.id] },
-    });
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(rec), data: { patientId: patient.id, visitType: 'Walk in', testIds: [labTest.id] },
+    })).json()).data.visit;
 
     const bill = (await (await ctx.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cash) })).json()).data.bill;
     await ctx.post(`${API}/payments`, {
@@ -384,7 +380,9 @@ test.describe('Where the report is sent', () => {
 });
 
 /**
- * The button belongs to every department, not just Laboratory. [1.61.0]
+ * The button belongs to every department that issues reports, not just Laboratory. [1.61.0]
+ * [1.129.0] X-ray issues none here: its results come from the X-ray department's own system, so its
+ * History says when an exam was done and offers nothing to send.
  *
  * `DiagnosticDashboard` is one file serving Laboratory, X-Ray and Ultrasound — a nav id ending
  * `-history` puts it in history mode and it renders one `ResultHistoryPanel` with one `delivery`
@@ -396,14 +394,23 @@ test.describe('Where the report is sent', () => {
  * `assertStaffAllowedCategory` is exercised at the same time — Ultrasound reaching its own
  * history is a different assertion from Laboratory reaching Laboratory's.
  */
-test.describe('Every department can send a report', () => {
+test.describe('Every department that issues reports can send one', () => {
   const DEPARTMENTS = [
-    { account: 'lab@enlogada.com', nav: 'Laboratory History', category: 'Laboratory' },
-    { account: 'xray@enlogada.com', nav: 'X-Ray History', category: 'Xray' },
-    { account: 'ultrasound@enlogada.com', nav: 'Ultrasound History', category: 'Ultrasound' },
+    { account: 'lab@enlogada.com', nav: 'Laboratory History', category: 'Laboratory', reports: true },
+    { account: 'xray@enlogada.com', nav: 'X-Ray History', category: 'Xray', reports: false },
+    { account: 'ultrasound@enlogada.com', nav: 'Ultrasound History', category: 'Ultrasound', reports: true },
   ];
 
-  for (const dept of DEPARTMENTS) {
+  test('X-ray History says when an exam was done, and offers nothing to send', async ({ page }) => {
+    await signIn(page, 'xray@enlogada.com');
+    await page.getByRole('button', { name: 'X-Ray History' }).first().click();
+    await expect(page.getByRole('columnheader', { name: 'Done' })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('columnheader', { name: 'Sent to patient' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Not sent' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^(Email|Send again)/ })).toHaveCount(0);
+  });
+
+  for (const dept of DEPARTMENTS.filter((d) => d.reports)) {
     test(`${dept.category} carries the delivery column and the action`, async ({ page }) => {
       await signIn(page, dept.account);
       await page.getByRole('button', { name: dept.nav }).first().click();
@@ -440,7 +447,7 @@ test.describe('Every department can send a report', () => {
       expect(res.status(), `${dept.category} reads its own history`).toBe(200);
 
       const rows = (await res.json()).data.released;
-      if (rows.length) {
+      if (rows.length && dept.reports) {
         // The delivery state travels on every department's rows, not only Laboratory's.
         for (const field of ['emailed_at', 'emailed_to', 'email_count', 'patient_email']) {
           expect(rows[0], `${dept.category} row must carry ${field}`).toHaveProperty(field);

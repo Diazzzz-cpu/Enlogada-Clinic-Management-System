@@ -101,9 +101,10 @@ test('a change made elsewhere still reaches a polling screen', async ({ page }) 
   });
   expect(patient.status()).toBe(201);
 
+  const anyTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests.find((t) => t.is_active);
   const visit = await ctx.post(`${API}/visits`, {
     headers: auth,
-    data: { patientId: (await patient.json()).data.patient.id, visitType: 'Walk in', notes: '' },
+    data: { patientId: (await patient.json()).data.patient.id, visitType: 'Walk in', notes: '', testIds: [anyTest.id] },
   });
   expect(visit.status()).toBe(201);
   await ctx.dispose();

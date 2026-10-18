@@ -53,6 +53,35 @@ class PatientRepository {
     return result.rows[0];
   }
 
+  /**
+   * A record already on file for this name and birthdate, if any. [1.129.0] Names compared without
+   * case or extra spaces; archived records are left out (they are not offered at the Desk).
+   */
+  async findSameNameAndBirthdate(firstName, lastName, birthdate) {
+    const { rows } = await db.query(
+      // birthdate as text: a DATE reaches the browser as a UTC timestamp, which in Philippine time
+      // is the day before, and this one is shown to the desk as "born <date>".
+      `SELECT p.id, p.first_name, p.last_name, p.birthdate::text AS birthdate, p.contact_number,
+              pt.name AS patient_type_name
+         FROM patients p
+         LEFT JOIN patient_types pt ON pt.id = p.patient_type_id
+        WHERE lower(regexp_replace(trim(p.first_name), '\\s+', ' ', 'g')) = lower($1)
+          AND lower(regexp_replace(trim(p.last_name), '\\s+', ' ', 'g')) = lower($2)
+          AND p.birthdate = $3::date
+          AND p.archived_at IS NULL
+        ORDER BY p.id
+        LIMIT 1`,
+      [firstName, lastName, birthdate]
+    );
+    return rows[0] || null;
+  }
+
+  /** The name of a patient type, or null when no such type exists. [1.129.0] */
+  async findPatientTypeName(patientTypeId) {
+    const { rows } = await db.query('SELECT name FROM patient_types WHERE id = $1', [patientTypeId]);
+    return rows[0]?.name || null;
+  }
+
   async findPatientsByUserId(userId) {
     const queryText = `
       SELECT p.*, pt.name as patient_type_name

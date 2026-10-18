@@ -447,14 +447,35 @@ const ReceptionistDashboard = ({ activeNav = 'reception-queue', onSelectNav, int
             checkIn.target?.type === 'appointment'
               ? `Check in ${checkIn.target.data.first_name} ${checkIn.target.data.last_name} (${checkIn.target.data.appointment_reference})? This confirms their appointment and gives them today's queue ticket.`
               : checkIn.target?.type === 'walkin'
-              ? `Check in ${checkIn.target.data.first_name} ${checkIn.target.data.last_name} as a walk-in? This creates a new visit and queue ticket.`
+              ? `Check in ${checkIn.target.data.first_name} ${checkIn.target.data.last_name} as a walk-in? Choose what they are here for: the visit, its queue ticket and these tests are created together.`
               : ''
           }
           confirmLabel="Confirm Check-In"
           onConfirm={checkIn.confirm}
           loading={checkIn.submitting}
           error={checkIn.error}
-        />
+          // A walk-in visit is for something [1.129.0]: it is never opened empty.
+          wide={checkIn.target?.type === 'walkin'}
+          confirmDisabled={checkIn.target?.type === 'walkin' && !checkIn.walkInChosen}
+        >
+          {checkIn.target?.type === 'walkin' && (
+            <div className="space-y-1.5">
+              <span className="field-label">
+                Tests Requested <span className="text-rose-600" aria-hidden="true">*</span>
+              </span>
+              <TestPicker
+                tests={reference.testCatalog}
+                selectedIds={checkIn.walkInTestIds}
+                onToggle={checkIn.toggleWalkInTest}
+                packages={reference.packages}
+                selectedPackageIds={checkIn.walkInPackageIds}
+                onTogglePackage={checkIn.toggleWalkInPackage}
+                disabled={checkIn.submitting}
+                maxHeight="max-h-56"
+              />
+            </div>
+          )}
+        </ConfirmDialog>
 
         <ConfirmDialog
           open={!!disposition.cancel.target}

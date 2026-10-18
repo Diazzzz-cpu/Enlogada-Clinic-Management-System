@@ -36,12 +36,11 @@ test.describe('Release, then email only when asked', () => {
 
   /** A walk-in WITH an email address, and a paid laboratory test waiting on the worklist. */
   const paidVisit = async (patientId) => {
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId, visitType: 'Walk in', notes: 'release email spec' },
-    })).json()).data.visit;
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active);
-    await ctx.post(`${API}/tests/visit-tests`, { headers: auth(reception), data: { patientVisitId: visit.id, testIds: [labTest.id] } });
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(reception), data: { patientId, visitType: 'Walk in', notes: 'release email spec', testIds: [labTest.id] },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
     const vt = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json()).data.visitTests[0];
     return { visit, visitTestId: vt.id };

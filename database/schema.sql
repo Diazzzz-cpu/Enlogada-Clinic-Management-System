@@ -438,6 +438,11 @@ CREATE TABLE visit_tests (
     package_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- When an exam was done, and by whom, in a department that issues no report here (X-ray):
+    -- its exam is marked done on the worklist instead of a report being released. [1.129.0]
+    performed_at TIMESTAMP,
+    performed_by INT,
+    CONSTRAINT fk_visit_tests_performed_by FOREIGN KEY (performed_by) REFERENCES users(id),
     CONSTRAINT fk_visit_tests_visit FOREIGN KEY (patient_visit_id) REFERENCES patient_visits(id),
     CONSTRAINT fk_visit_tests_test FOREIGN KEY (test_id) REFERENCES tests(id),
     CONSTRAINT fk_visit_tests_package FOREIGN KEY (package_id) REFERENCES test_packages(id),
@@ -1066,6 +1071,11 @@ CREATE INDEX IF NOT EXISTS idx_test_results_authorised_at ON test_results (autho
 
 -- Foreign keys that grew with later features and had no index of their own.
 CREATE INDEX IF NOT EXISTS idx_test_results_recorded_by ON test_results (recorded_by);
+-- [1.129.0] An X-ray exam marked done: the reports filter on when, and the foreign key to the
+-- person who did it gets its own index like every growing one.
+CREATE INDEX IF NOT EXISTS idx_visit_tests_performed_at ON visit_tests (performed_at)
+    WHERE performed_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_visit_tests_performed_by ON visit_tests (performed_by);
 CREATE INDEX IF NOT EXISTS idx_hmo_requests_card_verified_by ON hmo_requests (card_verified_by);
 
 -- Partial, because the rows that matter are a small minority of the table.

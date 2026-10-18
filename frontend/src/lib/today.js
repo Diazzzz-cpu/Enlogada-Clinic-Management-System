@@ -1,7 +1,7 @@
 import { formatDuration } from './duration';
 import { formatTime12, toDateInput } from './date';
 import { paidVisitIds } from './collections';
-import { categoryLabel } from './categories';
+import { categoryLabel, issuesReports } from './categories';
 import { hoursOn } from './clinicStatus';
 
 /**
@@ -205,8 +205,12 @@ export function departmentNeeds({
   const rows = [];
 
   if (pending.length) {
-    const exam = pending.filter((t) => t.test_status === 'Processing').length;
-    const ready = pending.filter((t) => t.test_status === 'Waiting for Release').length;
+    // [1.129.0] A department that issues no report here (X-ray) has one half, the exam, so a test
+    // left 'Waiting for Release' from before is an exam still to mark done, not a report to release.
+    const reports = issuesReports(category);
+    const exam = pending.filter((t) => t.test_status === 'Processing'
+      || (!reports && t.test_status === 'Waiting for Release')).length;
+    const ready = reports ? pending.filter((t) => t.test_status === 'Waiting for Release').length : 0;
     const oldest = [...pending].sort(oldestFirst('visit_created_at'))[0];
     const since = waitedFor(oldest.visit_created_at, now);
     rows.push({

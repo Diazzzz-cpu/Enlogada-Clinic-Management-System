@@ -33,8 +33,8 @@ test.describe('Process rules the server enforces', () => {
       headers: auth(desk),
       data: { patientTypeId: await patientTypeId(ctx, API, desk), ...person, birthdate, sex: 'Female', contactNumber: FIXTURE_CONTACT },
     })).json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: patient.id, visitType: 'Walk in' } })).json()).data.visit;
-    if (tests.length) await ctx.post(`${API}/tests/visit-tests`, { headers: auth(desk), data: { patientVisitId: visit.id, testIds: tests } });
+    // [1.129.0] A visit is opened with its tests.
+    const visit = (await (await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: patient.id, visitType: 'Walk in', testIds: tests } })).json()).data.visit;
     return { patient, visit };
   };
   const client = async () => {
@@ -137,8 +137,11 @@ test.describe('Process rules the server enforces', () => {
   });
 
   test('money is taken only for a live visit with tests on it', async () => {
-    const empty = await walkIn({ tests: [] });
-    expect((await ctx.post(`${API}/payments`, { headers: auth(cashier), data: { patientVisitId: empty.visit.id, paymentMethod: 'Cash', amount: 0 } })).status()).toBe(409);
+    // [1.129.0] A visit with nothing on it cannot be opened at all, so there is none to pay.
+    const someone = await walkIn();
+    await pay(someone.visit.id);
+    const empty = await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: someone.patient.id, visitType: 'Walk in' } });
+    expect(empty.status(), 'a visit with no tests').toBe(400);
     const gone = await walkIn();
     await ctx.patch(`${API}/visits/${gone.visit.id}/status`, { headers: auth(desk), data: { status: 'Cancelled' } });
     expect((await pay(gone.visit.id)).status(), 'a cancelled visit').toBe(409);
@@ -156,9 +159,10 @@ test.describe('Process rules the server enforces', () => {
 
   test('one unpaid visit at a time; a paid one does not block the next', async () => {
     const w = await walkIn();
-    expect((await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: w.patient.id, visitType: 'Walk in' } })).status()).toBe(409);
+    const again = { patientId: w.patient.id, visitType: 'Walk in', testIds: [labTests[1].id] };
+    expect((await ctx.post(`${API}/visits`, { headers: auth(desk), data: again })).status()).toBe(409);
     await pay(w.visit.id);
-    expect((await ctx.post(`${API}/visits`, { headers: auth(desk), data: { patientId: w.patient.id, visitType: 'Walk in' } })).status()).toBe(201);
+    expect((await ctx.post(`${API}/visits`, { headers: auth(desk), data: again })).status()).toBe(201);
   });
 
   // [1.125.0] The bill read only each test's own HMO status, so a claim approved as a whole left
@@ -173,11 +177,12 @@ test.describe('Process rules the server enforces', () => {
     })).json()).data.patient;
     const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(desk),
-      data: { patientId: patient.id, visitType: 'Walk in', referringPhysician: 'Dr. Amelia R. Santos', referringPhysicianPrc: '0142887' },
+      data: {
+        patientId: patient.id, visitType: 'Walk in', referringPhysician: 'Dr. Amelia R. Santos', referringPhysicianPrc: '0142887',
+        testIds: [labTests[0].id, labTests[1].id],
+      },
     })).json()).data.visit;
-    const vts = (await (await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(desk), data: { patientVisitId: visit.id, testIds: [labTests[0].id, labTests[1].id] },
-    })).json()).data.visitTests;
+    const vts = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(desk) })).json()).data.visitTests;
     const providerId = (await (await ctx.get(`${API}/hmo/providers`, { headers: auth(desk) })).json()).data.providers[0].id;
     const claim = (await (await ctx.post(`${API}/hmo/request`, {
       headers: auth(desk), data: { hmoProviderId: providerId, memberNumber: `M${Date.now()}`, visitTestIds: vts.map((v) => v.id) },

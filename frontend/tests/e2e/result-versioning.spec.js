@@ -67,9 +67,11 @@ test.describe('Result versioning', () => {
       },
     })).json();
 
+    const firstLab = (await (await apiContext.get(`${API}/tests`)).json()).data.tests
+      .find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
     const visit = await (await apiContext.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientId: patient.data.patient.id, visitType: 'Walk in', notes: 'e2e versioning' },
+      data: { patientId: patient.data.patient.id, visitType: 'Walk in', notes: 'e2e versioning', testIds: [firstLab.id] },
     })).json();
     const visitId = visit.data.visit.id;
 
@@ -228,9 +230,11 @@ test.describe('Amending an already-released result', () => {
         birthdate: '1979-03-02', sex: 'Female',
       },
     })).json();
+    const firstLab = (await (await apiContext.get(`${API}/tests`)).json()).data.tests
+      .find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
     const visit = await (await apiContext.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientId: patient.data.patient.id, visitType: 'Walk in', notes: 'e2e amendment' },
+      data: { patientId: patient.data.patient.id, visitType: 'Walk in', notes: 'e2e amendment', testIds: [firstLab.id] },
     })).json();
     visitId = visit.data.visit.id;
 

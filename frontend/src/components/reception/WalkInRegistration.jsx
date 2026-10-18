@@ -68,92 +68,101 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
   )?.name;
 
 
-  const handleWalkInRegister = async (e) => {
+  // A record already on file for this name and birthdate. [1.129.0] The server refuses to make a
+  // second one unless told this is a different person; the form asks the receptionist which.
+  const [possibleDuplicate, setPossibleDuplicate] = useState(null);
+
+  const resetForm = () => {
+    setNewPatient({
+      firstName: '',
+      lastName: '',
+      birthdate: '',
+      sex: 'Male',
+      address: '',
+      contactNumber: '',
+      emergencyContact: '',
+      email: '',
+      patientTypeId: ''
+    });
+    setVisitNotes('');
+    // Cleared with the rest of the form. A referring physician left in state would follow the
+    // next patient registered, attaching a doctor to somebody they never saw.
+    setReferringPhysician('');
+    setReferringPhysicianPrc('');
+    // Cleared with the rest: a test list left in state would follow the next patient registered.
+    setWalkInTestIds([]);
+    setWalkInPackageIds([]);
+    setPossibleDuplicate(null);
+  };
+
+  /**
+   * One request: the record, the visit, its queue ticket and its tests, all or nothing. [1.129.0]
+   *
+   * It was three (create the patient, open the visit, attach the tests), and the tests were
+   * optional, so a walk-in could join the queue and reach the till with nothing on it. A failure
+   * between the requests also left a patient record with no visit. `asRecord` starts the visit on
+   * a record already on file instead; `confirmNew` says the match on file is someone else.
+   */
+  const register = async ({ asRecord = null, confirmNew = false } = {}) => {
+    setRegistrationSuccess('');
+    setRegistrationError('');
+    setIsRegistering(true);
+    try {
+      const vRes = await api.post('/visits', {
+        visitType: 'Walk in',
+        notes: visitNotes,
+        referringPhysician,
+        referringPhysicianPrc,
+        testIds: walkInTestIds.map((id) => parseInt(id, 10)),
+        packageIds: walkInPackageIds.map((id) => parseInt(id, 10)),
+        ...(asRecord
+          ? { patientId: asRecord.id }
+          : { patient: newPatient, confirmNewPatient: confirmNew }),
+      });
+      const visit = vRes.data.data.visit;
+      const parts = [
+        walkInPackageIds.length
+          ? `${walkInPackageIds.length} package${walkInPackageIds.length === 1 ? '' : 's'}`
+          : null,
+        walkInTestIds.length
+          ? `${walkInTestIds.length} test${walkInTestIds.length === 1 ? '' : 's'}`
+          : null,
+      ].filter(Boolean);
+      setRegistrationSuccess(
+        `Walk-In registered successfully! Physical Queue Ticket: ${visit.queue_number}. ${parts.join(' and ')} attached.`
+      );
+      resetForm();
+      onRegistered?.();
+    } catch (err) {
+      const duplicate = err.response?.status === 409 && err.response?.data?.details?.possibleDuplicate;
+      if (duplicate) {
+        setPossibleDuplicate(duplicate);
+      } else {
+        setRegistrationError(err.response?.data?.message || 'Failed to register walk-in patient');
+      }
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  const handleWalkInRegister = (e) => {
     e.preventDefault();
     setRegistrationSuccess('');
     setRegistrationError('');
+    setPossibleDuplicate(null);
 
     const validationError = validatePatientProfile(newPatient);
     if (validationError) {
       setRegistrationError(validationError);
       return;
     }
-
-    setIsRegistering(true);
-    try {
-      // 1. Create Patient Profile
-      const pRes = await api.post('/patients', newPatient);
-      const patient = pRes.data.data.patient;
-
-      // 2. Create Walk-in Visit with Generated Queue Ticket
-      const vRes = await api.post('/visits', {
-        patientId: patient.id,
-        visitType: 'Walk in',
-        notes: visitNotes,
-        referringPhysician,
-        referringPhysicianPrc
-      });
-
-      const visit = vRes.data.data.visit;
-
-      // Attach in the same flow. Deliberately after the visit exists and deliberately not fatal:
-      // the patient is registered and holds a queue number either way, so a failure here is
-      // "tests still to add", not "registration failed" — and telling them to queue again would
-      // be the worse outcome.
-      let attachedNote = '';
-      if (walkInTestIds.length > 0 || walkInPackageIds.length > 0) {
-        try {
-          // One call carrying both, so the server attaches them in a single transaction. Sending
-          // two requests would let the tests land and the package fail, leaving a visit billed for
-          // half a workup with the patient already holding a queue ticket.
-          await api.post('/tests/visit-tests', {
-            patientVisitId: visit.id,
-            testIds: walkInTestIds.map((id) => parseInt(id, 10)),
-            packageIds: walkInPackageIds.map((id) => parseInt(id, 10)),
-          });
-          const parts = [
-            walkInPackageIds.length
-              ? `${walkInPackageIds.length} package${walkInPackageIds.length === 1 ? '' : 's'}`
-              : null,
-            walkInTestIds.length
-              ? `${walkInTestIds.length} test${walkInTestIds.length === 1 ? '' : 's'}`
-              : null,
-          ].filter(Boolean);
-          attachedNote = ` ${parts.join(' and ')} attached.`;
-        } catch {
-          attachedNote = ' Tests could not be attached — add them from the queue.';
-        }
-      }
-
-      setRegistrationSuccess(
-        `Walk-In registered successfully! Physical Queue Ticket: ${visit.queue_number}.${attachedNote}`
-      );
-
-      setNewPatient({
-        firstName: '',
-        lastName: '',
-        birthdate: '',
-        sex: 'Male',
-        address: '',
-        contactNumber: '',
-        emergencyContact: '',
-        email: '',
-        patientTypeId: ''
-      });
-      setVisitNotes('');
-      // Cleared with the rest of the form. A referring physician left in state would follow the
-      // next patient registered, attaching a doctor to somebody they never saw.
-      setReferringPhysician('');
-      setReferringPhysicianPrc('');
-      // Cleared with the rest: a test list left in state would follow the next patient registered.
-      setWalkInTestIds([]);
-      setWalkInPackageIds([]);
-      onRegistered?.();
-    } catch (err) {
-      setRegistrationError(err.response?.data?.message || 'Failed to register walk-in patient');
-    } finally {
-      setIsRegistering(false);
+    // A visit is for something. [1.129.0] Without a test there is nothing for a department to do
+    // and nothing for the cashier to bill.
+    if (walkInTestIds.length + walkInPackageIds.length === 0) {
+      setRegistrationError('Choose at least one test or package for this visit.');
+      return;
     }
+    register();
   };
 
   const Frame = bare ? 'div' : Panel;
@@ -172,6 +181,27 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
                   <div ref={registrationSuccessRef} role="status" className="mb-4 alert alert-success">
                     <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                     <span>{registrationSuccess}</span>
+                  </div>
+                )}
+
+                {possibleDuplicate && (
+                  <div data-testid="possible-duplicate" role="alert" className="mb-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                    <p className="m-0 text-note font-semibold text-amber-900">
+                      {possibleDuplicate.first_name} {possibleDuplicate.last_name}, born{' '}
+                      {String(possibleDuplicate.birthdate).slice(0, 10)}, is already on file
+                      {possibleDuplicate.contact_number ? ` (${possibleDuplicate.contact_number})` : ''}.
+                    </p>
+                    <p className="m-0 text-fine leading-relaxed text-amber-800">
+                      Is this the same person? Using the record on file keeps their visits and results together.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" loading={isRegistering} onClick={() => register({ asRecord: possibleDuplicate })}>
+                        Use the record on file
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" disabled={isRegistering} onClick={() => register({ confirmNew: true })}>
+                        No, register someone new
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -340,15 +370,14 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
                       Reception used to register the patient, then find them again in the queue to
                       attach anything — two screens for one interaction at the busiest point of the
                       day, and a visit whose second half never happened reaches the cashier as a
-                      zero bill. The picker also totals the selection, so the price can be quoted
+                      zero bill. Required since [1.129.0], and sent with the visit in one request. The picker also totals the selection, so the price can be quoted
                       across the desk, and shows any preparation while the patient is still
                       standing there. */}
                   <div className="space-y-1.5">
                     <label className="field-label">
                       Tests Requested
-                      <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">
-                        (optional — can be added later from the queue)
-                      </span>
+                      {/* Required [1.129.0]: a visit with nothing on it has nothing to do or bill. */}
+                      <span className="ml-0.5 text-rose-600" aria-hidden="true">*</span>
                     </label>
                     <TestPicker
                       tests={testCatalog}

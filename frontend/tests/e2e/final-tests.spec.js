@@ -49,9 +49,8 @@ test.describe('Final tests, then a final receipt', () => {
       },
     })).json()).data.patient;
     const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'final tests spec' },
+      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'final tests spec', testIds: [labTest.id] },
     })).json()).data.visit;
-    await ctx.post(`${API}/tests/visit-tests`, { headers: auth(reception), data: { patientVisitId: visit.id, testIds: [labTest.id] } });
     return { person, visit };
   };
 

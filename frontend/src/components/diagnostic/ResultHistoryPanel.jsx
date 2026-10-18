@@ -1,5 +1,5 @@
 import React from 'react';
-import { categoryLabel as categoryLabelFor } from '../../lib/categories';
+import { categoryLabel as categoryLabelFor, issuesReports } from '../../lib/categories';
 import { Eye, History, Pencil, Mail, MailCheck, MailX, WifiOff } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
@@ -40,6 +40,10 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
   // last 90 days in hand; a department's released reports are not a handful of tickets.
   const paged = worklist.released;
   const totalPages = worklist.releasedPages;
+  // X-ray [1.129.0]: exams marked done, with no report here to view, email or amend. An X-ray
+  // report released before that change still opens.
+  const reportsHere = issuesReports(worklist.category);
+  const columns = reportsHere ? 6 : 5;
 
   return (
       <>
@@ -50,16 +54,18 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
               having a button for: released reports the patient was never told about. It matters
               most after a mail outage, when the failures are a contiguous block with no other way
               to find them. Filtered at the server, against a partial index. [1.59.0] */}
-          <SegmentedFilter
-            ariaLabel="Filter released results by whether the patient was sent them"
-            options={[
-              { value: 'all', label: 'All' },
-              { value: 'unsent', label: 'Not sent' },
-              { value: 'sent', label: 'Sent' },
-            ]}
-            value={worklist.deliveryFilter}
-            onChange={worklist.setDeliveryFilter}
-          />
+          {reportsHere && (
+            <SegmentedFilter
+              ariaLabel="Filter released results by whether the patient was sent them"
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'unsent', label: 'Not sent' },
+                { value: 'sent', label: 'Sent' },
+              ]}
+              value={worklist.deliveryFilter}
+              onChange={worklist.setDeliveryFilter}
+            />
+          )}
           <ToolbarSpacer />
           <SearchInput
             placeholder="Search patient, test, queue..."
@@ -78,18 +84,18 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                 <TableHead>Queue Ticket</TableHead>
                 <TableHead>Patient Name</TableHead>
                 <TableHead>Diagnostic Examination</TableHead>
-                <TableHead>Released</TableHead>
+                <TableHead>{reportsHere ? 'Released' : 'Done'}</TableHead>
                 {/* Whether the patient was actually TOLD. Released and delivered are two different
                     facts and the screen only ever showed the first, so "has she been sent her
                     result?" had no answer anywhere in the system. [1.59.0] */}
-                <TableHead>Sent to patient</TableHead>
+                {reportsHere && <TableHead>Sent to patient</TableHead>}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {worklist.historyError ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="p-0">
+                  <TableCell colSpan={columns} className="p-0">
                     <EmptyState
                       compact
                       tone="error"
@@ -101,7 +107,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                   </TableCell>
                 </TableRow>
               ) : worklist.loading ? (
-                <SkeletonRows rows={5} columns={6} />
+                <SkeletonRows rows={5} columns={columns} />
               ) : paged.length > 0 ? (
                 paged.map(test => (
                   <TableRow key={test.visit_test_id} className="hover:bg-slate-50/70 transition-colors">
@@ -130,13 +136,25 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                       <span className="block text-meta font-normal text-slate-500">{test.category_name}</span>
                     </TableCell>
 
-                    <TableCell label="Released" className="py-3.5 text-fine text-slate-600">
-                      {test.released_at ? formatDateTime(test.released_at) : '—'}
-                      {test.released_by_first_name && (
-                        <span className="block text-meta text-slate-500">by {test.released_by_first_name} {test.released_by_last_name}</span>
+                    <TableCell label={reportsHere ? 'Released' : 'Done'} className="py-3.5 text-fine text-slate-600">
+                      {test.performed_at ? (
+                        <>
+                          {formatDateTime(test.performed_at)}
+                          {test.performed_by_first_name && (
+                            <span className="block text-meta text-slate-500">by {test.performed_by_first_name} {test.performed_by_last_name}</span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {test.released_at ? formatDateTime(test.released_at) : '—'}
+                          {test.released_by_first_name && (
+                            <span className="block text-meta text-slate-500">by {test.released_by_first_name} {test.released_by_last_name}</span>
+                          )}
+                        </>
                       )}
                     </TableCell>
 
+                    {reportsHere && (
                     <TableCell label="Sent to patient" className="py-3.5 text-fine">
                       {test.emailed_at ? (
                         <span className="inline-flex items-center gap-1.5 font-semibold text-brand-700">
@@ -167,14 +185,17 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                         </span>
                       )}
                     </TableCell>
+                    )}
 
                     <TableCell className="py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button onClick={() => onViewResult(test)} variant="outline" size="xs">
-                          <Eye className="h-3 w-3" />
-                          <span>View Report</span>
-                        </Button>
-                        {canSend && (
+                        {(reportsHere || test.result_id) && (
+                          <Button onClick={() => onViewResult(test)} variant="outline" size="xs">
+                            <Eye className="h-3 w-3" />
+                            <span>View Report</span>
+                          </Button>
+                        )}
+                        {canSend && reportsHere && (
                           <Button
                             onClick={() => delivery.requestSend(test)}
                             variant="outline"
@@ -189,7 +210,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                             <span>{test.emailed_at ? 'Send again' : 'Email'}</span>
                           </Button>
                         )}
-                        {canAmend && (
+                        {canAmend && reportsHere && (
                           <Button
                             onClick={() => entry.openForEdit(test)}
                             variant="outline"
@@ -205,7 +226,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                 ))
               ) : (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="p-0">
+                  <TableCell colSpan={columns} className="p-0">
                     <EmptyState
                       icon={History}
                       title={
@@ -215,7 +236,7 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                             ? 'Every released report has reached its patient'
                             : worklist.deliveryFilter === 'sent'
                               ? 'No sends recorded yet'
-                              : `No released ${categoryLabel} results yet`
+                              : reportsHere ? `No released ${categoryLabel} results yet` : `No ${categoryLabel} exams done yet`
                       }
                       description={
                         worklist.search
@@ -224,7 +245,9 @@ export default function ResultHistoryPanel({ worklist, entry, operations, onView
                             ? 'Nothing is waiting to be sent.'
                             : worklist.deliveryFilter === 'sent'
                               ? 'Reports released before this was recorded show as unsent — that means unknown, not that the patient was never told.'
-                              : 'A result appears here once it has been authorised for release from the worklist.'
+                              : reportsHere
+                                ? 'A result appears here once it has been authorised for release from the worklist.'
+                                : 'An exam appears here once it has been marked done on the worklist.'
                       }
                     />
                   </TableCell>

@@ -66,16 +66,20 @@ test.describe('Today', () => {
         birthdate: '1991-06-21', sex: 'Female', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
+    // [1.129.0] A visit can no longer be opened empty, but one opened before then still can be, so
+    // the row stays. The visit is made with a test and served WITHOUT it, as such a visit reads.
+    const anyTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests.find((t) => t.is_active);
     const created = await ctx.post(`${API}/visits`, {
-      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e today no tests' },
+      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e today no tests', testIds: [anyTest.id] },
     });
     expect(created.status()).toBe(201);
     const visitId = (await created.json()).data.visit.id;
 
     // The visit exactly as the queue reports it, served on its own so it is one of the rows shown.
     const active = (await (await ctx.get(`${API}/visits/active`, { headers: H })).json()).data;
-    const mine = active.visits.find((v) => v.id === visitId);
-    expect(mine, 'the new visit should be in today\'s queue').toBeTruthy();
+    const found = active.visits.find((v) => v.id === visitId);
+    expect(found, 'the new visit should be in today\'s queue').toBeTruthy();
+    const mine = { ...found, tests: [] };
     await ctx.dispose();
 
     await page.route((url) => url.pathname === '/api/visits/active', (route) => route.fulfill({

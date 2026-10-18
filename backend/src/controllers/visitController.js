@@ -4,24 +4,33 @@ const patientService = require('../services/patientService');
 class VisitController {
   async registerVisit(req, res, next) {
     try {
-      const { patientId, visitType, notes, referringPhysician, referringPhysicianPrc } = req.body;
+      const {
+        patientId, patient, confirmNewPatient, visitType, notes, referringPhysician, referringPhysicianPrc,
+        testIds, packageIds,
+      } = req.body;
       const createdBy = req.user.userId;
 
-      if (!patientId || !visitType) {
+      // A visit is for a patient on file (`patientId`) or a new record registered with it
+      // (`patient`) [1.129.0], and carries its tests from the start.
+      if ((!patientId && !patient) || !visitType) {
         return res.status(400).json({
           status: 'error',
-          message: 'Patient ID and visit type are required.'
+          message: 'A patient and a visit type are required.'
         });
       }
 
       const visit = await visitService.registerVisit({
         patientId,
+        patient,
+        confirmNewPatient: confirmNewPatient === true || confirmNewPatient === 'true',
         visitType,
         notes,
         createdBy,
         // Optional here; visitService decides whether this patient's type makes it mandatory.
         referringPhysician,
-        referringPhysicianPrc
+        referringPhysicianPrc,
+        testIds,
+        packageIds,
       });
 
       return res.status(201).json({

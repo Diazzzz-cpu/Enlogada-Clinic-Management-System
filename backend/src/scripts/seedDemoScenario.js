@@ -576,23 +576,22 @@ async function main() {
     // 'Private' and HMO both require one, so those callers must supply an index.
     const referrer = referrerIndex === null ? null : pick(REFERRERS, referrerIndex);
 
-    const visit = (await call('/visits', {
-      method: 'POST', token: tok.receptionist,
-      body: {
-        patientId: patient.id, visitType: 'Walk in', notes,
-        referringPhysician: referrer?.[0], referringPhysicianPrc: referrer?.[1],
-      },
-    })).data.visit;
-
     // [1.125.0] Several tests on one visit, and package deals, the way people actually come in: a
     // pre-employment panel is four tests, an annual physical eight.
     const chosen = (wanted || (category ? [[category, test]] : []))
       .map(([c, t]) => (t && typeof t === 'object' && t.id ? t : findTest(c, t)));
     const packageIds = packageCodes.map((code) => packages.find((pk) => pk.code === code)?.id).filter(Boolean);
-    const attached = (await call('/tests/visit-tests', {
+
+    // [1.129.0] A visit carries its tests from the start: one request, one transaction.
+    const visit = (await call('/visits', {
       method: 'POST', token: tok.receptionist,
-      body: { patientVisitId: visit.id, testIds: [...new Set(chosen.map((t) => t.id))], packageIds },
-    })).data.visitTests;
+      body: {
+        patientId: patient.id, visitType: 'Walk in', notes,
+        referringPhysician: referrer?.[0], referringPhysicianPrc: referrer?.[1],
+        testIds: [...new Set(chosen.map((t) => t.id))], packageIds,
+      },
+    })).data.visit;
+    const attached = (await call(`/tests/visit-tests/${visit.id}`, { token: tok.receptionist })).data.visitTests;
     const items = attached.map((vt) => {
       const t = tests.find((x) => x.id === vt.test_id);
       return { visitTestId: vt.id, test: t, category: offered(t.category_name) };
@@ -707,12 +706,24 @@ async function main() {
   const release = async (v) =>
     (await call(`/results/${v.visitTestId}/release`, { method: 'POST', token: modalityToken[v.category] })).data.result;
 
+  // X-ray gives its results through its own system [1.129.0]: its exam is marked done, never reported here.
+  const NO_REPORT = new Set(['Xray']);
+  const markDone = async (v) =>
+    call(`/results/test-status/${v.visitTestId}`, {
+      method: 'PATCH', token: modalityToken[v.category], body: { status: 'Completed' },
+    });
+
   /** Every test on a visit resulted by its own department; `byTest` holds options per test name. */
   const recordVisit = async (v, byTest = {}) => {
-    for (const item of v.items) await recordFindings({ ...v, ...item }, byTest[item.test.name] || {});
+    for (const item of v.items) {
+      if (!NO_REPORT.has(item.category)) await recordFindings({ ...v, ...item }, byTest[item.test.name] || {});
+    }
   };
   const releaseVisit = async (v) => {
-    for (const item of v.items) await release({ ...v, ...item });
+    for (const item of v.items) {
+      if (NO_REPORT.has(item.category)) await markDone({ ...v, ...item });
+      else await release({ ...v, ...item });
+    }
   };
 
   // ── TODAY: the clinic's day so far, created in the order people arrived ───────────────────
@@ -739,22 +750,14 @@ async function main() {
     note(v, 'whole abdomen released, mild fatty liver');
   }
 
-  // 2. An AMENDED X-ray report — two versions, so the amendment history has something in it.
+  // 2. A chest X-ray, done. [1.129.0] X-ray results are given by the X-ray department's own
+  // system, so the exam is marked done on its worklist and no report is kept here.
   {
-    // An amendment is re-issued to whoever received the first version, so it needs a referrer.
     const v = await makeVisit({ person: TODAY_POOL.borja, category: 'Xray', test: /chest/i, referrerIndex: 2, notes: 'Cough for two weeks' });
     await payFor(v, 'GCash');
-    await recordFindings(v);
-    await amend(v, {
-      findings: para('Minimal linear densities are seen in the left lung base. The rest of the lung fields are clear.',
-        'The heart is not enlarged. The hemidiaphragms and the costophrenic sulci are intact.',
-        'IMPRESSION:\nMINIMAL LEFT BASAL ATELECTASIS. NO CONSOLIDATION.'),
-      remarks: 'Corrected on review by the radiologist.',
-      reason: 'The first report missed a left basal finding seen on re-review',
-    });
-    await release(v);
+    await markDone(v);
     today.push({ ...v, stage: 'released' });
-    note(v, 'AMENDED chest X-ray report (v2), released');
+    note(v, 'chest X-ray done (the result comes from the X-ray department)');
   }
 
   // 2b. And an amended LABORATORY result. [1.70.0]
@@ -1059,6 +1062,13 @@ async function main() {
           WHERE visit_test_id IN (SELECT id FROM visit_tests WHERE patient_visit_id = $1)`,
         [h.visit.id, shift, arrival, waitToPay + releaseAfter]
       );
+      // An X-ray exam marked done [1.129.0], at the time its report would have been released.
+      await db.query(
+        `UPDATE visit_tests
+            SET performed_at = (CURRENT_DATE - $2::interval) + make_interval(hours => $3, mins => $4)
+          WHERE patient_visit_id = $1 AND performed_at IS NOT NULL`,
+        [h.visit.id, shift, arrival, waitToPay + releaseAfter]
+      );
       // An HMO claim is filed at the desk and approved before the patient reaches the till.
       await db.query(
         `UPDATE hmo_requests
@@ -1345,6 +1355,7 @@ async function retimeToday(visits) {
           'UPDATE test_results SET released_at = $2, authorised_at = $2 WHERE visit_test_id = $1 AND released_at IS NOT NULL',
           [v.visitTestId, reported]
         );
+        await db.query('UPDATE visit_tests SET performed_at = $2 WHERE id = $1 AND performed_at IS NOT NULL', [v.visitTestId, reported]);
       }
     }
   });

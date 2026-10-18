@@ -63,16 +63,13 @@ test.describe('Borrowed screens offer only what the borrower can do', () => {
         birthdate: '1991-07-08', sex: 'Female', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e borrowed queue' },
-    })).json()).data.visit;
-
     const tests = (await (await ctx.get(`${API}/tests`)).json()).data.tests;
     const labTest = tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
-    const attached = await ctx.post(`${API}/tests/visit-tests`, {
-      headers: H, data: { patientVisitId: visit.id, testIds: [labTest.id] },
+    // [1.129.0] A visit is opened with its tests.
+    const created = await ctx.post(`${API}/visits`, {
+      headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e borrowed queue', testIds: [labTest.id] },
     });
-    expect(attached.ok(), 'the queue needs a row for these checks to mean anything').toBeTruthy();
+    expect(created.ok(), 'the queue needs a row for these checks to mean anything').toBeTruthy();
     await ctx.dispose();
   });
 
@@ -183,11 +180,9 @@ test.describe('An Admin reads the diagnostic screens without being offered what 
   const paidLabTicket = async (reception, patientId, labTestId) => {
     const H = { Authorization: `Bearer ${reception}` };
     const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: H, data: { patientId, visitType: 'Walk in', notes: 'e2e borrowed diagnostic screens' },
+      headers: H, data: { patientId, visitType: 'Walk in', notes: 'e2e borrowed diagnostic screens', testIds: [labTestId] },
     })).json()).data.visit;
-    const attached = (await (await ctx.post(`${API}/tests/visit-tests`, {
-      headers: H, data: { patientVisitId: visit.id, testIds: [labTestId] },
-    })).json()).data.visitTests;
+    const attached = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: H })).json()).data.visitTests;
     const paid = await payAndReleaseWalkIn(ctx, API, visit.id);
     expect(paid.status, 'the ticket must reach the lab').toBe(201);
     return attached[0].id;

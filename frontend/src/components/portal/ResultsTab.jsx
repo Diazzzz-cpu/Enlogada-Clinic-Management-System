@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogTrigger } from '../ui/dialog';
 import { StatusBadge } from '../ui/status-badge';
 import ResultReport from '../ResultReport';
 import Pagination from '../ui/pagination';
+import { categoryLabel, issuesReports } from '../../lib/categories';
 
 const LIST_PAGE_SIZE = 8;
 
@@ -138,7 +139,17 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                         </div>
                       </div>
 
-                      {item.test_status === 'Completed' ? (
+                      {!issuesReports(item.category_name) && !item.file_path ? (
+                        // X-ray [1.129.0]: its results come from the X-ray department's own system,
+                        // so there is nothing here to open, and "not released yet" would wait forever.
+                        <p className="m-0 flex max-w-xs items-start gap-1.5 text-fine text-slate-500">
+                          <CheckCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                          <span>
+                            {item.test_status === 'Completed' ? 'Done. ' : ''}
+                            Your {categoryLabel(item.category_name)} result is given by the {categoryLabel(item.category_name)} department, not in this portal.
+                          </span>
+                        </p>
+                      ) : item.test_status === 'Completed' ? (
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="flex-shrink-0">

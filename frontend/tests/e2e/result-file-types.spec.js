@@ -52,19 +52,14 @@ test.describe('Report file types', () => {
       .data.patients || [];
     expect(profiles.length, 'the seeded client needs a patient profile').toBeGreaterThan(0);
 
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: profiles[0].id, visitType: 'Walk in', notes: 'E2E report file types' },
-    })).json()).data.visit;
-
     const labTests = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .filter((t) => t.category_name === 'Laboratory' && t.is_active)
       .slice(0, 3);
     expect(labTests.length, 'need three active laboratory tests').toBe(3);
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: labTests.map((t) => t.id) },
-    });
+      data: { patientId: profiles[0].id, visitType: 'Walk in', notes: 'E2E report file types', testIds: labTests.map((t) => t.id) },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
 
     ids = ((await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json())

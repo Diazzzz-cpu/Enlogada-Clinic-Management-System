@@ -266,7 +266,7 @@ export const WorkloadPrint = forwardRef(function WorkloadPrint({ reception, diag
         />
       </ReportSection>
 
-      <ReportSection number={2} title="Departments: reports released" note="Each test's report counted once, credited to who released it.">
+      <ReportSection number={2} title="Departments: reports released and X-rays done" note="Each test counted once, credited to who released its report or marked its X-ray done.">
         <ReportTable
           columns={[
             { key: 'name', label: 'Staff', render: name },

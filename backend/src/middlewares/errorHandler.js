@@ -62,6 +62,9 @@ module.exports = (err, req, res, next) => {
     status: 'error',
     statusCode,
     message: isDevelopment || mayShowMessage ? message : 'Something went wrong',
+    // What the screen needs to act on a refusal, e.g. the record a new patient may duplicate.
+    // [1.129.0] Never on a 5xx.
+    ...(error.details && statusCode < 500 && { details: error.details }),
     ...(isDevelopment && { stack: error.stack })
   });
 };

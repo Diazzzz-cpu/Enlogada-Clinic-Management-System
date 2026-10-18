@@ -271,6 +271,11 @@ class UserRepository {
     return result.rows[0]?.id;
   }
 
+  /** Every role an account holds, removed: the first half of replacing them. [1.129.0] */
+  async removeAllRoles(userId) {
+    await db.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
+  }
+
   async assignRoleToUser(userId, roleId, assignedBy = null) {
     const queryText = `
       INSERT INTO user_roles (user_id, role_id, assigned_by)

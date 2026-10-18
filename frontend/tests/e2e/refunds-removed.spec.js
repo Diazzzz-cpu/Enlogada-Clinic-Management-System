@@ -42,13 +42,12 @@ test.describe('No refunds', () => {
         ...fixturePerson(), birthdate: '1979-02-02', sex: 'Male', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'no refunds spec' },
-    })).json()).data.visit;
-    visitId = visit.id;
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active);
-    await ctx.post(`${API}/tests/visit-tests`, { headers: auth(reception), data: { patientVisitId: visitId, testIds: [labTest.id] } });
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'no refunds spec', testIds: [labTest.id] },
+    })).json()).data.visit;
+    visitId = visit.id;
     const paid = await payAndReleaseWalkIn(ctx, API, visitId, cashier);
     paymentId = paid?.body?.data?.payment?.id;
   });

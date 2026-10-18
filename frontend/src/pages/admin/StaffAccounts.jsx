@@ -9,19 +9,47 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '../../components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { SearchInput } from '../../components/ui/search-input';
 import { SkeletonRows } from '../../components/ui/skeleton';
 import Pagination from '../../components/ui/pagination';
 import api from '../../config/api';
 import { toastSuccess } from '../../lib/toast';
-import { UserPlus, AlertCircle, KeyRound, CheckCircle2, Pencil, Users, UserX } from 'lucide-react';
+import { UserPlus, AlertCircle, KeyRound, CheckCircle2, Pencil, Users, UserX, ShieldCheck } from 'lucide-react';
 
 // Module 12: staff account management, scoped to the 5 operational roles only (Admin/SuperAdmin
 // account management is Module 13's explicit responsibility — see adminService.js's
 // MANAGEABLE_ROLES, enforced server-side, not just hidden here).
 const MANAGEABLE_ROLES = ['Receptionist', 'Cashier', 'Laboratory Staff', 'Ultrasound Staff', 'Xray Staff'];
+
+/** "Cashier and Receptionist", "Cashier, Receptionist and Laboratory Staff". */
+const joinRoles = (roles) => (roles.length <= 1 ? roles.join('')
+  : `${roles.slice(0, -1).join(', ')} and ${roles[roles.length - 1]}`);
+
+/**
+ * One or more roles, as checkboxes. [1.129.0] A person who covers the desk and the till holds
+ * both and gets what both allow; there was no way to give anyone a second role from this screen.
+ */
+function RoleChoices({ idPrefix, value, onChange, disabled }) {
+  const toggle = (role) => onChange(value.includes(role) ? value.filter((r) => r !== role) : [...value, role]);
+  return (
+    <fieldset className="m-0 space-y-1.5 border-0 p-0" disabled={disabled}>
+      <legend className="field-label">Roles <span className="font-normal normal-case tracking-normal text-slate-400">(one or more)</span></legend>
+      {MANAGEABLE_ROLES.map((role) => (
+        <label key={role} htmlFor={`${idPrefix}-${role}`} className="flex cursor-pointer items-center gap-2 text-note text-slate-700">
+          <input
+            id={`${idPrefix}-${role}`}
+            type="checkbox"
+            checked={value.includes(role)}
+            onChange={() => toggle(role)}
+            className="rounded text-brand-600 focus:ring-brand-500"
+          />
+          {role}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
 
 // Visual Design Improvement Plan Phase V1: this list has no server-side pagination endpoint,
 // so a client-side page size over an already-fetched, search-filtered array is proportionate —
@@ -40,7 +68,13 @@ const StaffAccounts = () => {
   const [page, setPage] = useState(1);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', contactNumber: '', password: '', role: '' });
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', contactNumber: '', password: '', roles: [] });
+
+  // Changing what someone does. [1.129.0]
+  const [rolesTarget, setRolesTarget] = useState(null);
+  const [rolesDraft, setRolesDraft] = useState([]);
+  const [savingRoles, setSavingRoles] = useState(false);
+  const [rolesError, setRolesError] = useState('');
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -83,7 +117,7 @@ const StaffAccounts = () => {
   }, [fetchStaff]);
 
   const handleOpenAdd = () => {
-    setFormData({ firstName: '', lastName: '', email: '', contactNumber: '', password: '', role: '' });
+    setFormData({ firstName: '', lastName: '', email: '', contactNumber: '', password: '', roles: [] });
     setFormError('');
     setShowAddModal(true);
   };
@@ -92,8 +126,8 @@ const StaffAccounts = () => {
     e.preventDefault();
     setFormError('');
 
-    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.password || !formData.role) {
-      setFormError('First name, last name, email, password, and role are required.');
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.password || formData.roles.length === 0) {
+      setFormError('First name, last name, email, password, and at least one role are required.');
       return;
     }
     if (formData.password.length < 8) {
@@ -110,6 +144,33 @@ const StaffAccounts = () => {
       setFormError(err.response?.data?.message || 'Failed to create staff account.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openRoles = (s) => {
+    setRolesError('');
+    setRolesDraft((s.roles || []).filter((r) => MANAGEABLE_ROLES.includes(r)));
+    setRolesTarget(s);
+  };
+
+  const saveRoles = async () => {
+    if (!rolesTarget) return;
+    if (rolesDraft.length === 0) {
+      setRolesError('Choose at least one role.');
+      return;
+    }
+    setSavingRoles(true);
+    setRolesError('');
+    try {
+      await api.put(`/admin/staff/${rolesTarget.id}/roles`, { roles: rolesDraft });
+      toastSuccess(`${rolesTarget.first_name} ${rolesTarget.last_name} is now ${joinRoles([...rolesDraft].sort())}`,
+        'Their screens change the next time their page refreshes, within a minute.');
+      setRolesTarget(null);
+      fetchStaff();
+    } catch (err) {
+      setRolesError(err.response?.data?.message || 'Could not change the roles.');
+    } finally {
+      setSavingRoles(false);
     }
   };
 
@@ -250,19 +311,12 @@ const StaffAccounts = () => {
                 <Input id="staffaccounts-temporary-password" type="password" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} disabled={submitting} required />
                 <p className="text-fine text-gray-400 m-0">At least 8 characters.</p>
               </div>
-              <div className="space-y-1">
-                <label className="field-label" htmlFor="staffaccounts-role">Role</label>
-                <Select value={formData.role} onValueChange={val => setFormData({ ...formData, role: val })}>
-                  <SelectTrigger className="rounded-xl" id="staffaccounts-role">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MANAGEABLE_ROLES.map(role => (
-                      <SelectItem key={role} value={role}>{role}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <RoleChoices
+                idPrefix="staffaccounts-role"
+                value={formData.roles}
+                onChange={(roles) => setFormData({ ...formData, roles })}
+                disabled={submitting}
+              />
               <DialogFooter className="border-t border-line pt-3">
                 <Button type="button" variant="outline" onClick={() => setShowAddModal(false)} disabled={submitting}>Cancel</Button>
                 <Button type="submit" loading={submitting}>
@@ -364,6 +418,10 @@ const StaffAccounts = () => {
                         <Button type="button" variant="outline" size="xs" onClick={() => handleOpenEdit(s)}>
                           <Pencil className="h-3 w-3" />
                           Edit
+                        </Button>
+                        <Button type="button" variant="outline" size="xs" onClick={() => openRoles(s)}>
+                          <ShieldCheck className="h-3 w-3" />
+                          Roles
                         </Button>
                         <Button type="button" variant="outline" size="xs" onClick={() => handleOpenResetPwd(s)}>
                           <KeyRound className="h-3 w-3" />
@@ -491,6 +549,21 @@ const StaffAccounts = () => {
         loading={togglingStatus}
         error={statusError}
       />
+      <ConfirmDialog
+        open={Boolean(rolesTarget)}
+        onOpenChange={(open) => { if (!open && !savingRoles) setRolesTarget(null); }}
+        title="Change roles"
+        description={rolesTarget
+          ? `What ${rolesTarget.first_name} ${rolesTarget.last_name} does. They get everything each role allows, and their screens change within a minute. The change is recorded in the Activity Log.`
+          : ''}
+        confirmLabel="Save roles"
+        onConfirm={saveRoles}
+        loading={savingRoles}
+        confirmDisabled={rolesDraft.length === 0}
+        error={rolesError}
+      >
+        <RoleChoices idPrefix="staffroles" value={rolesDraft} onChange={setRolesDraft} disabled={savingRoles} />
+      </ConfirmDialog>
     </div>
   );
 };

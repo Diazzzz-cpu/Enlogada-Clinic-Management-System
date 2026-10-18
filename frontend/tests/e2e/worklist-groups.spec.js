@@ -43,18 +43,14 @@ test.describe('Worklist: one row per patient', () => {
         ...person, birthdate: '1985-03-12', sex: 'Female', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: patient.id, visitType: 'Walk in', notes: 'worklist groups spec' },
-    })).json()).data.visit;
     const labTests = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .filter((t) => t.category_name === 'Laboratory' && t.is_active)
       .slice(0, count);
     expect(labTests.length).toBe(count);
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: labTests.map((t) => t.id) },
-    });
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'worklist groups spec', testIds: labTests.map((t) => t.id) },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
     expect(visit.queue_number, 'a walk-in is given its ticket at once').toBeTruthy();
     return { person, ticket: visit.queue_number, testNames: labTests.map((t) => t.name) };

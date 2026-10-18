@@ -10,6 +10,8 @@ import ResultHistoryPanel from '../../components/diagnostic/ResultHistoryPanel';
 import ResultViewerDialog from '../../components/diagnostic/ResultViewerDialog';
 import ResultEntryDialog from '../../components/diagnostic/ResultEntryDialog';
 import { useResultEntry } from '../../hooks/useResultEntry';
+import { useMarkExamDone } from '../../hooks/useMarkExamDone';
+import { issuesReports } from '../../lib/categories';
 import { usePatientResultHistory } from '../../hooks/usePatientResultHistory';
 import { useResultDelivery } from '../../hooks/useResultDelivery';
 import { categoryLabel as categoryLabelFor, categoryIcon } from '../../lib/categories';
@@ -71,6 +73,10 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
   // that just happened rather than the state it was fetched with.
   const delivery = useResultDelivery({ onDelivered: worklist.refresh });
 
+  // X-ray: an exam is marked done, not reported here. [1.129.0]
+  const examDone = useMarkExamDone({ onDone: () => worklist.refresh() });
+  const reportsHere = issuesReports(worklist.category);
+
 
 
 
@@ -94,14 +100,18 @@ const DiagnosticDashboard = ({ activeNav = 'lab-ops', onSelectNav, intent }) => 
           icon={modalityIcon}
           title={pageTitle}
           description={
-            mode === 'history'
-              ? `Every ${categoryLabel} result this department has released, including amended versions.`
-              : `Patients whose ${categoryLabel} exam has been paid for and released to this department. Record findings, then authorise the release of the report.`
+            !reportsHere
+              ? (mode === 'history'
+                ? `Every ${categoryLabel} exam this department has done. Results are given through the ${categoryLabel} department's own system, not here.`
+                : `Patients whose ${categoryLabel} exam has been paid for and released to this department. Mark each exam done once it has been taken; results are given through the ${categoryLabel} department's own system.`)
+              : mode === 'history'
+                ? `Every ${categoryLabel} result this department has released, including amended versions.`
+                : `Patients whose ${categoryLabel} exam has been paid for and released to this department. Record findings, then authorise the release of the report.`
           }
         />
 
         {mode === 'worklist' && (
-          <WorklistPanel worklist={worklist} entry={entry} />
+          <WorklistPanel worklist={worklist} entry={entry} examDone={examDone} />
         )}
 
         {mode === 'history' && (

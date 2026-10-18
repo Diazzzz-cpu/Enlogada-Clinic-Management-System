@@ -205,6 +205,23 @@ class TestRepository {
     return result.rows;
   }
 
+  /**
+   * An exam done in a department that issues no report here (X-ray). [1.129.0] Only from
+   * 'Processing' (or 'Waiting for Release', a draft report saved before X-ray stopped reporting
+   * here), so it cannot finish a test the patient has not paid for or that is already done.
+   */
+  async markPerformed(visitTestId, performedBy) {
+    const result = await db.query(
+      `UPDATE visit_tests
+          SET status = 'Completed', performed_at = CURRENT_TIMESTAMP, performed_by = $2,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status IN ('Processing', 'Waiting for Release')
+        RETURNING *`,
+      [visitTestId, performedBy]
+    );
+    return result.rows[0] || null;
+  }
+
   async updateVisitTestStatus(visitTestId, status) {
     const queryText = `
       UPDATE visit_tests

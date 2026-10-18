@@ -10,6 +10,11 @@ const patientRepository = require('../repositories/patientRepository');
 const { assertReferralIfRequired, normaliseReferral } = require('./referralService');
 const { staffRolesForCategories } = require('../constants/modality');
 const queueEstimateService = require('./queueEstimateService');
+const db = require('../config/database');
+const testService = require('./testService');
+const packageService = require('./packageService');
+const patientService = require('./patientService');
+const { ValidationError, ConflictError } = require('../errors');
 
 const VALID_VISIT_STATUSES = ['Pending', 'Processing', 'Completed', 'Cancelled'];
 
@@ -41,8 +46,61 @@ class VisitService {
    * from `COUNT(*) + 1`: counting races between two receptionists and rewinds when a visit is
    * cancelled, handing a number to two different patients.
    */
-  async registerVisit({ patientId, visitType, notes, createdBy, referringPhysician, referringPhysicianPrc }) {
+  /**
+   * Open a visit at the Desk, with what it is for. [1.129.0]
+   *
+   * A visit used to be created empty and given its tests by a second request, so a walk-in could
+   * be registered with no test at all and join the queue and the till with nothing to do or pay
+   * for. Steven: "that process doesn't make sense at all". A visit now needs at least one test or
+   * package, and the record (for a new patient), the visit, its ticket and its tests are written in
+   * one transaction: all of them, or none.
+   *
+   * A NEW patient (`patient`) is checked against the records on file by name and birthdate first:
+   * registering a returning patient again splits their history across two records. A match is
+   * refused with the record in `details`, unless `confirmNewPatient` says this is someone else.
+   */
+  async registerVisit({
+    patientId, patient: newPatient, confirmNewPatient = false, visitType, notes, createdBy,
+    referringPhysician, referringPhysicianPrc, testIds = [], packageIds = [],
+  }) {
     const referral = normaliseReferral({ referringPhysician, referringPhysicianPrc });
+    const ids = (list) => [...new Set((Array.isArray(list) ? list : [list]).filter((v) => v !== undefined && v !== null && v !== '').map((v) => parseInt(v, 10)))];
+    const tests = ids(testIds);
+    const packages = ids(packageIds);
+    if (tests.some(Number.isNaN) || packages.some(Number.isNaN)) {
+      throw new ValidationError('A test or package in the request is not valid.');
+    }
+    if (tests.length + packages.length === 0) {
+      throw new ValidationError('Choose at least one test or package for this visit.');
+    }
+
+    if (newPatient) {
+      const record = patientService.prepareStaffRecord(newPatient);
+      if (!confirmNewPatient) {
+        const same = await patientRepository.findSameNameAndBirthdate(record.firstName, record.lastName, record.birthdate);
+        if (same) {
+          const error = new ConflictError(
+            `${same.first_name} ${same.last_name}, born ${String(same.birthdate instanceof Date ? same.birthdate.toISOString() : same.birthdate).slice(0, 10)}, is already on file. Start the visit on that record, or confirm this is a different person.`
+          );
+          error.details = { possibleDuplicate: same };
+          throw error;
+        }
+      }
+      const typeName = await patientRepository.findPatientTypeName(record.patientTypeId);
+      if (!typeName) throw new ValidationError('That patient type does not exist.');
+      assertReferralIfRequired({ patientTypeName: typeName, hasHmoClaim: false, referringPhysician: referral.referringPhysician });
+
+      return await db.withTransaction(async () => {
+        const created = await patientRepository.createPatient(record);
+        const queueNumber = await visitRepository.getNextQueueNumber();
+        const visit = await visitRepository.createVisit({
+          patientId: created.id, visitType, notes, queueNumber, createdBy, ...referral,
+        });
+        await packageService.attachPackages(visit.id, packages);
+        await testService.attachTests(visit.id, tests);
+        return { ...visit, patient: created };
+      });
+    }
 
     // A 'Private' patient is by definition one a physician referred, so the record has to say who.
     // Checked before the queue number is drawn: daily_counters hands out a number that is never
@@ -82,19 +140,23 @@ class VisitService {
       referringPhysician: referral.referringPhysician,
     });
 
-    // Generate daily queue number
-    const queueNumber = await visitRepository.getNextQueueNumber();
-
-    const visit = await visitRepository.createVisit({
-      patientId,
-      visitType,
-      notes,
-      queueNumber,
-      createdBy,
-      ...referral
+    // The ticket, the visit and its tests together: a visit is never in the queue empty.
+    return await db.withTransaction(async () => {
+      const queueNumber = await visitRepository.getNextQueueNumber();
+      const visit = await visitRepository.createVisit({
+        patientId,
+        visitType,
+        notes,
+        queueNumber,
+        createdBy,
+        ...referral
+      });
+      // Packages first, as in addTestsToVisit: a test both in a bundle and picked on its own keeps
+      // the bundle's share of the price.
+      await packageService.attachPackages(visit.id, packages);
+      await testService.attachTests(visit.id, tests);
+      return visit;
     });
-
-    return visit;
   }
 
   async getActiveVisits({ search, status, page, limit } = {}) {
@@ -322,7 +384,7 @@ class VisitService {
     if (status === 'Completed' || status === 'Pending') {
       const error = new Error(
         status === 'Completed'
-          ? 'A visit is completed when its last result is released; it cannot be set by hand.'
+          ? 'A visit is completed when its last test is finished (its report released, or an X-ray marked done); it cannot be set by hand.'
           : 'A visit cannot be put back to waiting. Start a new visit for the patient.'
       );
       error.statusCode = 409;

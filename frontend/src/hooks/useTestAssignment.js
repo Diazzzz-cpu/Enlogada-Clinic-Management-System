@@ -40,6 +40,11 @@ export function useTestAssignment({ onAssigned } = {}) {
   /** A line the server will refuse to remove, and the reason to show beside it. */
   const lockReason = (line) => {
     if (line.status !== 'Pending') return `Already ${line.status.toLowerCase()} with the department`;
+    // [1.129.0] A visit always keeps something on it: the server refuses to empty one. A package
+    // comes off whole, so it counts as one thing.
+    const others = existing.filter((l) => l.status !== 'Cancelled'
+      && (line.package_id ? l.package_id !== line.package_id : l.id !== line.id));
+    if (others.length === 0) return 'The only thing on this visit. To drop it, cancel the visit instead';
     return null;
   };
 

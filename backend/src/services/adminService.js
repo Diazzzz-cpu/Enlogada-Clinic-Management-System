@@ -31,17 +31,52 @@ const isAdminManageable = (user) => {
   return roles.length > 0 && roles.every((r) => MANAGEABLE_ROLES.includes(r));
 };
 
+/**
+ * The roles a staff account is given, checked: at least one, each one of the five front-line
+ * roles, no repeats. [1.129.0] Accepts `roles` (a list) or the older single `role`.
+ */
+function chooseRoles({ roles, role }) {
+  const list = [...new Set((Array.isArray(roles) ? roles : role ? [role] : []).map((r) => String(r).trim()))];
+  if (list.length === 0) {
+    const error = new Error('Choose at least one role.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const invalid = list.filter((r) => !MANAGEABLE_ROLES.includes(r));
+  if (invalid.length > 0) {
+    const error = new Error(`Invalid role${invalid.length > 1 ? 's' : ''}: ${invalid.join(', ')}. Must be one of: ${MANAGEABLE_ROLES.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return list;
+}
+
+/** Each role's id, or a 500 naming the one the database has not been seeded with. */
+async function roleIdsFor(roleNames) {
+  const ids = [];
+  for (const name of roleNames) {
+    const id = await userRepository.findRoleIdByName(name);
+    if (!id) {
+      const error = new Error(`Role "${name}" is not seeded in the database.`);
+      error.statusCode = 500;
+      throw error;
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
 class AdminService {
   async getStaffAccounts() {
     return await userRepository.findStaffUsers(MANAGEABLE_ROLES);
   }
 
-  async createStaffAccount({ firstName, lastName, email, password, contactNumber, role }) {
-    if (!MANAGEABLE_ROLES.includes(role)) {
-      const error = new Error(`Invalid role. Must be one of: ${MANAGEABLE_ROLES.join(', ')}`);
-      error.statusCode = 400;
-      throw error;
-    }
+  /**
+   * [1.129.0] One or more roles. A person who covers the front desk and the till holds both, and
+   * gets what both allow, with nothing to set up by hand.
+   */
+  async createStaffAccount({ firstName, lastName, email, password, contactNumber, role, roles }) {
+    const chosen = chooseRoles({ roles, role });
 
     // Stored lower-case, like every account address, so the capitals can never make a second one.
     const address = normaliseAccountEmail(email);
@@ -62,18 +97,61 @@ class AdminService {
     // console. Inside a transaction the same check now rolls the account back.
     const user = await db.withTransaction(async () => {
       const created = await userRepository.createUser(firstName, lastName, address, passwordHash, contactNumber);
-
-      const roleId = await userRepository.findRoleIdByName(role);
-      if (!roleId) {
-        const error = new Error(`Role "${role}" is not seeded in the database.`);
-        error.statusCode = 500;
-        throw error;
+      for (const roleId of await roleIdsFor(chosen)) {
+        await userRepository.assignRoleToUser(created.id, roleId);
       }
-      await userRepository.assignRoleToUser(created.id, roleId);
       return created;
     });
 
-    return { ...user, roles: [role] };
+    return { ...user, roles: chosen };
+  }
+
+  /**
+   * Change what a staff member does. [1.129.0]
+   *
+   * There was no way to: Staff Accounts set one role at creation and never again, so "this cashier
+   * also covers the desk" meant editing the database by hand. The account's access follows its
+   * roles from the next request (`verifyToken` reads them every time), and the sidebar within a
+   * minute (AuthContext re-reads /auth/me).
+   *
+   * Only the five front-line roles, and only on an account that holds nothing else
+   * (`isAdminManageable`): an Admin cannot make anyone an Admin or a SuperAdmin here, or touch one.
+   * Audited, with the roles before and after, because it changes what a person may do.
+   */
+  async updateStaffRoles(userId, { roles }, requestingUser) {
+    const user = await userRepository.findById(userId);
+    if (!user) {
+      const error = new Error('Staff account not found');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!isAdminManageable(user)) {
+      const error = new Error('This account is not a staff account managed by this endpoint.');
+      error.statusCode = 403;
+      throw error;
+    }
+    const chosen = chooseRoles({ roles });
+    const before = [...(user.roles || [])].sort();
+    const after = [...chosen].sort();
+    if (before.join('|') === after.join('|')) return { ...user, roles: before };
+
+    const roleIds = await roleIdsFor(chosen);
+    await db.withTransaction(async () => {
+      await userRepository.removeAllRoles(userId);
+      for (const roleId of roleIds) {
+        await userRepository.assignRoleToUser(userId, roleId, requestingUser?.userId ?? null);
+      }
+    });
+
+    await auditService.log({
+      actorId: requestingUser?.userId,
+      action: 'staff.roles_changed',
+      entityType: 'user',
+      entityId: userId,
+      description: `Roles for ${user.first_name} ${user.last_name} (${user.email}): ${before.join(', ') || 'none'} → ${after.join(', ')}`,
+    });
+
+    return { ...user, roles: after };
   }
 
   async resetStaffPassword(userId, newPassword, requestingUser) {

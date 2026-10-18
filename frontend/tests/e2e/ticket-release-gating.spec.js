@@ -54,18 +54,18 @@ async function createUnreleasedWalkIn(apiContext, recToken) {
   });
   const patient = (await patientRes.json()).data.patient;
 
-  const visitRes = await apiContext.post(`${API}/visits`, {
-    headers: { Authorization: `Bearer ${recToken}` },
-    data: { patientId: patient.id, visitType: 'Walk in', notes: '' }
-  });
-  const visit = (await visitRes.json()).data.visit;
-
   const testsRes = await apiContext.get(`${API}/tests`);
   const labTest = (await testsRes.json()).data.tests.find((t) => t.category_name === 'Laboratory');
 
-  const vtRes = await apiContext.post(`${API}/tests/visit-tests`, {
+  // [1.129.0] A visit is opened with its tests.
+  const visitRes = await apiContext.post(`${API}/visits`, {
     headers: { Authorization: `Bearer ${recToken}` },
-    data: { patientVisitId: visit.id, testIds: [labTest.id] }
+    data: { patientId: patient.id, visitType: 'Walk in', notes: '', testIds: [labTest.id] }
+  });
+  const visit = (await visitRes.json()).data.visit;
+
+  const vtRes = await apiContext.get(`${API}/tests/visit-tests/${visit.id}`, {
+    headers: { Authorization: `Bearer ${recToken}` },
   });
   const visitTestId = (await vtRes.json()).data.visitTests[0].id;
 

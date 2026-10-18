@@ -9,6 +9,8 @@ const router = express.Router();
 router.get('/staff', verifyToken, authorizeStaff, authorizePermissions('staff:manage'), adminController.getStaff);
 router.post('/staff', verifyToken, authorizeStaff, authorizePermissions('staff:manage'), adminController.createStaff);
 router.patch('/staff/:id/status', verifyToken, authorizeStaff, authorizePermissions('staff:manage'), adminController.updateStaffStatus);
+// [1.129.0] One or more of the five front-line roles. Audited.
+router.put('/staff/:id/roles', verifyToken, authorizeStaff, authorizePermissions('staff:manage'), adminController.updateStaffRoles);
 
 // UI/UX Modernization Phase 11: edits an existing staff member's own name/email/contact number
 // (never role — that stays a separate, more sensitive surface). Previously the only recourse

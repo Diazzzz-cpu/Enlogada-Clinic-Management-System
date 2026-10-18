@@ -42,12 +42,11 @@ test.describe('Patient feedback', () => {
 
   /** A visit with one laboratory test, paid, and released unless told not to. */
   const visitFor = async (patientId, { release = true } = {}) => {
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId, visitType: 'Walk in', notes: 'feedback spec' },
-    })).json()).data.visit;
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active);
-    await ctx.post(`${API}/tests/visit-tests`, { headers: auth(reception), data: { patientVisitId: visit.id, testIds: [labTest.id] } });
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(reception), data: { patientId, visitType: 'Walk in', notes: 'feedback spec', testIds: [labTest.id] },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
     if (release) {
       const vt = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json()).data.visitTests[0];

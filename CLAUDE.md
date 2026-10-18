@@ -105,6 +105,7 @@ node src/scripts/migrateRemoveResultForms.js  # [1.109.0] drop the five typed re
 node src/scripts/migrateAuthorisedIndex.js      # [1.110.0] index authorised_at, which every report now reads as "released" (--rollback reverses it)
 node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 tables, 6 visit columns, 2 permissions, the paper form's 4 questions (--rollback reverses it)
 node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code per released report version; backfills released ones (--rollback reverses it)
+node src/scripts/migrateExamPerformed.js        # [1.129.0] visit_tests.performed_at/_by: an X-ray exam marked done (--rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -171,8 +172,8 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 
 ```bash
 cd backend  && npm test        # 129 unit tests, node:test, ZERO dependencies, ~0.7s
-cd frontend && npm run test:unit # 126 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 425 Playwright E2E, ~12m, needs both dev servers
+cd frontend && npm run test:unit # 128 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 510 Playwright E2E, ~14m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -191,7 +192,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 64 Playwright specs (425 tests, ~12m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 84 Playwright specs (510 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -322,7 +323,11 @@ This layering is enforced convention in this codebase (checked by the "Project A
 - **`authorizeStaff` replaced the hardcoded role lists on 45 routes [1.20.0].** It asks only "is this a member of staff"; the permission decides the rest. Before this, `POST /payments` named `('SuperAdmin', 'Cashier')` and every result route named the three modality roles, so granting a cashier permission to Laboratory Staff saved, reported success and changed nothing — the matrix could not actually delegate, which is worse than having no matrix. Routes whose role list includes `Client` keep it: that is the one boundary a tick must never cross. Those routes pair the list with a permission anyway, and `verifyRbacWiring.js` then insists every named role holds it — which is why the Client role grants `hmo:request` and `hmo:read` (both ownership-scoped in `hmoService`) rather than the card and claim routes going ungated.
 - **"Is this staff?" has exactly one definition: `isStaffUser` in `src/constants/roles.js`** — holds any role that is not `Client`. `authorizeStaff` uses it, and so do the two places that need the same question answered as a *business* rule (whether an HMO claim needs a card photo, in `hmoService.resolveCardEvidence` and `appointmentController.create`; and since `[1.106.0]` whether a booking needs the doctor's signed request, in `referralService.assertDoctorRequestIfRequired`). A local `['SuperAdmin','Admin','Receptionist','Cashier']` list is the wrong shape twice over: it has to be found and edited whenever a role is added, and it disagrees with the matrix the moment a permission like `hmo:request` is delegated to a role the list does not mention.
 - **Three axes, resolved server-side in `userRepository` so no caller can disagree with another:**
-  - `roles` — staff or patient. Structural, not editable from any screen.
+  - `roles` — staff or patient, and which staff. An account may hold SEVERAL and gets the union of
+    what they allow. `[1.129.0]` Staff Accounts creates an account with one or more of the five
+    front-line roles and changes them later (row → Roles, `PUT /admin/staff/:id/roles`, audited as
+    `staff.roles_changed`); there was no way to before, so "a cashier who also covers the desk" was a
+    database edit. Never on an account holding Admin or SuperAdmin (`isAdminManageable`).
   - `permissions` — the role template **plus** that account's own grants, **minus** its revokes (`user_permissions`). Revoke is applied last as a set difference, so a conflict resolves to *less* access.
   - `departments` — the modalities implied by the account's roles **plus** `user_departments`. `null` means unrestricted (Admin/SuperAdmin) and is deliberately distinct from `[]`, "none"; collapsing the two is how an access check ends up inverted. Enforced in the service layer — see `resultService.assertStaffAllowedCategory`.
 - Per-account exceptions are edited on **Access Control** (SuperAdmin → One person) and are **audited**. Role edits are not: a role change is visible on the "Who sees what" grid everyone reads, while an exception applies to one person and is easy to forget.
@@ -473,6 +478,15 @@ confirmation email and the booking wizard all keep working untouched. `parsePrep
 stored sentence back into toggles — recognising BOTH bladder wordings, so editing either converges
 it — and anything unrecognised is preserved verbatim in the free-text field rather than dropped.
 
+**A visit is opened with its tests.** `[1.129.0]` `POST /visits` takes `testIds` / `packageIds`
+and refuses a visit with neither (400): an empty walk-in reached the till with a ₱0 bill and no
+department ever saw it. It may also take a new patient (`patient`), and then the record, the visit,
+its ticket and its tests are ONE transaction (`visitService.registerVisit`), so no failure leaves a
+record without its visit. A new record with the same name (case and spacing ignored) and birthdate
+as one on file is 409 with `details.possibleDuplicate` unless `confirmNewPatient`; the Desk asks
+"Use the record on file" or "No, register someone new". The last test on a visit cannot be
+removed (409); cancelling the visit drops everything. A spec that needs "a visit" passes a test.
+
 **A PAID visit is finished in both directions.** `[1.55.0]` Tests cannot be added to it and
 cannot be removed from it. Removal would change a bill the patient holds a receipt for. ADDING was
 worse and was a live revenue leak, measured: pay a ₱190 visit, attach another ₱190 test, and the
@@ -542,7 +556,8 @@ shapes to keep:
   22P02/22003/22007/22008/2201W/22001/23502/23514 to 400, 23503 to 404 (or 409 when still
   referenced) and 23505 to 409, with `CONSTRAINT_MESSAGES` naming each known constraint. Before it,
   ~1,400 malformed inputs were 500s quoting the database. A new CHECK or UNIQUE constraint gets a
-  sentence there.
+  sentence there. An error's `details` reach the client on a 4xx (never a 5xx) `[1.129.0]`: that
+  is how the Desk learns WHICH record a new patient may duplicate.
 - **Status moves by hand are a short list.** A visit: only Cancelled (Processing keeps its release
   rule); Completed and Pending belong to the process. A booking: check in, No Show (on or after its
   day, never after check-in) or Cancelled; Cancelled, No Show and Completed are final. A booking
@@ -991,7 +1006,8 @@ with a link to the printable document.
   shows by itself, right above the heading). `WhoIsHereBox` takes a name, queue number,
   reference or scan: today's bookings (Check in → the old card), records on file (Start visit →
   the old confirmation), and it drives the queue's search. It never offers Start visit to someone
-  with an UNPAID visit in today's queue; a paid one gets "Start another visit" `[1.123.0]`. It
+  with an UNPAID visit in today's queue; a paid one gets "Start another visit" `[1.123.0]`. Both
+  ask what the visit is for, and Confirm Check-In waits for a test `[1.129.0]`. It
   waits for the queue to answer for the same name before showing records
   (`useReceptionQueue.appliedSearch`), and the queue matches a full name, not only either half. Registration is a `Sheet`
   titled "Walk-In Registration" holding the unchanged form (`#wi-*`, "Register Walk-In & Issue Queue
@@ -1242,6 +1258,19 @@ Services Catalogue.
   their three historical rows stay: removing a feature is not a reason to erase the record that
   a clinician judged a value dangerous and somebody telephoned a patient about it. Nothing
   writes or displays them.
+- **X-ray issues no report here; its exams are marked done.** `[1.129.0]` The clinic's X-ray
+  department gives its results through its own system. `NO_REPORT_CATEGORIES` / `issuesReports`
+  (`constants/modality.js`, mirrored in `lib/categories.js`; change both) name such departments,
+  and it is `['Xray']`. Upload, release and email are refused on the server (409). The worklist's
+  one action is Mark done: `PATCH /results/test-status/:id` with `Completed` stamps
+  `visit_tests.performed_at` / `performed_by`, completes the test, and the visit if nothing else is
+  outstanding. A department that issues reports is refused there (403), because its tests finish
+  by releasing: that endpoint used to let anyone complete a test with no report at all. Every
+  report that counts released work counts an exam done the same way (Departments throughput and
+  turnaround, Today's department table, Staff Workload; `reportRepository` UNIONs the two). X-Ray
+  History shows "Done" and who, with no delivery column or Email; the portal says the result comes
+  from the X-Ray department and leaves it out of "Latest results". X-ray still queues and bills.
+  `xray-no-report.spec.js` holds it.
 - **A result is its attached report document.** `[1.94.0]` Findings, remarks, the structured
   measurement grid and the quick-fill templates were all removed: the clinic already produces a
   report file for every diagnosis, and asking a technologist to re-enter it was work done twice.

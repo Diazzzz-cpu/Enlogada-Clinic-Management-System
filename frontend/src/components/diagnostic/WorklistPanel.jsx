@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { categoryLabel as categoryLabelFor, categoryIcon } from '../../lib/categories';
+import { categoryLabel as categoryLabelFor, categoryIcon, issuesReports } from '../../lib/categories';
 import { groupByVisit, statusCounts, worklistCountLabel } from '../../lib/worklistGroups';
 import { cn } from '../../lib/utils';
-import { ChevronRight, Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Clock, FileText, Send, ShieldCheck, WifiOff } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Panel, PanelBody } from '../ui/panel';
 import Toolbar, { SegmentedFilter, ToolbarSpacer } from '../ui/toolbar';
@@ -17,6 +17,7 @@ import { ageFromBirthdate } from '../../lib/date';
 import WaitBadge from '../ui/wait-badge';
 import { SkeletonRows } from '../ui/skeleton';
 import { useAuth } from '../../contexts/AuthContext';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 
 const PAGE_SIZE = 10;
 const WORKLIST_STATUS_FILTERS = ['All', 'Processing', 'Waiting for Release'];
@@ -49,7 +50,9 @@ function Referrer({ test }) {
  * One test's examination, status and actions: the last three cells of a plain row, and the whole
  * of a row under a patient's name.
  */
-function TestCells({ test, entry, canRecord, canRelease, showReferrer = true }) {
+function TestCells({ test, entry, examDone, canRecord, canRelease, showReferrer = true }) {
+  // X-ray: no report here, so the exam is marked done instead. [1.129.0]
+  const reportsHere = issuesReports(test.category_name);
   return (
     <>
       <TableCell label="Examination" className="py-3.5 text-fine font-bold text-slate-800">
@@ -75,13 +78,19 @@ function TestCells({ test, entry, canRecord, canRelease, showReferrer = true }) 
 
       <TableCell className="py-3.5 text-right">
         <div className="flex items-center justify-end gap-2">
-          {canRecord && (
+          {canRecord && !reportsHere && (test.test_status === 'Processing' || test.test_status === 'Waiting for Release') && (
+            <Button onClick={() => examDone?.ask(test)} size="xs">
+              <CheckCircle2 className="h-3 w-3" />
+              <span>Mark done</span>
+            </Button>
+          )}
+          {canRecord && reportsHere && (
             <Button onClick={() => entry.openFor(test)} variant="outline" size="xs">
               <FileText className="h-3 w-3" />
               <span>{test.test_status === 'Waiting for Release' ? 'Edit Report' : 'Attach Report'}</span>
             </Button>
           )}
-          {canRelease && test.test_status === 'Waiting for Release' && (
+          {canRelease && reportsHere && test.test_status === 'Waiting for Release' && (
             <Button onClick={() => entry.openRelease(test)} size="xs">
               <Send className="h-3 w-3" />
               <span>Release Result</span>
@@ -108,7 +117,7 @@ function TestCells({ test, entry, canRecord, canRelease, showReferrer = true }) 
  * Groups start closed, so the list reads as the people waiting, and stay open across the polling
  * refresh because they are remembered by visit.
  */
-export default function WorklistPanel({ worklist, entry }) {
+export default function WorklistPanel({ worklist, entry, examDone }) {
   const categoryLabel = categoryLabelFor(worklist.category);
   // Each action gated on the permission its own endpoint demands. [1.74.0] The worklist itself is
   // gated on `results:write` in navigation.js, so whoever sees it can record; releasing is
@@ -124,6 +133,9 @@ export default function WorklistPanel({ worklist, entry }) {
   // A failed load empties `pending`, so the counts above would read 0. That is a claim about the
   // department's workload, and a false one — the tiles say they don't know instead. [1.74.0]
   const worklistFailed = Boolean(worklist.worklistError);
+  // X-ray marks exams done rather than releasing reports [1.129.0], so it has no "awaiting
+  // release" stage to count or filter by.
+  const reportsHere = issuesReports(worklist.category);
 
   // Client-side, because the worklist a department holds at once is small — a handful of
   // tickets, not the payments table. Filtering here keeps the search instant while the polling
@@ -155,21 +167,25 @@ export default function WorklistPanel({ worklist, entry }) {
   return (
       <>
       {/* Department Modality Worklist Header Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className={cn('grid grid-cols-1 gap-4', reportsHere && 'sm:grid-cols-2')}>
         {/* "—" on a failure, and the table below says why with its Try again — not a caption here too. */}
         <MetricCard label="Awaiting Exam" value={worklistFailed ? '—' : processingCount} caption="Paid and released to you" captionTone="slate" icon={Clock} tone="indigo" />
-        <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />
+        {reportsHere && (
+          <MetricCard label="Awaiting Release" value={worklistFailed ? '—' : awaitingReleaseCount} caption="Report attached, not authorised" captionTone="slate" icon={FileText} tone="amber" />
+        )}
       </div>
 
       <div>
         {/* Search + Status Filter Toolbar */}
         <Toolbar attached>
-          <SegmentedFilter
-            ariaLabel="Filter worklist by status"
-            options={WORKLIST_STATUS_FILTERS.map(f => ({ value: f, label: f }))}
-            value={worklist.status}
-            onChange={worklist.setStatus}
-          />
+          {reportsHere && (
+            <SegmentedFilter
+              ariaLabel="Filter worklist by status"
+              options={WORKLIST_STATUS_FILTERS.map(f => ({ value: f, label: f }))}
+              value={worklist.status}
+              onChange={worklist.setStatus}
+            />
+          )}
           <ToolbarSpacer />
           <SearchInput
             placeholder="Search patient, test, queue..."
@@ -231,7 +247,7 @@ export default function WorklistPanel({ worklist, entry }) {
                           </div>
                           <PatientDetails test={first} />
                         </TableCell>
-                        <TestCells test={first} entry={entry} canRecord={canRecord} canRelease={canRelease} />
+                        <TestCells test={first} entry={entry} examDone={examDone} canRecord={canRecord} canRelease={canRelease} />
                       </TableRow>
                     );
                   }
@@ -292,7 +308,7 @@ export default function WorklistPanel({ worklist, entry }) {
                         >
                           <TableCell className="py-3" />
                           <TableCell className="py-3" />
-                          <TestCells test={test} entry={entry} canRecord={canRecord} canRelease={canRelease} showReferrer={false} />
+                          <TestCells test={test} entry={entry} examDone={examDone} canRecord={canRecord} canRelease={canRelease} showReferrer={false} />
                         </TableRow>
                       ))}
                     </React.Fragment>
@@ -326,6 +342,20 @@ export default function WorklistPanel({ worklist, entry }) {
         />
       </Panel>
       </div>
+      {examDone && (
+        <ConfirmDialog
+          open={Boolean(examDone.target)}
+          onOpenChange={(open) => { if (!open) examDone.cancel(); }}
+          title="Mark this exam done?"
+          description={examDone.target
+            ? `${examDone.target.test_name} for ${examDone.target.first_name} ${examDone.target.last_name}. It leaves the worklist and is counted as done. The result is given through the department's own system, not here.`
+            : ''}
+          confirmLabel="Mark done"
+          onConfirm={examDone.confirm}
+          loading={examDone.busy}
+          error={examDone.error}
+        />
+      )}
       </>
   );
 }

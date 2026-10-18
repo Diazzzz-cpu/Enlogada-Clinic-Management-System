@@ -17,7 +17,8 @@ const {
 } = require('./resultEmailTemplate');
 const {
   DIAGNOSTIC_CATEGORIES,
-  MODALITY_SETTABLE_TEST_STATUSES,
+  issuesReports,
+  categoryLabel,
   departmentsForUser,
   userCoversCategory
 } = require('../constants/modality');
@@ -117,6 +118,21 @@ async function assertStaffOwnsVisitTest(requestingUser, visitTestId) {
   }
 }
 
+/**
+ * Refuses report work on a department whose results are given outside this system. [1.129.0]
+ * Upload, release and email all ask; X-ray's exam is marked done on its worklist instead.
+ */
+async function assertDepartmentIssuesReports(visitTestId) {
+  const row = await resultRepository.findVisitReleaseStateByVisitTestId(visitTestId);
+  if (row && !issuesReports(row.category_name)) {
+    const error = new Error(
+      `${categoryLabel(row.category_name)} results are given by the ${categoryLabel(row.category_name)} department's own system, so nothing is uploaded, released or sent here. Mark the exam done on the worklist instead.`
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
 class ResultService {
   /**
    * The worklist for one modality: tickets released to it and not yet reported.
@@ -186,48 +202,57 @@ class ResultService {
     return { released: rows };
   }
 
-  // A modality may move its own ticket to 'Waiting for Release' (exam done, findings pending
-  // authorisation) or 'Completed'. It may NOT set 'Processing': a ticket arrives already
-  // Processing, put there by the release. That is what "modality staff cannot start a process
-  // on their own" means in enforcement terms.
   /**
-   * Moves a ticket along the modality's own workflow.
+   * Mark an exam DONE, in a department whose results are given outside this system. [1.129.0]
+   *
+   * This route used to let a department set its ticket to 'Waiting for Release' or 'Completed',
+   * and Admin/SuperAdmin to set ANY status. No screen used it, and it was a way round the whole
+   * process: a laboratory test "Completed" with no report released, or an unpaid test pushed to
+   * 'Processing' onto a worklist. Now it does one thing: a paid X-ray exam ('Processing') becomes
+   * 'Completed', recording when and by whom, and the visit completes when nothing else is left —
+   * as releasing a report does in the other departments. A test whose department issues reports
+   * here is finished by releasing its report, and nothing else.
    *
    * @param {number} visitTestId
-   * @param {string} status  Must be in `MODALITY_SETTABLE_TEST_STATUSES` — 'Waiting for Release'
-   *   or 'Completed'. 'Processing' is deliberately excluded: a ticket ARRIVES Processing, put
-   *   there by the payment release, so modality staff cannot pull an unreleased ticket into
-   *   their own queue.
+   * @param {string} status  must be 'Completed'
    * @param {object} requestingUser
-   * @returns {Promise<object>}
    */
   async updateTestStatus(visitTestId, status, requestingUser) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
 
-    const isPrivileged =
-      requestingUser.roles.includes('SuperAdmin') || requestingUser.roles.includes('Admin');
-    if (!isPrivileged && !MODALITY_SETTABLE_TEST_STATUSES.includes(status)) {
-      const error = new Error(
-        `Diagnostic staff may only set a ticket to: ${MODALITY_SETTABLE_TEST_STATUSES.join(' or ')}.`
-      );
-      error.statusCode = 403;
-      throw error;
-    }
-
-    // [1.124.0] A status that exists, on a test that exists. The override above let any text
-    // through, and a missing test answered "Test status updated" with nothing updated.
-    if (!['Pending', 'Approved', 'Processing', 'Waiting for Release', 'Completed', 'Cancelled'].includes(status)) {
-      const error = new Error('That is not a test status.');
-      error.statusCode = 400;
-      throw error;
-    }
-    const updated = await testRepository.updateVisitTestStatus(visitTestId, status);
-    if (!updated) {
+    const state = await resultRepository.findVisitReleaseStateByVisitTestId(visitTestId);
+    if (!state) {
       const error = new Error('Test not found on any visit.');
       error.statusCode = 404;
       throw error;
     }
-    return updated;
+    if (status !== 'Completed' || issuesReports(state.category_name)) {
+      const error = new Error(issuesReports(state.category_name)
+        ? `${categoryLabel(state.category_name)} tests are finished by releasing their report, not by setting their status.`
+        : 'An exam here can only be marked done.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (state.test_status === 'Completed') {
+      const error = new Error('This exam is already marked done.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const done = await db.withTransaction(async () => {
+      const row = await testRepository.markPerformed(visitTestId, requestingUser.userId);
+      if (!row) return null;
+      if (!(await visitRepository.hasOutstandingTests(state.visit_id))) {
+        await visitRepository.updateVisitStatus(state.visit_id, 'Completed');
+      }
+      return row;
+    });
+    if (!done) {
+      const error = new Error('This exam is not with the department yet: it has not been paid for, or it was cancelled.');
+      error.statusCode = 409;
+      throw error;
+    }
+    return done;
   }
 
   async uploadResult(
@@ -235,6 +260,7 @@ class ResultService {
     requestingUser
   ) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
+    await assertDepartmentIssuesReports(visitTestId);
 
     // Fetched once, up front: doubles as (a) the file-preservation source when no new file is
     // attached, and (b) the correction signal below — a result already existing before this call
@@ -595,6 +621,7 @@ class ResultService {
    */
   async emailResult({ visitTestId }, requestingUser) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
+    await assertDepartmentIssuesReports(visitTestId);
 
     const result = await resultRepository.findResultByVisitTestId(visitTestId);
     if (!result) {
@@ -681,6 +708,7 @@ class ResultService {
    */
   async releaseResult({ visitTestId, releasedBy }, requestingUser) {
     await assertStaffOwnsVisitTest(requestingUser, visitTestId);
+    await assertDepartmentIssuesReports(visitTestId);
 
     // Fetch result to confirm it exists
     const result = await resultRepository.findResultByVisitTestId(visitTestId);

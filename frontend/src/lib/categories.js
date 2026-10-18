@@ -53,6 +53,17 @@ export const CATEGORY_ORDER = ['Laboratory', 'Ultrasound', 'Xray', 'ECG'];
  */
 export const OFFERED_CATEGORIES = ['Laboratory', 'Ultrasound', 'Xray'];
 
+/**
+ * Departments whose results are NOT issued through this system. [1.129.0] The X-ray department
+ * gives its results through its own system: its worklist marks an exam done instead of attaching
+ * and releasing a report, and the portal says where the result comes from. Mirrors
+ * NO_REPORT_CATEGORIES in backend/src/constants/modality.js; change both together.
+ */
+export const NO_REPORT_CATEGORIES = ['Xray'];
+
+/** Whether this department's results are uploaded and released in this system. */
+export const issuesReports = (categoryName) => !NO_REPORT_CATEGORIES.includes(categoryName);
+
 // Pale tile + saturated glyph, for an icon beside a heading. Kept as Tailwind classes rather
 // than derived from the hex, because an opacity variant of the mark colour is exactly the
 // "five different pale greens on one screen" problem the design notes warn about.

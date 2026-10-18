@@ -69,14 +69,11 @@ test.describe('Reports count a release once it is authorised', () => {
       },
     });
     const patient = (await created.json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'report basis spec' },
-    })).json()).data.visit;
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active);
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(reception), data: { patientVisitId: visit.id, testIds: [labTest.id] },
-    });
+    const visit = (await (await ctx.post(`${API}/visits`, {
+      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'report basis spec', testIds: [labTest.id] },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
     visitTestId = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json())
       .data.visitTests[0].id;

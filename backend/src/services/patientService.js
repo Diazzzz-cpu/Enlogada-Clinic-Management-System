@@ -99,6 +99,38 @@ const mayReadResults = (user) =>
   (user?.roles || []).includes('SuperAdmin') || (user?.permissions || []).includes('results:read');
 
 class PatientService {
+  /**
+   * The fields of a new record a member of staff registers at the Desk, checked. [1.129.0] The
+   * same rules as POST /patients, for the record created together with its first visit.
+   */
+  prepareStaffRecord(data = {}) {
+    const { patientTypeId, firstName, lastName, birthdate, sex } = data;
+    if (!patientTypeId || !firstName || !lastName || !birthdate || !sex) {
+      const error = new Error('Patient type, first name, last name, birthdate, and sex are required.');
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(birthdate))) {
+      const error = new Error('Birthdate must be a calendar date in YYYY-MM-DD form.');
+      error.statusCode = 400;
+      throw error;
+    }
+    return {
+      userId: null,
+      ...normalisePatientFields({
+        patientTypeId,
+        firstName,
+        lastName,
+        birthdate,
+        sex,
+        address: data.address,
+        contactNumber: data.contactNumber,
+        emergencyContact: data.emergencyContact,
+      }, localToday()),
+      email: normaliseEmail(data.email),
+    };
+  }
+
   async addPatientProfile(userId, patientData) {
     return await patientRepository.createPatient({
       userId,

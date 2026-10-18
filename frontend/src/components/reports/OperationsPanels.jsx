@@ -210,7 +210,7 @@ export const ReceptionThroughputPanel = ({ reception, loading, error, onRetry, d
 export const TurnaroundPanel = ({
   diagnostics, loading, error, onRetry,
   title = 'Turnaround by department',
-  description = 'From payment to released report',
+  description = 'From payment to released report (X-ray: to the exam marked done)',
 }) => {
   const rows = diagnostics?.byCategory || [];
   const outstanding = diagnostics?.outstanding || [];

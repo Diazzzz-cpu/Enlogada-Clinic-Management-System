@@ -163,18 +163,28 @@ class ReportRepository {
 
   async getDiagnosticWorkload(startDate, endDate) {
     const queryText = `
+      WITH work AS (
+        -- AUTHORISED versions only [1.110.0]: released_at is stamped at save, so it credited
+        -- people with drafts nobody had released. A test counts once per person who released it —
+        -- someone authorising their own correction is not credited twice, and a colleague who
+        -- authorised a correction is credited for that work.
+        SELECT tr.released_by AS staff_id, tr.visit_test_id
+          FROM test_results tr
+         WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
+        UNION
+        -- An exam marked done in a department that issues no report here (X-ray). [1.129.0]
+        SELECT vt.performed_by, vt.id
+          FROM visit_tests vt
+         WHERE vt.performed_at >= $1::date AND vt.performed_at < ($2::date + 1)
+           AND vt.performed_by IS NOT NULL
+      )
       SELECT u.id as staff_id, u.first_name, u.last_name, tc.name as category_name,
-             COUNT(DISTINCT tr.visit_test_id) as result_count
-      FROM test_results tr
-      JOIN users u ON tr.released_by = u.id
-      JOIN visit_tests vt ON tr.visit_test_id = vt.id
+             COUNT(DISTINCT w.visit_test_id) as result_count
+      FROM work w
+      JOIN users u ON w.staff_id = u.id
+      JOIN visit_tests vt ON w.visit_test_id = vt.id
       JOIN tests t ON vt.test_id = t.id
       JOIN test_categories tc ON t.category_id = tc.id
-      -- AUTHORISED versions only [1.110.0]: released_at is stamped at save, so it credited people
-      -- with drafts nobody had released. A test counts once per person who released it — someone
-      -- authorising their own correction is not credited twice, and a colleague who authorised a
-      -- correction is credited for that work.
-      WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
       GROUP BY u.id, u.first_name, u.last_name, tc.name
       ORDER BY result_count DESC
     `;
@@ -366,6 +376,21 @@ class ReportRepository {
           ) pay ON TRUE
          WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
            AND ${FIRST_RELEASE}
+        UNION ALL
+        -- An exam marked done in a department that issues no report here (X-ray) [1.129.0]:
+        -- done is its "released", timed from payment the same way.
+        SELECT tc.name,
+               EXTRACT(EPOCH FROM (vt.performed_at - pay.paid_at)) / 60,
+               false
+          FROM visit_tests vt
+          JOIN tests t            ON t.id = vt.test_id
+          JOIN test_categories tc ON tc.id = t.category_id
+          LEFT JOIN LATERAL (
+            SELECT MIN(p2.paid_at) AS paid_at
+              FROM payments p2
+             WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
+          ) pay ON TRUE
+         WHERE vt.performed_at >= $1::date AND vt.performed_at < ($2::date + 1)
       )
       SELECT category_name,
              COUNT(*)::int                                               AS released,
@@ -552,6 +577,22 @@ ${CLAIM_LINES}      )
          -- correction time is not averaged in as though it were a second patient.
          WHERE tr.authorised_at >= $1::date AND tr.authorised_at < ($2::date + 1)
            AND ${FIRST_RELEASE}
+        UNION ALL
+        -- An exam marked done in a department that issues no report here (X-ray). [1.129.0]
+        SELECT tc.name,
+               EXTRACT(EPOCH FROM (vt.performed_at - pay.paid_at)) / 60,
+               EXTRACT(EPOCH FROM (vt.performed_at - pv.created_at)) / 60,
+               COALESCE(($3::jsonb ->> tc.name)::numeric, NULL)
+          FROM visit_tests vt
+          JOIN tests t            ON t.id = vt.test_id
+          JOIN test_categories tc ON tc.id = t.category_id
+          JOIN patient_visits pv  ON pv.id = vt.patient_visit_id
+          LEFT JOIN LATERAL (
+            SELECT MIN(p2.paid_at) AS paid_at
+              FROM payments p2
+             WHERE p2.patient_visit_id = vt.patient_visit_id AND p2.payment_status = 'Paid'
+          ) pay ON TRUE
+         WHERE vt.performed_at >= $1::date AND vt.performed_at < ($2::date + 1)
       )
       SELECT category_name,
              COUNT(*)::int                                                       AS released,

@@ -32,13 +32,23 @@ const CATEGORY_TO_STAFF_ROLE = {
 const DIAGNOSTIC_CATEGORIES = ['Laboratory', 'Xray', 'Ultrasound'];
 
 /**
- * visit_tests.status values a modality staff member is allowed to set themselves.
+ * Departments whose results are NOT issued through this system. [1.129.0]
  *
- * Deliberately excludes 'Processing': a ticket arrives at the modality already Processing,
- * put there by the receptionist/cashier release. Modality staff must not be able to pull an
- * un-released ticket into their own queue.
+ * The X-ray department gives its results through its own system, so nothing is uploaded,
+ * released, emailed or verified here for an X-ray test. It still queues, bills and is counted
+ * like any other: the worklist marks an exam DONE (visit_tests.performed_at / performed_by), and
+ * the reports count those exams beside the released reports of the other departments.
+ *
+ * Mirrored in frontend/src/lib/categories.js (`NO_REPORT_CATEGORIES`). Change both together.
  */
-const MODALITY_SETTABLE_TEST_STATUSES = ['Waiting for Release', 'Completed'];
+const NO_REPORT_CATEGORIES = ['Xray'];
+
+/** Whether results for this department are uploaded and released in this system. */
+const issuesReports = (categoryName) => !NO_REPORT_CATEGORIES.includes(categoryName);
+
+/** A department's name as people say it: 'Xray' is stored, "X-ray" is written. */
+const CATEGORY_LABELS = { Xray: 'X-ray' };
+const categoryLabel = (categoryName) => CATEGORY_LABELS[categoryName] || categoryName;
 
 /** Given a set of category names, the distinct staff roles that own them. */
 function staffRolesForCategories(categoryNames = []) {
@@ -89,7 +99,9 @@ module.exports = {
   STAFF_ROLE_TO_CATEGORIES,
   CATEGORY_TO_STAFF_ROLE,
   DIAGNOSTIC_CATEGORIES,
-  MODALITY_SETTABLE_TEST_STATUSES,
+  NO_REPORT_CATEGORIES,
+  issuesReports,
+  categoryLabel,
   staffRolesForCategories,
   departmentsForUser,
   userCoversCategory

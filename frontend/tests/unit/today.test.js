@@ -135,6 +135,12 @@ describe('departmentNeeds', () => {
     expect(row.action.go).toBe('lab-ops');
   });
 
+  // [1.129.0] X-ray issues no report here: everything on its worklist is an exam to mark done.
+  it('counts every X-ray on the worklist as an exam, none as a release', () => {
+    const [row] = departmentNeeds({ category: 'Xray', pending, nav: 'xray-ops', now: at(10, 5) });
+    expect(row.title).toBe('3 waiting for exam');
+  });
+
   // [1.113.0] Emailing a released report is the patient's choice, so an unemailed one is not work.
   it('asks nothing of a department with an empty worklist', () => {
     expect(departmentNeeds({ category: 'Xray', pending: [], nav: 'xray-ops', now: at(10) })).toEqual([]);

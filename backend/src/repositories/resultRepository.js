@@ -99,7 +99,7 @@ class ResultRepository {
     // Half-open range on the raw column so idx_test_results_released_at applies — a ::date cast
     // here would put the planner straight back on a sequential scan. See [1.18.0].
     const windowClause =
-      days > 0 ? `AND tr.released_at >= (CURRENT_DATE - $2::int * INTERVAL '1 day')` : '';
+      days > 0 ? `AND COALESCE(tr.released_at, vt.performed_at) >= (CURRENT_DATE - $2::int * INTERVAL '1 day')` : '';
 
     /**
      * Reports the patient has not been told about. [1.59.0]
@@ -162,6 +162,9 @@ class ResultRepository {
              -- uses another.
              COALESCE(NULLIF(p.email, ''), pu.email) as patient_email,
              u.first_name as released_by_first_name, u.last_name as released_by_last_name,
+             -- An exam marked done in a department that issues no report here (X-ray). [1.129.0]
+             vt.performed_at,
+             perf.first_name as performed_by_first_name, perf.last_name as performed_by_last_name,
              -- Every row that matched, before LIMIT, so a paged screen can say how many there are.
              COUNT(*) OVER()::int AS total_count
       FROM visit_tests vt
@@ -176,12 +179,13 @@ class ResultRepository {
       -- the row once per amendment and show superseded findings alongside the live ones.
       LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
       LEFT JOIN users u ON tr.released_by = u.id
+      LEFT JOIN users perf ON perf.id = vt.performed_by
       WHERE tc.name = $1
         AND vt.status = 'Completed'
         ${windowClause}
         ${deliveryClause}
         ${searchClause}
-      ORDER BY tr.released_at DESC NULLS LAST, pv.created_at DESC
+      ORDER BY COALESCE(tr.released_at, vt.performed_at) DESC NULLS LAST, pv.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `;
     const result = await db.query(queryText, params);

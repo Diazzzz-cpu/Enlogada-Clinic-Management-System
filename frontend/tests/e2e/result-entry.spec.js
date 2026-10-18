@@ -48,16 +48,12 @@ test.describe('Result entry', () => {
         birthdate: '1988-03-11', sex: 'Female', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: patient.id, visitType: 'Walk in', notes: 'result entry spec' },
-    })).json()).data.visit;
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active && parseFloat(t.price) > 0);
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: [labTest.id] },
-    });
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'result entry spec', testIds: [labTest.id] },
+    })).json()).data.visit;
     const bill = (await (await ctx.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json()).data.bill;
     await ctx.post(`${API}/payments`, {
       headers: auth(cashier),

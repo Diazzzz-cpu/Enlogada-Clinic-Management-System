@@ -50,11 +50,11 @@ test.describe('HMO claim handoff', () => {
       data: {
         patientId: patient.data.patient.id, visitType: 'Walk in',
         referringPhysician: 'Dr. E2E Referrer', referringPhysicianPrc: '9900002',
+        testIds: [labTestId],
       },
     })).json();
-    const attached = await (await apiContext.post(`${API}/tests/visit-tests`, {
+    const attached = await (await apiContext.get(`${API}/tests/visit-tests/${visit.data.visit.id}`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.data.visit.id, testIds: [labTestId] },
     })).json();
     const claim = await apiContext.post(`${API}/hmo/request`, {
       headers: auth(reception),

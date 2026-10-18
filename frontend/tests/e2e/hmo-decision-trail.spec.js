@@ -67,16 +67,6 @@ test.describe('HMO decision trail', () => {
       },
     })).json();
 
-    // An HMO claim requires the referring physician — the LOA names them. See referralService.
-    const visit = await (await apiContext.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: {
-        patientId: patient.data.patient.id, visitType: 'Walk in',
-        referringPhysician: 'Dr. E2E Referrer', referringPhysicianPrc: '9900001',
-      },
-    })).json();
-    visitId = visit.data.visit.id;
-
     // Two tests from different categories, so one can be approved and the other refused — which
     // is the ordinary outcome, and the one that decides what the patient actually pays.
     const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
@@ -84,9 +74,19 @@ test.describe('HMO decision trail', () => {
       tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0),
       tests.find((t) => t.category_name === 'Ultrasound' && parseFloat(t.price) > 0),
     ];
-    const attached = await (await apiContext.post(`${API}/tests/visit-tests`, {
+
+    // An HMO claim requires the referring physician — the LOA names them. See referralService.
+    const visit = await (await apiContext.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visitId, testIds: pair.map((t) => t.id) },
+      data: {
+        patientId: patient.data.patient.id, visitType: 'Walk in',
+        referringPhysician: 'Dr. E2E Referrer', referringPhysicianPrc: '9900001',
+        testIds: pair.map((t) => t.id),
+      },
+    })).json();
+    visitId = visit.data.visit.id;
+    const attached = await (await apiContext.get(`${API}/tests/visit-tests/${visitId}`, {
+      headers: auth(reception),
     })).json();
 
     const claim = await apiContext.post(`${API}/hmo/request`, {

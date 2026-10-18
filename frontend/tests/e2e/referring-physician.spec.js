@@ -53,10 +53,11 @@ test.describe('Referring physician', () => {
     return (await res.json()).data.patient;
   };
 
+  // [1.129.0] A visit is opened with its tests: one laboratory test unless the caller says otherwise.
   const registerVisit = (patientId, body = {}) =>
     ctx.post(`${API}/visits`, {
       headers: auth(recToken),
-      data: { patientId, visitType: 'Walk in', notes: '', ...body },
+      data: { patientId, visitType: 'Walk in', notes: '', testIds: [testId], ...body },
     });
 
   test.beforeAll(async () => {

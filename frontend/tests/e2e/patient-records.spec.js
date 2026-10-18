@@ -121,8 +121,9 @@ test.describe('Patient records', () => {
         ...person, birthdate: '1975-05-05', sex: 'Male', contactNumber: FIXTURE_CONTACT,
       },
     })).json()).data.patient;
+    const anyTest = (await (await ctx.get(`${API}/tests`)).json()).data.tests.find((t) => t.is_active);
     const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: deskAuth, data: { patientId: victim.id, visitType: 'Walk in' },
+      headers: deskAuth, data: { patientId: victim.id, visitType: 'Walk in', testIds: [anyTest.id] },
     })).json()).data.visit;
     expect((await ctx.patch(`${API}/visits/${visit.id}/status`, {
       headers: deskAuth, data: { status: 'Cancelled' },

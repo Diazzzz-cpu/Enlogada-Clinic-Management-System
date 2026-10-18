@@ -52,14 +52,10 @@ export async function billedVisit(api, token) {
     },
   })).json()).data.patient;
 
-  const visit = (await (await api.post(`${API}/visits`, {
-    headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e manual payment' },
-  })).json()).data.visit;
-
   const packages = (await (await api.get(`${API}/packages`)).json()).data.packages;
-  await api.post(`${API}/tests/visit-tests`, {
-    headers: H, data: { patientVisitId: visit.id, packageIds: [packages[0].id] },
-  });
+  const visit = (await (await api.post(`${API}/visits`, {
+    headers: H, data: { patientId: patient.id, visitType: 'Walk in', notes: 'e2e manual payment', packageIds: [packages[0].id] },
+  })).json()).data.visit;
 
   const bill = (await (await api.get(`${API}/payments/bill/${visit.id}`, {
     headers: { Authorization: `Bearer ${await loginAs(api, CREDS.cashier)}` },

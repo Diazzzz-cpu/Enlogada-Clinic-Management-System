@@ -32,9 +32,11 @@ class AdminController {
 
   async createStaff(req, res, next) {
     try {
-      const { firstName, lastName, email, password, contactNumber, role } = req.body;
+      const { firstName, lastName, email, password, contactNumber, role, roles } = req.body;
 
-      if (!firstName || !lastName || !email || !password || !role) {
+      // One role (`role`) or several (`roles`). [1.129.0]
+      const hasRole = Boolean(role) || (Array.isArray(roles) && roles.length > 0);
+      if (!firstName || !lastName || !email || !password || !hasRole) {
         return res.status(400).json({
           status: 'error',
           message: 'First name, last name, email, password, and role are required fields.'
@@ -49,13 +51,27 @@ class AdminController {
       }
 
       const staffAccount = await adminService.createStaffAccount({
-        firstName, lastName, email, password, contactNumber, role
+        firstName, lastName, email, password, contactNumber, role, roles
       });
 
       return res.status(201).json({
         status: 'success',
         message: 'Staff account created successfully.',
         data: { staff: staffAccount }
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /** PUT /admin/staff/:id/roles: what a staff member does, changed. [1.129.0] */
+  async updateStaffRoles(req, res, next) {
+    try {
+      const staff = await adminService.updateStaffRoles(req.params.id, { roles: req.body?.roles }, req.user);
+      return res.status(200).json({
+        status: 'success',
+        message: 'Roles updated.',
+        data: { staff },
       });
     } catch (err) {
       next(err);

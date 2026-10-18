@@ -49,20 +49,16 @@ async function paidLabTicket(apiContext, { referringPhysician, sex = 'Female', b
     },
   })).json()).data.patient;
 
+  const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
+  const labTest = tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
+
   const visit = (await (await apiContext.post(`${API}/visits`, {
     headers: auth(rec),
     data: {
-      patientId: patient.id, visitType: 'Walk in', notes: 'e2e worklist context',
+      patientId: patient.id, visitType: 'Walk in', notes: 'e2e worklist context', testIds: [labTest.id],
       ...(referringPhysician ? { referringPhysician, referringPhysicianPrc: '0142887' } : {}),
     },
   })).json()).data.visit;
-
-  const tests = (await (await apiContext.get(`${API}/tests`)).json()).data.tests;
-  const labTest = tests.find((t) => t.category_name === 'Laboratory' && parseFloat(t.price) > 0);
-  await apiContext.post(`${API}/tests/visit-tests`, {
-    headers: auth(rec),
-    data: { patientVisitId: visit.id, testIds: [labTest.id] },
-  });
 
   // Paying is what releases the ticket to the modality worklist.
   const bill = (await (await apiContext.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cashier) })).json())

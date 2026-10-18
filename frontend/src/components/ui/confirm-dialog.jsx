@@ -17,13 +17,15 @@ export function ConfirmDialog({
   // being that the button is visibly unavailable rather than clickable and then refused.
   confirmDisabled = false,
   error = "",
+  // A wider dialog, for a decision that carries a list to choose from. [1.129.0]
+  wide = false,
   // Anything the decision needs before it can be made — most often a reason field, because a
   // refusal that names no reason leaves whoever answers the phone afterwards with nothing to say.
   children
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => !loading && onOpenChange(next)}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className={wide ? "max-w-lg" : "max-w-sm"}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="text-xs text-gray-500">{description}</DialogDescription>

@@ -23,6 +23,7 @@ const WHO = "Who's here?";
 
 test.describe("The Desk's Who's here box", () => {
   let ctx;
+  let testName;
   const person = fixturePerson();
 
   test.beforeAll(async () => {
@@ -43,6 +44,8 @@ test.describe("The Desk's Who's here box", () => {
       },
     });
     expect(created.status()).toBe(201);
+    testName = (await (await ctx.get(`${API}/tests`)).json()).data.tests
+      .find((t) => t.is_active && t.category_name === 'Laboratory').name;
   });
 
   test.afterAll(async () => {
@@ -57,8 +60,14 @@ test.describe("The Desk's Who's here box", () => {
     const match = page.getByTestId('desk-match').filter({ hasText: person.fullName });
     await expect(match).toBeVisible({ timeout: 15000 });
     await match.getByRole('button', { name: 'Start visit' }).click();
-    // The same confirmation the old lookup used.
-    await page.getByRole('button', { name: 'Confirm Check-In', exact: true }).click();
+    // The same confirmation the old lookup used, which since [1.129.0] asks what the visit is for:
+    // a visit is never opened empty, so Confirm waits for a test.
+    const dialog = page.getByRole('dialog');
+    const confirm = dialog.getByRole('button', { name: 'Confirm Check-In', exact: true });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByPlaceholder('Filter tests…').fill(testName);
+    await dialog.getByRole('checkbox', { name: testName }).first().check();
+    await confirm.click();
 
     // The ticket, announced where the receptionist is looking, and the visit in the queue below —
     // found by the same name, which the box leaves in place.

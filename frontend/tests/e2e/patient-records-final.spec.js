@@ -75,18 +75,14 @@ test.describe('Patient Records: final results only', () => {
     expect(created.status()).toBe(201);
     patient = (await created.json()).data.patient;
 
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: patient.id, visitType: 'Walk in', notes: 'Patient records spec' },
-    })).json()).data.visit;
     const labTests = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .filter((t) => t.category_name === 'Laboratory' && t.is_active)
       .slice(0, 2);
     expect(labTests.length, 'need two active laboratory tests').toBe(2);
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: labTests.map((t) => t.id) },
-    });
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'Patient records spec', testIds: labTests.map((t) => t.id) },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
 
     const visitTests = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json())

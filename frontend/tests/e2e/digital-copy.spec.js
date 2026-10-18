@@ -53,18 +53,14 @@ test.describe('Digital copy for the patient, original for the clinic', () => {
     // The seeded client's own patient, so the patient's side of each file can be fetched.
     const profile = (await (await ctx.get(`${API}/patients/my-profiles`, { headers: auth(client) })).json())
       .data.patients[0];
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId: profile.id, visitType: 'Walk in', notes: 'digital copy spec' },
-    })).json()).data.visit;
     const labTests = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .filter((t) => t.category_name === 'Laboratory' && t.is_active)
       .slice(0, 3);
     expect(labTests.length, 'need three active laboratory tests').toBe(3);
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: labTests.map((t) => t.id) },
-    });
+      data: { patientId: profile.id, visitType: 'Walk in', notes: 'digital copy spec', testIds: labTests.map((t) => t.id) },
+    })).json()).data.visit;
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);
     [pdfId, imageId, wordId] = ((await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json())
       .data.visitTests || []).map((vt) => vt.id);

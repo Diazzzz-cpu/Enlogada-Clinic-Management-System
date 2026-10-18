@@ -54,11 +54,10 @@ test.describe('Processes that make sense', () => {
       },
     })).json()).data.patient;
     const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception), data: { patientId: patient.id, visitType: 'Walk in', notes: 'process fixes spec', ...extra },
+      headers: auth(reception),
+      data: { patientId: patient.id, visitType: 'Walk in', notes: 'process fixes spec', testIds: [labTest.id], ...extra },
     })).json()).data.visit;
-    const attached = (await (await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(reception), data: { patientVisitId: visit.id, testIds: [labTest.id] },
-    })).json()).data.visitTests;
+    const attached = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json()).data.visitTests;
     return { person, patient, visit, visitTestIds: attached.map((v) => v.id) };
   };
 

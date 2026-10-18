@@ -69,19 +69,14 @@ test.describe('Who may open a result file', () => {
     expect(profiles.length, 'the seeded client needs at least one patient profile').toBeGreaterThan(0);
     const patientId = profiles[0].id;
 
-    const visit = (await (await ctx.post(`${API}/visits`, {
-      headers: auth(reception),
-      data: { patientId, visitType: 'Walk in', notes: 'E2E result file access' },
-    })).json()).data.visit;
-
     const labTest = ((await (await ctx.get(`${API}/tests`)).json()).data.tests || [])
       .find((t) => t.category_name === 'Laboratory' && t.is_active);
     expect(labTest, 'need an active laboratory test').toBeTruthy();
 
-    await ctx.post(`${API}/tests/visit-tests`, {
+    const visit = (await (await ctx.post(`${API}/visits`, {
       headers: auth(reception),
-      data: { patientVisitId: visit.id, testIds: [labTest.id] },
-    });
+      data: { patientId, visitType: 'Walk in', notes: 'E2E result file access', testIds: [labTest.id] },
+    })).json()).data.visit;
 
     // Payment is what releases the ticket to the department worklist.
     await payAndReleaseWalkIn(ctx, API, visit.id, cashier);

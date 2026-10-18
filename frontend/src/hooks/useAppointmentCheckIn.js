@@ -37,6 +37,14 @@ export function useAppointmentCheckIn({ onCheckedIn } = {}) {
   const [guidance, setGuidance] = useState(null);
 
   const [target, setTarget] = useState(null); // { type: 'appointment' | 'walkin', data }
+  // What a walk-in on a record already on file is here for. [1.129.0] Chosen in the confirmation,
+  // and sent WITH the visit: a visit is never opened empty.
+  const [walkInTestIds, setWalkInTestIds] = useState([]);
+  const [walkInPackageIds, setWalkInPackageIds] = useState([]);
+  const toggleIn = (setter) => (id) => setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleWalkInTest = toggleIn(setWalkInTestIds);
+  const toggleWalkInPackage = toggleIn(setWalkInPackageIds);
+  const walkInChosen = walkInTestIds.length + walkInPackageIds.length > 0;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -70,6 +78,8 @@ export function useAppointmentCheckIn({ onCheckedIn } = {}) {
   const request = (type, data) => {
     setError('');
     setNotice('');
+    setWalkInTestIds([]);
+    setWalkInPackageIds([]);
     setTarget({ type, data });
   };
 
@@ -112,7 +122,12 @@ export function useAppointmentCheckIn({ onCheckedIn } = {}) {
         // ended up attached to a returning patient's visit, silently, against a patient the
         // note was never about. That shared ambient state is also what made this screen resist
         // being split up: the coupling was the design pointing at the bug.
-        const vRes = await api.post('/visits', { patientId: patient.id, visitType: 'Walk in' });
+        const vRes = await api.post('/visits', {
+          patientId: patient.id,
+          visitType: 'Walk in',
+          testIds: walkInTestIds.map((id) => parseInt(id, 10)),
+          packageIds: walkInPackageIds.map((id) => parseInt(id, 10)),
+        });
         outcome = { type: 'walkin', patient, visit: vRes.data.data.visit };
       }
       setTarget(null);
@@ -151,6 +166,7 @@ export function useAppointmentCheckIn({ onCheckedIn } = {}) {
     reference, setReference,
     result, verifyError, scanMode, guidance,
     target, submitting, error, notice,
+    walkInTestIds, walkInPackageIds, toggleWalkInTest, toggleWalkInPackage, walkInChosen,
     verify, scanned, toggleScanMode, request, cancel, confirm,
     clearResult, reportError, applyToResult,
   };

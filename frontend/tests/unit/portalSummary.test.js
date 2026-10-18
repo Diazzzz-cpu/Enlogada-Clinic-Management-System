@@ -79,6 +79,16 @@ describe('latestResults and isNewResult', () => {
     expect(latestResults(history, 2).map((r) => r.visit_test_id)).toEqual([3, 1]);
   });
 
+  it('leaves out an X-ray exam marked done: its result is not in the portal [1.129.0]', () => {
+    const withXray = [
+      ...history,
+      { visit_test_id: 5, test_status: 'Completed', category_name: 'Xray', released_at: null, visit_date: at(9, 13).toISOString() },
+      { visit_test_id: 6, test_status: 'Completed', category_name: 'Xray', file_path: 'r.pdf', released_at: at(9, 10).toISOString() },
+    ];
+    // 5 has no report here; 6 is an X-ray report released before the change, and still opens.
+    expect(latestResults(withXray, 5).map((r) => r.visit_test_id)).toEqual([3, 6, 1, 4]);
+  });
+
   it(`marks a result New for ${RECENT_RESULT_DAYS} days`, () => {
     expect(isNewResult(history[2], NOW)).toBe(true);
     expect(isNewResult(history[0], NOW)).toBe(true);

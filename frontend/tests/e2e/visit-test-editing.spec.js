@@ -41,8 +41,11 @@ test.describe('Editing a visit\'s tests', () => {
   });
   test.afterAll(async () => { await ctx.dispose(); });
 
-  /** A fresh walk-in with nothing attached. Named from the fixture pool, never "Test Patient". */
-  async function newVisit() {
+  /**
+   * A fresh walk-in carrying `testIds` / `packageIds`. Named from the fixture pool, never "Test
+   * Patient". [1.129.0] A visit is opened with what it is for: there is no empty one to start from.
+   */
+  async function newVisit({ testIds = [], packageIds = [] } = {}) {
     const types = (await (await ctx.get(`${API}/patients/types`, { headers: auth(rec) })).json()).data.patientTypes;
     const selfPay = types.find((t) => t.name === 'Self Pay');
     const patient = (await (await ctx.post(`${API}/patients`, {
@@ -53,9 +56,11 @@ test.describe('Editing a visit\'s tests', () => {
         patientTypeId: selfPay.id,
       },
     })).json()).data.patient;
-    return (await (await ctx.post(`${API}/visits`, {
-      headers: auth(rec), data: { patientId: patient.id, visitType: 'Walk in' },
-    })).json()).data.visit;
+    const res = await ctx.post(`${API}/visits`, {
+      headers: auth(rec), data: { patientId: patient.id, visitType: 'Walk in', testIds, packageIds },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    return (await res.json()).data.visit;
   }
 
   const linesOf = async (visit) =>
@@ -67,10 +72,7 @@ test.describe('Editing a visit\'s tests', () => {
 
   test('a pending test comes off the visit', async () => {
     const tests = await activeTests();
-    const visit = await newVisit();
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, testIds: [tests[0].id, tests[1].id] },
-    });
+    const visit = await newVisit({ testIds: [tests[0].id, tests[1].id] });
 
     const lines = await linesOf(visit);
     expect(lines.length).toBe(2);
@@ -82,10 +84,8 @@ test.describe('Editing a visit\'s tests', () => {
 
   test('a paid visit refuses, because the receipt already said what was charged', async () => {
     const tests = await activeTests();
-    const visit = await newVisit();
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, testIds: [tests[0].id] },
-    });
+    // Two tests, so the refusal below is about the payment and not about emptying the visit.
+    const visit = await newVisit({ testIds: [tests[0].id, tests[1].id] });
 
     const bill = (await (await ctx.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cash) })).json()).data.bill;
     expect((await ctx.post(`${API}/payments`, {
@@ -102,15 +102,12 @@ test.describe('Editing a visit\'s tests', () => {
     expect((await res.json()).message).toMatch(/already been paid/i);
 
     // And nothing moved.
-    expect(await linesOf(visit)).toHaveLength(1);
+    expect(await linesOf(visit)).toHaveLength(2);
   });
 
   test('a paid visit takes no MORE work either — the revenue leak', async () => {
     const tests = await activeTests();
-    const visit = await newVisit();
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, testIds: [tests[0].id] },
-    });
+    const visit = await newVisit({ testIds: [tests[0].id] });
 
     const bill = (await (await ctx.get(`${API}/payments/bill/${visit.id}`, { headers: auth(cash) })).json()).data.bill;
     expect((await ctx.post(`${API}/payments`, {
@@ -140,35 +137,35 @@ test.describe('Editing a visit\'s tests', () => {
     const packages = (await (await ctx.get(`${API}/packages`)).json()).data.packages;
     test.skip(packages.length === 0, 'Need an active package.');
     const pkg = packages[0];
+    // One loose test besides the package, so taking the package off does not empty the visit.
+    const inPkg = new Set((pkg.tests || []).map((t) => t.id));
+    const loose = (await activeTests()).find((t) => !inPkg.has(t.id));
 
-    const visit = await newVisit();
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, packageIds: [pkg.id] },
-    });
+    const visit = await newVisit({ testIds: [loose.id], packageIds: [pkg.id] });
 
     const lines = await linesOf(visit);
-    expect(lines.length, 'a package expands into one line per component').toBeGreaterThan(1);
+    const components = lines.filter((l) => l.package_id);
+    expect(components.length, 'a package expands into one line per component').toBeGreaterThan(1);
 
     // Ask to remove ONE component. The bundle bills as a single fixed price spread across its
     // parts, so removing one would leave the rest summing to less than the package while still
     // calling itself that package.
-    const res = await ctx.delete(`${API}/tests/visit-tests/${lines[0].id}`, { headers: auth(rec) });
+    const res = await ctx.delete(`${API}/tests/visit-tests/${components[0].id}`, { headers: auth(rec) });
     expect(res.status()).toBe(200);
 
     const body = await res.json();
     expect(body.message, 'the reply must say the whole bundle went').toMatch(new RegExp(pkg.name, 'i'));
-    expect(body.data.removed).toBe(lines.length);
+    expect(body.data.removed).toBe(components.length);
 
-    expect(await linesOf(visit), 'no orphaned components may survive').toHaveLength(0);
+    const left = await linesOf(visit);
+    expect(left.filter((l) => l.package_id), 'no orphaned components may survive').toHaveLength(0);
+    expect(left.map((l) => l.test_id), 'and the loose test stays').toEqual([loose.id]);
   });
 
   test('removal answers to tests:assign, and an unknown line is a 404', async () => {
     const lab = await login(ctx, 'lab@enlogada.com');
-    const visit = await newVisit();
     const tests = await activeTests();
-    await ctx.post(`${API}/tests/visit-tests`, {
-      headers: auth(rec), data: { patientVisitId: visit.id, testIds: [tests[0].id] },
-    });
+    const visit = await newVisit({ testIds: [tests[0].id, tests[1].id] });
     const lines = await linesOf(visit);
 
     expect((await ctx.delete(`${API}/tests/visit-tests/${lines[0].id}`, { headers: auth(lab) })).status(),
@@ -178,6 +175,29 @@ test.describe('Editing a visit\'s tests', () => {
       .toBe(404);
 
     // Refused, so still there.
+    expect(await linesOf(visit)).toHaveLength(2);
+  });
+
+  // [1.129.0] A visit is for something. Taking its last test off left a ticket in the queue that
+  // the till could not bill and no department would see; cancelling the visit is the way to drop
+  // everything, and it is what the refusal says.
+  test('the last thing on a visit stays: cancelling the visit is how to drop it', async () => {
+    const tests = await activeTests();
+    const visit = await newVisit({ testIds: [tests[0].id] });
+    const [only] = await linesOf(visit);
+
+    const res = await ctx.delete(`${API}/tests/visit-tests/${only.id}`, { headers: auth(rec) });
+    expect(res.status(), 'the last test on a visit').toBe(409);
+    expect((await res.json()).message).toMatch(/cancel the visit/i);
     expect(await linesOf(visit)).toHaveLength(1);
+
+    // A package that is everything on the visit counts as one thing, and stays the same way.
+    const packages = (await (await ctx.get(`${API}/packages`)).json()).data.packages;
+    if (packages.length > 0) {
+      const bundled = await newVisit({ packageIds: [packages[0].id] });
+      const [component] = await linesOf(bundled);
+      const refused = await ctx.delete(`${API}/tests/visit-tests/${component.id}`, { headers: auth(rec) });
+      expect(refused.status(), 'the only package on a visit').toBe(409);
+    }
   });
 });

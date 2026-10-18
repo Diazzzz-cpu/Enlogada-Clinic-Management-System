@@ -51,7 +51,7 @@ const VALUES = [
   {
     icon: Clock,
     title: 'Fast, digital results',
-    body: 'Released results reach your email and your patient portal as soon as they are signed off, with no second trip to collect a printout.',
+    body: 'Laboratory and ultrasound results appear in your patient portal as soon as they are signed off, and the clinic emails a copy on request. X-ray results are given by the X-ray department.',
   },
   {
     icon: Award,

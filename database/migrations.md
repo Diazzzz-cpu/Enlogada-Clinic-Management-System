@@ -1,5 +1,76 @@
 # Database Migration & Schema History
 
+## [1.129.0] - 2026-10-18 (Two roles at once; a visit is for something; X-ray is marked done)
+
+Run on an existing database: `node src/scripts/migrateExamPerformed.js` (`--rollback` reverses
+it). Two columns on `visit_tests`, `performed_at` and `performed_by` (FK to `users`,
+`fk_visit_tests_performed_by`), with `idx_visit_tests_performed_at` (partial) and
+`idx_visit_tests_performed_by`. Folded into `schema.sql`, and a database built from it matches the
+live one on every new column, key and index.
+
+Steven, practising with a Cashier who also had the Receptionist role: "it cant register a walk in
+patient? i though if i assign roles in user automatically they will have access to that", then "when
+i register a walk in patient even tho i didnt attach a test i can still register", "check the whole
+system ... SEE IF THERES A PROCESS that doesnt make sense", and X-ray: keep it for the queue and the
+bill, and keep counting its patients, but stop uploading and sending its results, because the X-ray
+department has its own system.
+
+**Two roles at once.** Access already followed every role an account holds: its permissions are the
+union of its roles' templates, read again on each request (`verifyToken`). The account
+`multirole@enlogada.com` (Receptionist and Cashier) registers walk-ins at the Desk. What was missing
+was any way to GIVE someone a second role: Staff Accounts set one at creation and never again.
+- Staff Accounts creates an account with one or more roles (checkboxes), and each row has **Roles**,
+  which changes them. `PUT /admin/staff/:id/roles` (`staff:manage`), audited as
+  `staff.roles_changed` with the roles before and after. Only the five front-line roles, and only on
+  an account that holds nothing else, so an Admin cannot make anyone an Admin or touch one.
+- The change reaches the person on their next request, and their sidebar within a minute.
+
+**A visit is for something.** A walk-in could join the queue with no test, reach the till with a
+₱0 bill, and never reach a department. Registration was three requests (record, visit, tests), so a
+failure between them also left a record with no visit or a visit with no tests.
+- `POST /visits` takes `testIds` / `packageIds`, and refuses a visit with neither (400). It can take
+  a new patient (`patient`) too: the record, the visit, its ticket and its tests are one transaction,
+  all or nothing.
+- A new record matching one on file (same name, ignoring case and spacing, and same birthdate) is
+  refused 409 with `details.possibleDuplicate`. The Desk shows "is already on file" with **Use the
+  record on file** or **No, register someone new** (`confirmNewPatient`). The error handler now
+  passes `details` through on a 4xx.
+- **Start visit** and **Start another visit** ask what the visit is for, and Confirm waits for a test.
+- The last test on a visit cannot be removed (409): cancelling the visit is how to drop everything,
+  and the refusal says so. The Edit Tests dialog locks that line with the same reason.
+- Visits opened empty before this stay possible to find: Today still lists "has no tests yet".
+
+**X-ray is marked done, not reported.** `NO_REPORT_CATEGORIES` (`constants/modality.js`, mirrored in
+`lib/categories.js`; change both) names the departments whose results are given outside this
+system, and it is `['Xray']`.
+- Upload, release and email of an X-ray result are refused on the server (409), whoever skips the
+  screen. Reports released before this stay readable.
+- The X-ray worklist's one action is **Mark done** (confirmed). `PATCH /results/test-status/:id`
+  with `Completed` stamps `performed_at` / `performed_by`, completes the test, and completes the
+  visit if nothing else is outstanding. A second time is 409.
+- That endpoint used to let a technician set any status by hand, including Completed with no report
+  at all. A department that issues reports is now refused (403): its tests finish by releasing.
+- X-Ray History lists exams done ("Done", and who), with no delivery column, filter or Email.
+- The portal says "Done. Your X-Ray result is given by the X-Ray department, not in this portal"
+  rather than a report that would never come, and leaves X-ray out of Home's "Latest results".
+  The public pages no longer promise X-ray results in the portal or by email.
+- **Counted the same as a release**: Departments (done per department, and its turnaround from
+  payment), Today's department table, and Staff Workload (credited to whoever marked it done). Sales
+  by service already counted X-ray from the payment.
+- The demo seed marks its X-rays done and no longer writes X-ray reports.
+
+**Smaller things found on the way.**
+- The "already on file" birthdate was a day early: a DATE reaches the browser as a UTC timestamp.
+  The query returns it as text.
+- Completing a visit by hand now says what completes it: its last report released, or an X-ray
+  marked done.
+- Today counted an X-ray left "Waiting for Release" from before as "ready to release"; it is an
+  exam to mark done. Staff Workload, its printout and the turnaround table say that they count
+  X-rays done beside reports released.
+- About promised released results "reach your email ... with no second trip to collect a printout".
+  Since [1.113.0] a copy is emailed on request and the original is handed over at the clinic; it
+  now says so, and that X-ray results come from the X-ray department.
+
 ## [1.128.0] - 2026-10-17 (Clicks that stay put; lists that page where the data is)
 
 No schema change; nothing to run. Steven: clicking the sidebar as an admin "reload like move", and

@@ -290,6 +290,14 @@ class TestService {
       removedPackage = line.package_name;
     }
 
+    // [1.129.0] A visit is never left with nothing on it: an empty visit sat in the queue and at
+    // the till with nothing to do or pay for. To drop everything, cancel the visit or booking.
+    const removing = new Set(ids.map(Number));
+    const onVisit = await testRepository.findTestsByVisitId(line.patient_visit_id);
+    if (onVisit.filter((t) => !removing.has(Number(t.id)) && t.status !== 'Cancelled').length === 0) {
+      refuse(`${removedPackage || line.test_name} is the only thing on this visit, and a visit needs at least one test. To drop everything, cancel the visit (or the booking) instead.`);
+    }
+
     const removed = await testRepository.deleteVisitTests(ids);
 
     await auditService.log({

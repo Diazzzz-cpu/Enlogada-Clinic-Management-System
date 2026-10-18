@@ -1,4 +1,4 @@
-import { formatDate } from './date';
+import { formatDate, toDateInput, todayStr } from './date';
 import { categoryLabel, issuesReports } from './categories';
 
 /**
@@ -8,9 +8,14 @@ import { categoryLabel, issuesReports } from './categories';
  * results (Patient Records gives them the patient's file, not the reports). The answer needs only
  * the state and the date: released, done, still with a department, waiting for payment, or
  * cancelled. `state` is also the test contract (`data-state`).
+ *
+ * Unfinished work from an EARLIER day says since when (`since`, the visit's date): "With
+ * Laboratory" on its own read as current, and a test paid yesterday and never started is a
+ * different conversation with the patient from one sent to the lab an hour ago.
  */
-export function testProgress(test, { paid = false } = {}) {
+export function testProgress(test, { paid = false, since = null, today = todayStr() } = {}) {
   const dept = categoryLabel(test.category);
+  const carried = since && toDateInput(new Date(since)) < today ? `Since ${formatDate(since)}` : null;
   switch (test.status) {
     case 'Completed':
       if (test.released_at) {
@@ -27,13 +32,13 @@ export function testProgress(test, { paid = false } = {}) {
       return { state: 'released', label: 'Finished', tone: 'done' };
     case 'Processing':
     case 'Waiting for Release':
-      return { state: 'in-progress', label: `With ${dept}`, tone: 'working' };
+      return { state: 'in-progress', label: `With ${dept}`, detail: carried, tone: 'working' };
     case 'Cancelled':
       return { state: 'cancelled', label: 'Cancelled', tone: 'quiet' };
     default:
       return paid
-        ? { state: 'not-started', label: 'Not started yet', tone: 'quiet' }
-        : { state: 'unpaid', label: 'Waiting for payment', tone: 'working' };
+        ? { state: 'not-started', label: 'Not started yet', detail: carried, tone: 'quiet' }
+        : { state: 'unpaid', label: 'Waiting for payment', detail: carried, tone: 'working' };
   }
 }
 

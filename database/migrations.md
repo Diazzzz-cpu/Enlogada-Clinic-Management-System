@@ -42,7 +42,9 @@ for the whole visit, so "is my result ready?" had no answer there. Each test now
 stands: Released <date>, Done <date> with "Result from the X-Ray department", With <department>,
 Waiting for payment (or Not started yet, once paid) and Cancelled. Dates and states only; what a
 report says stays with whoever reads results. `GET /visits/patient/:id` carries `tests` (status,
-first release, X-ray done) and `is_paid`, and `lib/testProgress.js` words it (6 unit tests).
+first release, X-ray done) and `is_paid`, and `lib/testProgress.js` words it (7 unit tests).
+Unfinished work from an earlier day says since when ("With Laboratory · Since Oct 18"): Steven
+found a visit paid at 7:44 PM on the 18th, none of its 8 tests started, reading as current.
 
 `npm run demo` now also puts each seeded account back to its one role. Joel (cashier@enlogada.com)
 was given the Receptionist role on Staff Accounts to try it, which worked, and a reset would have

@@ -130,7 +130,7 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
                   {v.tests?.length ? (
                     <ul className="m-0 list-none space-y-0.5 p-0">
                       {v.tests.map((t) => {
-                        const progress = testProgress(t, { paid: v.is_paid });
+                        const progress = testProgress(t, { paid: v.is_paid, since: v.created_at });
                         return (
                           <li
                             key={t.id}

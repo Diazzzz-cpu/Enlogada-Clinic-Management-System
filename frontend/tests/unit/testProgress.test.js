@@ -32,6 +32,17 @@ describe('testProgress', () => {
       .toMatchObject({ state: 'not-started', label: 'Not started yet' });
   });
 
+  it("unfinished work from an earlier day says since when; today's does not", () => {
+    const yesterday = '2026-10-18T19:35:00';
+    const old = testProgress({ category: 'Laboratory', status: 'Processing' }, { since: yesterday, today: '2026-10-19' });
+    expect(old).toMatchObject({ label: 'With Laboratory', detail: `Since ${formatDate(yesterday)}` });
+    expect(testProgress({ category: 'Laboratory', status: 'Processing' }, { since: '2026-10-19T08:10:00', today: '2026-10-19' }).detail)
+      .toBeNull();
+    // A finished test is finished, whenever its visit was.
+    expect(testProgress({ category: 'Laboratory', status: 'Completed', released_at: ON }, { since: yesterday, today: '2026-10-19' }).detail)
+      .toBeUndefined();
+  });
+
   it('a cancelled test says so', () => {
     expect(testProgress({ category: 'Laboratory', status: 'Cancelled' }).state).toBe('cancelled');
   });

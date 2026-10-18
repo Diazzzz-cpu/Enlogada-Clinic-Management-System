@@ -199,8 +199,8 @@ export default function AppointmentsTab({ bookings }) {
             passed the booking says so rather than inviting a payment for a slot it no longer has. */}
         {showPayPanel && lapsed && (
           <p data-testid="booking-lapsed" className="m-0 rounded-lg border border-line bg-slate-100 p-2.5 text-fine text-slate-700">
-            <strong>This booking wasn&apos;t paid in time</strong>, so its slot was released. Book again
-            to choose a time.
+            <strong>This booking wasn&apos;t paid in time</strong>, so its slot was released. Reschedule it
+            to choose a time again, then pay before the new deadline shown here.
           </p>
         )}
         {showPayPanel && !lapsed && (

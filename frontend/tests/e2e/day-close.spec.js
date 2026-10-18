@@ -112,6 +112,16 @@ test.describe('The end of the day', () => {
       });
       expect(res.status()).toBe(409);
       expect((await res.json()).message).toMatch(/not paid in time.*walk-in/i);
+
+      // The patient moves it instead: choosing a time again holds the new slot for a fresh time
+      // to pay. It used to land still lapsed, holding nothing, payable by no one. [1.130.0]
+      const later = slots[1] || slots[0];
+      const movedRes = await ctx.put(`${API}/appointments/${appt.id}/reschedule`, {
+        headers: auth(client), data: { scheduledDate: date, scheduledTime: later.time, reason: 'Could not pay in time' },
+      });
+      expect(movedRes.status(), await movedRes.text()).toBe(200);
+      const moved = (await movedRes.json()).data.appointment;
+      expect(new Date(moved.held_until).getTime(), 'a fresh time to pay').toBeGreaterThan(Date.now());
     } finally {
       await ctx.put(`${API}/appointments/${appt.id}/cancel`, { headers: auth(client) });
     }

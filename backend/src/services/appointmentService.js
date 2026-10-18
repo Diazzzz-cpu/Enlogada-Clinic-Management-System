@@ -784,7 +784,7 @@ class AppointmentService {
         throw error;
       }
 
-      const moved = await appointmentRepository.updateSchedule(id, { scheduledDate, scheduledTime, reason: why });
+      let moved = await appointmentRepository.updateSchedule(id, { scheduledDate, scheduledTime, reason: why });
 
       // Compare-and-swap: no row means the status stopped being Pending between the read above and
       // this write — the receptionist checked the patient in at the desk while the move was in
@@ -795,6 +795,11 @@ class AppointmentService {
         const current = await appointmentRepository.findById(id);
         throw refuseReschedule(current?.status);
       }
+
+      // [1.130.0] Not paid in time, so it had released its slot: the new slot is held for a fresh
+      // time to pay, or the move would land a booking that holds nothing and cannot be paid.
+      const reheld = await appointmentRepository.restartLapsedHold(id, { gateway: paymentGatewayService.isConfigured() });
+      if (reheld) moved = reheld;
 
       // Audited: a booking moving is a change to a commitment made to a patient, and when staff
       // do it on someone's behalf the record of who and when is the whole point. Low volume, so

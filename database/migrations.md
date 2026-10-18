@@ -27,6 +27,17 @@ them, and Visit History read them as waiting.
 - Everything else checked consistent: no finished visit with an unfinished test, no payment on a
   cancelled visit, no unpaid work at a department, no Processing visit with every test done.
 
+**A patient moving a booking not paid in time.** Steven: "how about if patient side will
+reschedule?" The portal said "This booking wasn't paid in time ... Book again" and still offered
+Reschedule, and the move landed with its lapsed hold: a booking on a slot it did not hold, which
+could not be paid (a late proof is refused) and could not be checked in. Moving it is choosing a
+time again, so the new slot is now held for a fresh time to pay (the gateway's window, or the
+manual one), and the portal says "Reschedule it to choose a time again, then pay before the new
+deadline". A booking still inside its time to pay keeps its deadline when moved. The rest of a
+patient's move already held: only a waiting booking moves, with a reason; not into the past, an
+hour already gone today, a closed day or past the 365-day horizon; the desk is notified and the
+patient emailed; the reminder is re-planned from the move; a paid booking keeps its payment.
+
 **"PM" on a line of its own.** Visit History's Date column broke "Oct 18, 2026, 7:35 PM" before
 "PM". `components/ui/date-time.jsx` keeps the date and the time each whole, so a narrow column
 breaks only between them; used in every table that shows a date and time (Visit History, a

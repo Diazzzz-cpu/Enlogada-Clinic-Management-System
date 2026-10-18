@@ -81,6 +81,24 @@ class AppointmentRepository {
   }
 
   /**
+   * A booking not paid in time, moved to a new slot, holds the new one for a fresh window. [1.130.0]
+   *
+   * Moving it is choosing a time again. Without this the move landed with its lapsed hold: a
+   * booking on a slot it did not hold, that could not be paid (a late proof is refused) and could
+   * not be checked in. Only a LAPSED hold: one still running keeps its deadline. The window is the
+   * one a new booking would get now: the gateway's, or the manual payment window.
+   */
+  async restartLapsedHold(appointmentId, { gateway = false } = {}) {
+    const { rows } = await db.query(
+      `UPDATE appointments SET held_until = ${gateway ? HOLD_EXPIRY_SQL : PAY_WINDOW_EXPIRY_SQL}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND held_until IS NOT NULL AND held_until <= CURRENT_TIMESTAMP
+        RETURNING *`,
+      [appointmentId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
    * Pushes a live hold out by another window, because the patient is actively paying. [1.35.0]
    *
    * `held_until IS NOT NULL` keeps this from touching a permanent booking — reopening checkout on

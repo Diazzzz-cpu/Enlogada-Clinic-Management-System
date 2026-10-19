@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { inTodaysQueue } = require('../constants/queueMembership');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 
 class VisitRepository {
   // `doctorRequest` is the multer file of the doctor's signed request [1.106.0], or null. Only
@@ -82,16 +83,28 @@ class VisitRepository {
    *   - a walk-in's day has ended and it was not paid;
    *   - a booking's day has passed and it was not paid. Staff and HMO bookings too: they hold a
    *     slot without paying first, but the patient still has to come and settle at the clinic;
-   *   - a patient's own booking was not paid within its time to pay (its hold lapsed).
-   * Never one still waiting on someone (an HMO decision, an online payment proof to check), and
-   * never one that ever had a receipt issued, whatever became of it.
+   *   - a patient's own booking was not paid within its time to pay (its hold lapsed);
+   *   - an HMO booking whose claim was still undecided when it was due to start, or which the HMO
+   *     refused and the patient did not pay in the time that gave them (its hold lapsed). [1.132.0]
+   * Never one waiting on an online payment proof to check, never one that ever had a receipt
+   * issued, whatever became of it, and never a visit waiting on an HMO decision other than a
+   * booking whose hold for it ran out. The HMO's decision is read the way the bill reads it
+   * (hmoEffectiveStatus): a claim refused as a whole leaves its lines reading 'Pending'.
    */
   async findExpiredUnpaid() {
+    const HOLD_LAPSED = `(a.id IS NOT NULL AND a.status = 'Pending'
+                          AND a.held_until IS NOT NULL AND a.held_until <= CURRENT_TIMESTAMP)`;
+    const HMO_UNDECIDED = `EXISTS (SELECT 1 FROM hmo_request_tests hrt
+                                     JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                                     JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                                    WHERE vt.patient_visit_id = pv.id
+                                      AND ${hmoEffectiveStatus('hr', 'hrt')} = 'Pending')`;
     const { rows } = await db.query(
       `SELECT pv.id, pv.queue_number, pv.created_at, pv.visit_type,
               p.first_name, p.last_name, COALESCE(u.email, p.email) AS email,
               a.id AS appointment_id, a.appointment_reference, a.scheduled_date, a.scheduled_time,
               CASE WHEN a.id IS NULL THEN 'day_ended'
+                   WHEN ${HOLD_LAPSED} AND ${HMO_UNDECIDED} THEN 'hmo_undecided'
                    WHEN a.scheduled_date < CURRENT_DATE THEN 'day_passed'
                    ELSE 'payment_window' END AS why,
               ARRAY(SELECT t.name FROM visit_tests vt JOIN tests t ON t.id = vt.test_id
@@ -106,14 +119,11 @@ class VisitRepository {
                              AND (pay.payment_status = 'Paid' OR pay.receipt_number IS NOT NULL))
           AND NOT EXISTS (SELECT 1 FROM payment_submissions s
                            WHERE s.patient_visit_id = pv.id AND s.status = 'Pending')
-          AND NOT EXISTS (SELECT 1 FROM hmo_request_tests hrt
-                            JOIN visit_tests vt ON vt.id = hrt.visit_test_id
-                           WHERE vt.patient_visit_id = pv.id AND hrt.approval_status = 'Pending')
           AND (
-                (a.id IS NULL AND pv.created_at < CURRENT_DATE)
-             OR (a.id IS NOT NULL AND a.scheduled_date < CURRENT_DATE)
-             OR (a.id IS NOT NULL AND a.status = 'Pending'
-                 AND a.held_until IS NOT NULL AND a.held_until <= CURRENT_TIMESTAMP)
+                ${HOLD_LAPSED}
+             OR (NOT ${HMO_UNDECIDED} AND (
+                   (a.id IS NULL AND pv.created_at < CURRENT_DATE)
+                OR (a.id IS NOT NULL AND a.scheduled_date < CURRENT_DATE)))
           )
         ORDER BY pv.id`
     );

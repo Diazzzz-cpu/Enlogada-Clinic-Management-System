@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 
 class HmoRepository {
   // UI/UX Modernization Phase 12: previously a caller-supplied approvalCode auto-approved the
@@ -246,6 +247,30 @@ class HmoRepository {
     return rows;
   }
 
+  /**
+   * Where the HMO claims on a visit stand, test by test, read as the bill reads them
+   * (hmoEffectiveStatus). [1.132.0] What decides whether a booking waiting on its HMO is kept
+   * (something approved, nothing still waiting) or has to be paid by the patient (all refused).
+   */
+  async findDecisionForVisit(visitId) {
+    const { rows } = await db.query(
+      `SELECT COUNT(*) FILTER (WHERE x.eff = 'Pending')::int AS pending,
+              COUNT(*) FILTER (WHERE x.eff = 'Approved')::int AS approved,
+              COUNT(*) FILTER (WHERE x.eff = 'Rejected')::int AS refused,
+              COALESCE(ARRAY_AGG(x.name ORDER BY x.name) FILTER (WHERE x.eff = 'Rejected'), '{}') AS refused_tests,
+              MIN(x.reason) FILTER (WHERE x.eff = 'Rejected') AS reason
+         FROM (SELECT ${hmoEffectiveStatus('hr', 'hrt')} AS eff, t.name,
+                      COALESCE(hrt.decision_reason, hr.decision_reason) AS reason
+                 FROM hmo_request_tests hrt
+                 JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                 JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                 JOIN tests t ON t.id = vt.test_id
+                WHERE vt.patient_visit_id = $1) x`,
+      [visitId]
+    );
+    return rows[0];
+  }
+
   /** One claimed test, with its claim's visit, for deciding whether it may still be decided. */
   async findRequestTestContext(hmoRequestTestId) {
     const { rows } = await db.query(
@@ -332,13 +357,17 @@ class HmoRepository {
              MIN(p.first_name) AS patient_first_name,
              MIN(p.last_name) AS patient_last_name,
              MIN(pv.queue_number) AS queue_number,
-             MIN(pv.id) AS patient_visit_id
+             MIN(pv.id) AS patient_visit_id,
+             -- [1.132.0] A booking waiting on this claim holds its slot until its own start, and is
+             -- released if the claim is still undecided then: the decision's deadline.
+             MIN(a.held_until) FILTER (WHERE hr.status = 'Pending' AND a.status = 'Pending') AS decide_by
       FROM hmo_requests hr
       JOIN hmo_providers hp ON hr.hmo_provider_id = hp.id
       LEFT JOIN hmo_request_tests hrt ON hrt.hmo_request_id = hr.id
       LEFT JOIN visit_tests vt ON hrt.visit_test_id = vt.id
       LEFT JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       LEFT JOIN patients p ON p.id = pv.patient_id
+      LEFT JOIN appointments a ON a.patient_visit_id = pv.id
       ${whereClause}
       GROUP BY hr.id, hp.name
       ORDER BY hr.request_date DESC

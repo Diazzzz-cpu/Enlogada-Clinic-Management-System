@@ -70,12 +70,18 @@ export default function AppointmentsTab({ bookings }) {
     // The reference is still printed as TEXT on an unpaid booking, which is what
     // keeps the counter path working — reception can look it up by hand exactly as
     // before. Only the scannable code waits for payment.
-    const showPass = isOpen && appt.is_paid;
+    //
+    // [1.132.0] An HMO booking is kept once its HMO approves it, as a paid one is, so it gets
+    // its pass then. While the claim waits there is nothing to pay; refused, it is paid like any.
+    const hmoWaiting = appt.hmo_status === 'Pending';
+    const hmoApproved = appt.hmo_status === 'Approved';
+    const showPass = isOpen && (appt.is_paid || hmoApproved);
     // The two payment routes are mutually exclusive by construction: a configured
     // gateway takes precedence, and the manual channel is what an unconfigured
     // deployment falls back to. Showing both would ask the patient to pay twice.
-    const showPayOptions = isOpen && !appt.is_paid && bookings.gateway.available;
-    const showPayPanel = isOpen && !appt.is_paid && !bookings.gateway.available;
+    const payable = isOpen && !appt.is_paid && !hmoWaiting && !hmoApproved;
+    const showPayOptions = payable && bookings.gateway.available;
+    const showPayPanel = payable && !bookings.gateway.available;
 
     // Postgres TIMESTAMP arrives as an ISO instant; toTimeString gives the local
     // wall clock, which is what formatTime12 formats and what the patient reads.
@@ -116,7 +122,9 @@ export default function AppointmentsTab({ bookings }) {
           <BookingPass
             reference={appt.appointment_reference}
             queueNumber={appt.queue_number}
-            isPaid={appt.is_paid}
+            // Covered in full by the HMO: nothing to pay, and not "Paid" either.
+            isPaid={appt.is_paid ? true : hmoApproved && Number(appt.amount_due) === 0 ? null : false}
+            hmoApproved={hmoApproved}
             canPayOnline={bookings.gateway.available}
             receiptNumber={appt.receipt_number}
             estimatedWaitMinutes={appt.estimated_wait_minutes ?? null}
@@ -145,6 +153,30 @@ export default function AppointmentsTab({ bookings }) {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* Waiting on the HMO [1.132.0]: the slot is kept until the appointment's own time. */}
+        {isOpen && hmoWaiting && (
+          <p data-testid="booking-hmo-waiting" className="m-0 rounded-lg border border-azure-200 bg-azure-50 p-2.5 text-fine text-azure-900">
+            {isHeld || !heldUntil ? (
+              <>
+                <strong>Waiting for your HMO&apos;s approval.</strong> Your slot is kept until your
+                appointment time; if your HMO has not approved it by then, it is released. We email
+                you their answer.
+              </>
+            ) : (
+              <>
+                <strong>Your HMO had not approved this booking in time</strong>, so its slot was
+                released.
+              </>
+            )}
+          </p>
+        )}
+        {payable && appt.hmo_status === 'Rejected' && (
+          <p data-testid="booking-hmo-refused" className="m-0 rounded-lg border border-line bg-slate-100 p-2.5 text-fine text-slate-700">
+            <strong>Your HMO did not approve this booking.</strong> You can still keep it by paying
+            for it yourself.
+          </p>
         )}
 
         {/* A hold is live only while held_until is in the future. Compared against

@@ -1,5 +1,41 @@
 # Database Migration & Schema History
 
+## [1.132.0] - 2026-10-19 (Payment first, for every booking)
+
+Run on an existing database: `node src/scripts/migrateHmoApprovalFirst.js`. Data only, no schema
+change: a booking not yet checked in or paid whose claim is still undecided holds its slot until
+its own start (one already past it is then released by the next sweep, and logged), and one from
+today on whose claim was refused in full gets the payment window from now. No email is sent from
+the migration. `--rollback` clears the holds of HMO bookings, so they take their slot for good again.
+On the dev database it changed nothing (no HMO bookings).
+
+Steven: "but our rule is payment first remember", about the two kinds of booking [1.131.0] still let
+take a slot unpaid. His answers: a desk booking "Only if paid on the spot" (no holding), and an HMO
+booking "HMO approval first".
+- **A booking made at the desk is paid as it is made.** A staff `POST /appointments` with no HMO
+  claim carries `payment: { paymentMethod, amount, referenceNumber? }` and is paid in the booking's
+  own transaction through `paymentService.processPayment` (one receipt, the visit's bill checked
+  against the amount as at the till); without it, 400. Booking needs `visits:create`,
+  `tests:assign` and `billing:process` (an HMO booking `hmo:request` instead): Receptionist alone
+  and Admin are refused 403, as is any department. Before this, POST /appointments checked no
+  permission for staff at all. A patient sending `payment` with their own booking gets 400.
+- **An HMO booking is kept once its HMO approves it.** It holds its slot until its own start while
+  the claim waits. Approved (something covered, nothing still waiting): kept, as if paid. Refused
+  in full: the payment window from the refusal, then released like any unpaid booking. Undecided at
+  its start: released ("its HMO had not approved it by the time it was booked for"). The patient is
+  emailed the HMO's answer. Service Requests shows "Booking: decide by …" on a claim with a booking
+  waiting; the portal shows "Waiting for your HMO's approval" rather than a pay panel, a pass once
+  approved ("Approved by your HMO"), and the pay panel once refused.
+- **Fixed on the way:** the unpaid sweep read only each test's own HMO column, so a visit whose
+  claim was refused as a whole looked like it was still waiting for good and was never removed.
+  It reads `hmoEffectiveStatus` now, as the bill does. `amount_due` on the patient's bookings is
+  now their share (less what the HMO approved), and `e2eReleaseTestDate.js` removes leftover
+  bookings rather than marking them Cancelled.
+- The demo seed's desk bookings are made by Rhea Tan (Receptionist + Cashier) and paid there.
+- `payment-first.spec.js` (6 tests); `booking-atomicity`'s "an HMO booking is permanent" became
+  "holds its slot until its own start"; `booking-queue` books as the patient (a desk booking is
+  paid, so it goes straight to the departments at check-in).
+
 ## [1.131.0] - 2026-10-19 (Unpaid is temporary; paid is final; nothing is cancelled)
 
 Run on an existing database: `node src/scripts/migrateUnpaidIsTemporary.js`. It removes every

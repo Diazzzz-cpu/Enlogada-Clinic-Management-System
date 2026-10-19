@@ -11,11 +11,9 @@
  * Shelled out to from the frontend suite like e2eExpireHold.js, and for the reason
  * globalTeardown.js gives: the credentials and the `pg` client live here.
  *
- * Cancelled in the database, not through PUT /appointments/:id/cancel. The API sends the patient a
- * cancellation email — about 3 s a booking through Gmail, and eleven real emails to a test inbox —
- * which is right for a patient and wrong for test hygiene. The end state is the one the API
- * produces: appointment and visit both Cancelled, which frees the slot and takes the booking out of
- * the duplicate check.
+ * Removed, the way an unpaid booking whose time is up is removed (visitRepository.removeVisits):
+ * nothing is cancelled any more [1.131.0], and there is no cancel route. No email and no Activity
+ * Log line, as these were only ever the suite's own fixtures.
  *
  * Guards, each independent, and each about what the script is allowed to touch:
  *
@@ -30,7 +28,12 @@
  *   node src/scripts/e2eReleaseTestDate.js --date=2026-11-18 --confirm  release them
  */
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/database');
+const visitRepository = require('../repositories/visitRepository');
+
+const UPLOADS = path.join(__dirname, '..', '..', 'uploads');
 
 // The seeded account the booking specs sign in as (see TEST_ACCOUNTS.md). Throwaway accounts are
 // matched by their reserved domain.
@@ -93,14 +96,11 @@ async function main() {
     process.exit(0);
   }
 
-  // One decision, one write — the same pairing cancelAppointment keeps, so a failure cannot leave a
-  // Cancelled appointment on a visit that still counts toward the slot.
-  await db.withTransaction(async () => {
-    await db.query(`UPDATE appointments SET status = 'Cancelled' WHERE id = ANY($1::int[])`, [rows.map((r) => r.id)]);
-    await db.query(`UPDATE patient_visits SET status = 'Cancelled' WHERE id = ANY($1::int[])`, [
-      rows.map((r) => r.patient_visit_id),
-    ]);
-  });
+  // The booking and its visit together, child to parent, then the uploads they pointed at.
+  const { files } = await db.withTransaction(() => visitRepository.removeVisits(rows.map((r) => r.patient_visit_id)));
+  for (const f of files) {
+    try { fs.unlinkSync(path.join(UPLOADS, f.dir, path.basename(f.p))); } catch { /* already gone */ }
+  }
 
   console.log(`released ${rows.length} leftover booking(s) on ${date}: ${list}`);
   process.exit(0);

@@ -239,6 +239,13 @@ const ServiceRequests = () => {
                         {r.queue_number && (
                           <span className="text-fine tabular-nums text-slate-500">Ticket {r.queue_number}</span>
                         )}
+                        {/* [1.132.0] A booking holds its slot for this claim until its own start, and
+                            is released if it is still undecided then. */}
+                        {r.status === 'Pending' && r.decide_by && (
+                          <span data-testid="claim-decide-by" className="block text-fine font-semibold text-amber-700">
+                            Booking: decide by {new Date(r.decide_by).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <span className="block text-slate-700">{r.provider_name}</span>

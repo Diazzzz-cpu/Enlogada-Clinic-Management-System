@@ -6,7 +6,6 @@ const notificationService = require('./notificationService');
 const visitService = require('./visitService');
 const visitRepository = require('../repositories/visitRepository');
 const patientRepository = require('../repositories/patientRepository');
-const auditService = require('./auditService');
 const hmoRepository = require('../repositories/hmoRepository');
 const appointmentRepository = require('../repositories/appointmentRepository');
 const paymentSubmissionRepository = require('../repositories/paymentSubmissionRepository');
@@ -166,6 +165,9 @@ class PaymentService {
   async processPayment({
     patientVisitId, processedBy, paymentMethod, referenceNumber, amount,
     fromSubmissionId = null, withdrawPendingClaims = false,
+    // false when the caller announces it after its own transaction commits (a booking paid as it
+    // is made [1.132.0]); a notice written inside someone else's transaction could abort it.
+    announce = true,
   }) {
     // Recompute the authoritative bill server-side — also serves as the visit-exists check —
     // rather than trusting the client-submitted amount outright.
@@ -288,11 +290,13 @@ class PaymentService {
     // Module 18 (Notification): Admin/SuperAdmin financial oversight, matching Reports/Cashier
     // Monitoring — not the processing Cashier themselves, who already sees this live in their
     // own receipt flow.
-    await notificationService.notifyRoles(['Admin', 'SuperAdmin'], {
-      title: 'Payment Confirmed',
-      message: `Receipt #${receiptNumber} — ${bill.patientName}, ${formatCurrency(authoritativeTotal)}`,
-      type: 'success'
-    });
+    if (announce) {
+      await notificationService.notifyRoles(['Admin', 'SuperAdmin'], {
+        title: 'Payment Confirmed',
+        message: `Receipt #${receiptNumber} — ${bill.patientName}, ${formatCurrency(authoritativeTotal)}`,
+        type: 'success'
+      });
+    }
 
     return payment;
   }

@@ -8,6 +8,9 @@ class AppointmentController {
   async create(req, res, next) {
     try {
       const { patientId, scheduledDate, scheduledTime, notes, hmo } = req.body;
+      // [1.132.0] A booking made at the clinic is paid as it is made: { paymentMethod, amount,
+      // referenceNumber? }, the till's own fields. Checked in the service, which knows who is asking.
+      const payNow = req.body.payment && typeof req.body.payment === 'object' ? req.body.payment : null;
       const createdBy = req.user.userId;
 
       // Multer has already written any uploaded card and doctor's request by the time this runs,
@@ -129,10 +132,11 @@ class AppointmentController {
         hmo: normalisedHmo,
         hmoCardFile: card,
         doctorRequestFile: doctorRequest,
-        referral
+        referral,
+        payNow
       });
 
-      const { appointment, visitTests, hmoRequest, alreadyBooked } = result;
+      const { appointment, visitTests, hmoRequest, payment, alreadyBooked } = result;
 
       // 200 rather than 201 when the booking already existed: the request was a retry, nothing
       // new was created, and the caller gets the original reference back so it can show the real
@@ -142,7 +146,7 @@ class AppointmentController {
         message: alreadyBooked
           ? `You already have this booking. Reference: ${appointment.appointment_reference}`
           : `Appointment created. Reference: ${appointment.appointment_reference}`,
-        data: { appointment, visitTests, hmoRequest, alreadyBooked }
+        data: { appointment, visitTests, hmoRequest, payment: payment || null, alreadyBooked }
       });
     } catch (err) {
       // Deliberately NOT unlinking here. Once createAppointment has been entered it owns the

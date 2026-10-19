@@ -117,8 +117,9 @@ const BookingConfirmation = ({
             <p className="m-0 text-fine leading-relaxed text-slate-600">
               {isHmo ? (
                 <>
-                  The clinic checks your coverage before your visit. Bring your HMO card and the
-                  reference below — reception will look it up at the front desk.
+                  The clinic checks your coverage before your visit. Your slot is kept until your
+                  appointment time while your HMO decides, and we email you their answer. Bring your
+                  HMO card and the reference below to the front desk.
                 </>
               ) : (
                 <>

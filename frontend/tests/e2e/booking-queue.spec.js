@@ -1,8 +1,9 @@
 // @ts-check
 import { test, expect, request } from 'playwright/test';
-import { fixturePerson, FIXTURE_CONTACT } from './helpers/people.js';
+import { fixturePerson, fixtureEmail, FIXTURE_CONTACT } from './helpers/people.js';
 import { nthWorkingDay } from './helpers/dates.js';
-import { bookableTestId } from './helpers/booking.js';
+import { appointmentForm, bookableTestId } from './helpers/booking.js';
+import { registerClient } from './helpers/accounts.js';
 
 /**
  * A booking joins today's queue when the patient checks in, not when it is made. [1.92.0]
@@ -35,11 +36,14 @@ test.describe('a booking joins the queue at check-in', () => {
   test('a booking has no ticket and no place in line until the desk checks the patient in', async () => {
     const staff = await login('receptionist@enlogada.com');
     const person = fixturePerson();
+    // The patient's own booking [1.132.0]: one made at the desk is paid as it is made, and so goes
+    // straight to the departments at check-in. A patient's, unpaid, waits in the queue to pay.
+    const { token: patientToken } = await registerClient(ctx, { ...person, email: fixtureEmail(person), password: PASSWORD });
 
     const types = (await (await ctx.get(`${API}/patients/types`, { headers: auth(staff) })).json()).data.patientTypes;
     const selfPay = types.find((t) => t.name === 'Self Pay') || types[0];
     const patient = (await (await ctx.post(`${API}/patients`, {
-      headers: auth(staff),
+      headers: auth(patientToken),
       data: {
         patientTypeId: selfPay.id, firstName: person.firstName, lastName: person.lastName,
         birthdate: '1987-05-21', sex: 'Male', contactNumber: FIXTURE_CONTACT,
@@ -61,8 +65,8 @@ test.describe('a booking joins the queue at check-in', () => {
 
     const waitingBefore = await waiting();
     const booked = await ctx.post(`${API}/appointments`, {
-      headers: auth(staff),
-      data: { patientId: patient.id, scheduledDate: date, scheduledTime: slot.time, testIds: [await bookableTestId(ctx)] },
+      headers: auth(patientToken),
+      multipart: appointmentForm({ patientId: patient.id, scheduledDate: date, scheduledTime: slot.time, testIds: [await bookableTestId(ctx)] }),
     });
     expect(booked.status(), 'the booking should be created').toBe(201);
     const { appointment } = (await booked.json()).data;

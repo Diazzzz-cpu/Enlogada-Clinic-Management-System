@@ -218,8 +218,14 @@ class AppointmentEmailService {
    * Sent when an unpaid booking is released because its time is up. [1.131.0] It disappears from
    * the portal, so the patient is told why, and how to book again.
    */
-  async sendBookingReleased({ to, patientName, reference, date, time, unpaidInTime }) {
+  async sendBookingReleased({ to, patientName, reference, date, time, why }) {
     if (!to) return { skipped: true };
+
+    const because = {
+      payment_window: 'because it was not paid within its time to pay. Its slot is open to other patients again.',
+      // [1.132.0] An HMO booking is kept once its HMO approves it.
+      hmo_undecided: 'because your HMO had not approved it by the time it was booked for. Its slot is open to other patients again.',
+    }[why] || 'because it was not paid and nobody came on the day.';
 
     return sendEmail({
       to,
@@ -227,11 +233,47 @@ class AppointmentEmailService {
       html: shell(`Hello ${patientName},`, `
         <p>Your booking for <strong>${esc(readableDate(date))}</strong> at
            <strong>${esc(readableTime(time))}</strong> (reference ${esc(reference)}) has been released,
-           ${unpaidInTime
-             ? 'because it was not paid within its time to pay. Its slot is open to other patients again.'
-             : 'because it was not paid and nobody came on the day.'}</p>
+           ${because}</p>
         <p style="font-size:14px;">You are welcome to book again from your patient portal whenever
-           suits you. A booking is held once it is paid.</p>
+           suits you. A booking is kept once it is paid, or once your HMO approves it.</p>
+      `),
+    });
+  }
+
+  /**
+   * The HMO's answer on a booking that was waiting for it. [1.132.0] Payment first: an approved
+   * booking is kept as if paid; a refused one is the patient's to pay, within the time given, or
+   * its slot is released. The portal has no bell, so this is how the patient hears.
+   */
+  async sendHmoDecision({ to, patientName, reference, date, time, approved, refusedTests = [], reason = null, payBy = null }) {
+    if (!to) return { skipped: true };
+
+    const when = `<strong>${esc(readableDate(date))}</strong> at <strong>${esc(readableTime(time))}</strong>`;
+    const why = reason ? ` The reason given: ${esc(reason)}.` : '';
+    const payClock = payBy ? esc(readableTime(new Date(payBy).toTimeString().slice(0, 5))) : null;
+
+    if (approved) {
+      return sendEmail({
+        to,
+        subject: `Your HMO approved your booking for ${readableDate(date)}`,
+        html: shell(`Hello ${patientName},`, `
+          <p>Your HMO approved your booking for ${when} (reference ${esc(reference)}), so it is
+             confirmed. Your QR booking pass is in your patient portal: show it at the front desk,
+             with your HMO card.</p>
+          ${refusedTests.length ? `<p style="font-size:14px;">Not covered, and paid at the clinic:
+             ${esc(refusedTests.join(', '))}.${why}</p>` : ''}
+          <p style="font-size:14px;">Please arrive about 10 minutes early.</p>
+        `),
+      });
+    }
+
+    return sendEmail({
+      to,
+      subject: `Your HMO did not approve your booking for ${readableDate(date)}`,
+      html: shell(`Hello ${patientName},`, `
+        <p>Your HMO did not approve your booking for ${when} (reference ${esc(reference)}).${why}</p>
+        <p>You can still keep it by paying for it yourself${payClock ? ` by <strong>${payClock}</strong>` : ''},
+           from your patient portal. If it is not paid by then, its slot is released.</p>
       `),
     });
   }

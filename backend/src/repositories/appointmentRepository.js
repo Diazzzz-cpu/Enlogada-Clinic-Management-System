@@ -1,5 +1,6 @@
 const crypto = require('crypto');
-const { OCCUPIES_SLOT, HOLD_EXPIRY_SQL, PAY_WINDOW_EXPIRY_SQL } = require('../constants/slotHold');
+const { OCCUPIES_SLOT, HOLD_EXPIRY_SQL, PAY_WINDOW_EXPIRY_SQL, HMO_HOLD_SQL } = require('../constants/slotHold');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 const { inTodaysQueue } = require('../constants/queueMembership');
 const db = require('../config/database');
 
@@ -7,8 +8,8 @@ class AppointmentRepository {
   /**
    * `provisional` makes the booking HOLD its slot rather than take it. [1.35.0]
    *
-   * Set only for a client's own self-pay booking, which is the one case where nobody has
-   * committed anything yet — staff bookings and HMO bookings are permanent from the start. The
+   * true: the gateway's 15 minutes; 'manual': the payment window; 'hmo': until the booking's own
+   * start, while its claim waits [1.132.0]; false: permanent, for a booking paid as it is made. The
    * expiry is computed by Postgres, so the database's clock is the only one that decides when a
    * slot goes back on sale.
    */
@@ -18,7 +19,8 @@ class AppointmentRepository {
 
     const queryText = `
       INSERT INTO appointments (patient_visit_id, appointment_reference, scheduled_date, scheduled_time, notes, held_until)
-      VALUES ($1, $2, $3, $4, $5, ${provisional === 'manual' ? PAY_WINDOW_EXPIRY_SQL : provisional ? HOLD_EXPIRY_SQL : 'NULL'})
+      VALUES ($1, $2, $3, $4, $5, ${provisional === 'hmo' ? HMO_HOLD_SQL('$3', '$4')
+        : provisional === 'manual' ? PAY_WINDOW_EXPIRY_SQL : provisional ? HOLD_EXPIRY_SQL : 'NULL'})
       RETURNING *
     `;
     const result = await client.query(queryText, [patientVisitId, appointmentReference, scheduledDate, scheduledTime, notes]);
@@ -78,6 +80,45 @@ class AppointmentRepository {
       [patientVisitId]
     );
     return rows[0];
+  }
+
+  /**
+   * A booking with a claim still undecided, not yet paid: it holds its slot while the claim waits,
+   * until its own start. [1.132.0] The booking path creates it that way; this covers a claim added
+   * later and a booking moved to another time. A no-op without an undecided claim, so it is safe
+   * to call on any booking.
+   */
+  async holdForHmo(patientVisitId) {
+    const { rows } = await db.query(
+      `UPDATE appointments a SET held_until = ${HMO_HOLD_SQL('a.scheduled_date', 'a.scheduled_time')},
+              updated_at = CURRENT_TIMESTAMP
+        WHERE a.patient_visit_id = $1 AND a.status = 'Pending'
+          AND NOT EXISTS (SELECT 1 FROM payments pay
+                           WHERE pay.patient_visit_id = a.patient_visit_id AND pay.payment_status = 'Paid')
+          AND EXISTS (SELECT 1 FROM hmo_request_tests hrt
+                        JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                        JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                       WHERE vt.patient_visit_id = a.patient_visit_id
+                         AND ${hmoEffectiveStatus('hr', 'hrt')} = 'Pending')
+        RETURNING a.*`,
+      [patientVisitId]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * The HMO refused a booking's claim: the patient may still pay it themselves, within the payment
+   * window from now, as a self-pay booking would. [1.132.0] Only a booking still holding its slot
+   * for the claim; one already checked in is at the till, and one already kept is not touched.
+   */
+  async holdForPaymentAfterHmo(patientVisitId) {
+    const { rows } = await db.query(
+      `UPDATE appointments SET held_until = ${PAY_WINDOW_EXPIRY_SQL}, updated_at = CURRENT_TIMESTAMP
+        WHERE patient_visit_id = $1 AND status = 'Pending' AND held_until IS NOT NULL
+        RETURNING *`,
+      [patientVisitId]
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -245,11 +286,31 @@ class AppointmentRepository {
              --
              -- Summed from price_at_time, the same column every other total in the app reads, so
              -- a package's allocated shares add up here exactly as they do on the cashier's bill.
+             --
+             -- [1.132.0] Less what the HMO approved, read as the bill reads it: the patient's share.
              (
                SELECT COALESCE(SUM(vt.price_at_time), 0)
                FROM visit_tests vt
                WHERE vt.patient_visit_id = pv.id
+                 AND NOT EXISTS (
+                   SELECT 1 FROM hmo_request_tests hrt JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                    WHERE hrt.visit_test_id = vt.id AND ${hmoEffectiveStatus('hr', 'hrt')} = 'Approved')
              ) AS amount_due,
+             -- Where the booking's HMO claim stands [1.132.0]: NULL with none, 'Pending' while any
+             -- test waits (the booking holds its slot until its start), 'Approved' once something is
+             -- covered and nothing waits (kept, as if paid), 'Rejected' when all of it was refused
+             -- (the patient may pay it themselves, by its held_until).
+             (
+               SELECT CASE WHEN COUNT(*) = 0 THEN NULL
+                           WHEN COUNT(*) FILTER (WHERE h.eff = 'Pending') > 0 THEN 'Pending'
+                           WHEN COUNT(*) FILTER (WHERE h.eff = 'Approved') > 0 THEN 'Approved'
+                           ELSE 'Rejected' END
+                 FROM (SELECT ${hmoEffectiveStatus('hr', 'hrt')} AS eff
+                         FROM hmo_request_tests hrt
+                         JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                         JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                        WHERE vt.patient_visit_id = pv.id) h
+             ) AS hmo_status,
              -- The tests this booking is for, each at the price it is billed. [1.122.0] The pay
              -- panel lists them and asks the patient to confirm they are final BEFORE the money
              -- leaves their banking app: a paid receipt is final, and the tests cannot change.

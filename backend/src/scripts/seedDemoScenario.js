@@ -54,6 +54,8 @@ const STAFF = {
   xray: 'xray@enlogada.com',
   ultrasound: 'ultrasound@enlogada.com',
   admin: 'admin@enlogada.com',
+  // Books at the desk and takes the payment there and then [1.132.0]: Receptionist and Cashier.
+  desk: 'multirole@enlogada.com',
 };
 
 // ── Who comes in ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +97,7 @@ const TODAY_POOL = {
   tagailo: ['Kevin', 'Tagailo', 'Male', '2003-04-25'],
 };
 
-// Booked ahead by the front desk.
+// Booked ahead at the front desk, and paid there and then: payment first [1.132.0].
 const BOOKING_POOL = [
   { person: ['Jocelyn', 'Abaday', 'Female', '1987-08-08'], tests: ['Complete Blood Count (CBC)', 'Fasting Blood Sugar (FBS)'], time: '09:00', notes: 'Pre-employment requirement' },
   { person: ['Noel', 'Dumaguing', 'Male', '1974-10-10'], tests: ['Whole Abdomen'], time: '10:00', notes: 'Follow-up, gallbladder' },
@@ -1149,12 +1151,11 @@ async function main() {
 
   if (profiles.length > 0) {
     try {
-      // Two bookings, because the QR pass has two states worth seeing side by side: one still to
-      // be paid at the counter (the common case in this clinic) and one already settled online.
-      // With a single unpaid booking the pass was invisible for a long time — the display used to
-      // require payment first — and the demo could not show the scanner having anything to read.
+      // Two bookings, because the booking has two states worth seeing side by side: one still to
+      // be paid (payment first: it holds its slot for the payment window, then is released) and
+      // one already settled online, with its QR pass.
       const bookings = [
-        { label: 'awaiting payment at the counter', pay: false },
+        { label: 'waiting to be paid (its slot is held for the payment window)', pay: false },
         { label: 'prepaid', pay: true },
       ];
       // Deliberately a test that NEEDS preparation — a Fasting Blood Sugar if the catalogue has
@@ -1204,8 +1205,9 @@ async function main() {
     }
   }
 
-  // The front desk books ahead for walk-ins who phone in. Two of them later TODAY when the day
-  // still has room, so the Desk has bookings to check in; the rest over the next working days.
+  // The front desk books ahead for patients at the counter, who pay there and then [1.132.0]. Two
+  // of them later TODAY when the day still has room, so the Desk has bookings to check in; the
+  // rest over the next working days.
   const nowTime = new Date();
   const laterToday = `${String(nowTime.getHours() + 1).padStart(2, '0')}:${String(nowTime.getMinutes()).padStart(2, '0')}`;
   let dayOffset = 1;
@@ -1227,12 +1229,17 @@ async function main() {
         if (i % 2 === 1) dayOffset++;                     // about two bookings a day
       }
       if (!date) continue;
-      const testIds = b.tests.map((t) => findTest(t instanceof RegExp ? 'Xray' : (/Abdomen|Pelvic|KUB|Trans/.test(t) ? 'Ultrasound' : 'Laboratory'), t).id);
+      const booked = b.tests.map((t) => findTest(t instanceof RegExp ? 'Xray' : (/Abdomen|Pelvic|KUB|Trans/.test(t) ? 'Ultrasound' : 'Laboratory'), t));
+      const amount = booked.reduce((sum, t) => sum + parseFloat(t.price), 0);
       await call('/appointments', {
-        method: 'POST', token: tok.receptionist,
-        body: { patientId: patient.id, scheduledDate: dateStr(date), scheduledTime: time, notes: b.notes, testIds },
+        method: 'POST', token: tok.desk,
+        body: {
+          patientId: patient.id, scheduledDate: dateStr(date), scheduledTime: time, notes: b.notes,
+          testIds: booked.map((t) => t.id),
+          payment: { paymentMethod: i % 3 === 2 ? 'GCash' : 'Cash', amount },
+        },
       });
-      stages.push(`${b.person[0]} ${b.person[1]} — booked for ${dateStr(date)} ${time.slice(0, 5)} by the front desk`);
+      stages.push(`${b.person[0]} ${b.person[1]} — booked for ${dateStr(date)} ${time.slice(0, 5)} at the front desk, paid`);
     } catch (err) {
       logger.warn(`  front-desk booking for ${b.person[0]} ${b.person[1]} skipped: ${err.message}`);
     }

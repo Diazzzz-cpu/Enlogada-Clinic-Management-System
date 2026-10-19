@@ -18,6 +18,7 @@ const WHY = {
   day_ended: (v) => `not paid by the end of ${day(v.created_at)}`,
   day_passed: (v) => `nobody came on ${day(v.scheduled_date)}, and it was not paid`,
   payment_window: () => 'not paid within its time to pay',
+  hmo_undecided: () => 'its HMO had not approved it by the time it was booked for',
 };
 
 /**
@@ -62,7 +63,7 @@ class UnpaidExpiryService {
           reference: v.appointment_reference,
           date: v.scheduled_date,
           time: v.scheduled_time,
-          unpaidInTime: v.why === 'payment_window',
+          why: v.why,
         }).catch((err) => logger.error(`Booking-released email failed for ${v.appointment_reference}: ${err.message}`));
       }
     }

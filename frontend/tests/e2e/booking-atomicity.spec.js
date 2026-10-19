@@ -5,7 +5,7 @@ import { selfPayProfile } from './helpers/patients.js';
 import { daysAgoStr } from '../../src/lib/date.js';
 import { holdSlot, expireHold, releaseLeftoverBookings } from './helpers/slotHold.js';
 import { dateStr, nthWorkingDay } from './helpers/dates.js';
-import { appointmentForm } from './helpers/booking.js';
+import { appointmentForm, removeUnpaid } from './helpers/booking.js';
 
 // Booking atomicity and duplicate handling.
 //
@@ -331,20 +331,24 @@ test.describe('Booking atomicity (API)', () => {
   });
 
   // [1.106.0] Nor is the standalone route a way round the doctor's request. A visit the front desk
-  // booked for this patient carries none (staff are exempt), so the patient claiming HMO on it
-  // from home is refused, card or no card.
+  // opened for this patient carries none (staff are exempt), so the patient claiming HMO on it
+  // from home is refused, card or no card. [1.132.0] A walk-in rather than a desk booking: one
+  // booked at the desk is paid as it is made, and a paid visit is refused a claim before this.
   test("a patient cannot claim HMO on a visit with no doctor's request", async () => {
     const providerId = (await (await apiContext.get(`${API}/hmo/providers`, {
       headers: { Authorization: `Bearer ${clientToken}` }
     })).json()).data.providers[0].id;
 
     const reception = await loginAs(apiContext, API, RECEPTION);
-    const booked = await apiContext.post(`${API}/appointments`, {
+    const opened = await apiContext.post(`${API}/visits`, {
       headers: { Authorization: `Bearer ${reception}` },
-      data: { patientId, scheduledDate: BOOKING_DATE, scheduledTime: await claimSlot(), testIds },
+      data: { patientId, visitType: 'Walk in', testIds },
     });
-    expect(booked.status(), 'the desk books without the paper').toBe(201);
-    const visitTestIds = (await booked.json()).data.visitTests.map((vt) => vt.id);
+    expect(opened.status(), 'the desk opens a visit without the paper').toBe(201);
+    const visitId = (await opened.json()).data.visit.id;
+    const visitTestIds = (await (await apiContext.get(`${API}/tests/visit-tests/${visitId}`, {
+      headers: { Authorization: `Bearer ${reception}` },
+    })).json()).data.visitTests.map((vt) => vt.id);
 
     const form = new FormData();
     form.append('hmoProviderId', String(providerId));
@@ -354,6 +358,8 @@ test.describe('Booking atomicity (API)', () => {
       headers: { Authorization: `Bearer ${clientToken}` },
       multipart: form
     });
+    // The patient waits in no queue for this: the visit was only ever the fixture.
+    removeUnpaid(visitId, { visit: true });
     expect(res.status()).toBe(400);
     expect((await res.json()).message).toMatch(/doctor's signed request/i);
   });
@@ -443,30 +449,26 @@ test.describe('Booking atomicity (API)', () => {
     // booking-time capacity check are separate queries and used to be separately spelled.
     const client2 = await book({ scheduledTime: target, testIds });
     expect([200, 201]).toContain(client2.status());
-
-    // The abandoned row is still there, as the record of an attempt rather than a deletion.
-    const mine = await apiContext.get(`${API}/appointments/my-bookings`, {
-      headers: { Authorization: `Bearer ${clientToken}` }
-    });
-    expect((await mine.json()).data.bookings.some((b) => b.id === appointment.id)).toBe(true);
+    // The abandoned booking itself is removed by the sweep a few minutes later [1.131.0]
+    // (unpaid-expiry.spec.js); the slot never waited for it, which is the point here.
   });
 
-  // An HMO booking is settled at the clinic by design, so it must never be made conditional on an
-  // online payment that is never going to happen.
-  test('an HMO booking is permanent, not held', async () => {
+  // Payment first [1.132.0]: an HMO booking's approval is its payment, so while the claim waits it
+  // holds its slot until its own start, rather than taking it for good as it used to.
+  // payment-first.spec.js follows it through approval, refusal and release.
+  test('an HMO booking holds its slot until its own start', async () => {
     const providersRes = await apiContext.get(`${API}/hmo/providers`, {
       headers: { Authorization: `Bearer ${clientToken}` }
     });
     const providerId = (await providersRes.json()).data.providers[0].id;
 
-    const res = await bookWithCard({
-      scheduledTime: await claimSlot(), testIds, providerId, withCard: true
-    });
+    const time = String(await claimSlot()).slice(0, 5);
+    const res = await bookWithCard({ scheduledTime: time, testIds, providerId, withCard: true });
     expect(res.status()).toBe(201);
-    const appointment = (await res.json()).data.appointment;
+    const held = new Date((await res.json()).data.appointment.held_until);
 
-    // No hold to lapse. The helper refuses a permanent booking, which is the assertion.
-    expect(() => expireHold(appointment.id)).toThrow(/permanent, not held/i);
+    expect(dateStr(held), 'held until its own day').toBe(BOOKING_DATE);
+    expect(`${String(held.getHours()).padStart(2, '0')}:${String(held.getMinutes()).padStart(2, '0')}`, 'and its own time').toBe(time);
   });
 
   test('the Self-Pay sentinel is rejected rather than stored as a null provider', async () => {

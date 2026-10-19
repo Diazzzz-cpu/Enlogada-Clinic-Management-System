@@ -107,6 +107,7 @@ node src/scripts/migrateVisitFeedback.js        # [1.112.0] patient feedback: 2 
 node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code per released report version; backfills released ones (--rollback reverses it)
 node src/scripts/migrateExamPerformed.js        # [1.129.0] visit_tests.performed_at/_by: an X-ray exam marked done (--rollback reverses it)
 node src/scripts/migrateUnpaidIsTemporary.js    # [1.131.0] removes never-paid Cancelled / No Show visits (Activity Log line each), drops [1.130.0]'s closed_reason/_at, retires appointments:cancel
+node src/scripts/migrateHmoApprovalFirst.js      # [1.132.0] HMO bookings wait for their claim until their start; a refused one gets the payment window (data only; --rollback reverses it)
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -178,7 +179,7 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 ```bash
 cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
 cd frontend && npm run test:unit # 137 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 523 Playwright E2E, ~14m, needs both dev servers
+cd frontend && npm test        # 529 Playwright E2E, ~14m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -197,7 +198,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 87 Playwright specs (523 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 88 Playwright specs (529 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -213,6 +214,12 @@ patient waiting, and the next spec's walk-in for them is then refused as a secon
 `[1.131.0]` Nothing is cancelled any more, so a spec frees what it booked or opened unpaid with
 `helpers/booking.js` `removeUnpaid(appointmentId)` / `removeUnpaid(visitId, { visit: true })`
 (`e2eRemoveUnpaid.js`, which refuses anything ever paid), never a cancel route: there is none.
+`[1.132.0]` A booking made with a STAFF token is paid as it is made: it carries `payment`
+(`{ paymentMethod, amount }`, the till's fields) and comes from an account that both opens visits
+and takes payments, which among the seeded ones is `multirole@enlogada.com` (or SuperAdmin). A spec
+that needs an UNPAID booking books as a patient; one that needs a desk-opened unpaid visit uses a
+walk-in (`POST /visits`). Watch `cashier@enlogada.com`: on the dev database it may hold Receptionist
+too, which turns a "the cashier cannot" assertion into a 201.
 
 **A booking spec must claim its own slot.** `POST /appointments` returns the *existing* booking with 200 when the same patient re-submits the same date and time, so two tests that both take "the first available slot" silently share one visit — and `avail.slots.find(s => s.available)` will not stop them, because a dev database whose cap has been lifted (`cleanE2eData.js --apply --unlimited-slots`, which exists because 18 slots a day cannot absorb repeated runs) reports every slot as available however many bookings it holds. `booking-atomicity.spec.js` and `ticket-release-gating.spec.js` each keep a `claimed` set for this. Symptom when you get it wrong: a create test receives 200 instead of 201, or a test finds a visit some earlier test already checked in.
 
@@ -257,8 +264,36 @@ Whenever the clinic publishes a payment account, a self-pay booking a patient ma
 for `BOOKING_PAYMENT_MINUTES` (default 60, `PAY_WINDOW_MINUTES` in `constants/slotHold.js`), the
 same `held_until` / `OCCUPIES_SLOT` machinery as the gateway's 15 minutes. A proof sent in time
 clears the hold (`confirmHold`); one sent after it is refused 409; a rejected proof starts the
-window again (`reholdForPayment`). Staff and HMO bookings still take their slot outright. Before
-this, only the switched-off gateway ever released a slot, so an unpaid booking held one for good.
+window again (`reholdForPayment`). Before this, only the switched-off gateway ever released a slot,
+so an unpaid booking held one for good.
+
+**Payment first, for every booking.** `[1.132.0]` Steven: "our rule is payment first remember".
+Two kinds of booking still took their slot for good unpaid, and no longer do:
+- **A booking made at the desk is paid as it is made** ("Only if paid on the spot"). A staff
+  `POST /appointments` without an HMO claim must carry `payment: { paymentMethod, amount,
+  referenceNumber? }`; it runs `paymentService.processPayment` inside the booking's transaction
+  (`announce: false`, the notice goes out after the commit), so the booking exists paid or not at
+  all, with a real receipt, and takes its slot outright. Without it, 400. The caller must hold
+  `visits:create` and `tests:assign` (a booking opens a visit with tests) and `billing:process`
+  (`assertMayBook` in appointmentService; SuperAdmin bypasses). Before this any member of staff
+  could book, a laboratory account included. Of the seeded roles only Receptionist + Cashier
+  together (`multirole`) or SuperAdmin can; Receptionist alone and Admin get 403. A patient sending
+  `payment` with their own booking gets 400. There is no booking screen on the staff side: staff
+  bookings come through the API (the demo seed).
+- **An HMO booking is kept once its HMO approves it** ("HMO approval first"). It holds its slot
+  until its own start while the claim waits (`provisional: 'hmo'`, `HMO_HOLD_SQL`; a claim added to
+  a booking later and a booking moved both go through `holdForHmo`). `hmoService.
+  settleBookingAfterDecision`, in the decision's transaction, once nothing on the visit is still
+  waiting (read with `hmoEffectiveStatus`): something approved, `confirmHold` (kept, as if paid; a
+  refused test on it is paid at the clinic); everything refused, `holdForPaymentAfterHmo` (the
+  payment window from now, like a self-pay booking). The patient is emailed either way
+  (`sendHmoDecision`). Still undecided at its start, the hold lapses and the sweep removes it
+  (`why: 'hmo_undecided'`, its own email wording). Service Requests shows the deadline under the
+  patient's name (`decide_by`, `claim-decide-by`), and the portal says "Waiting for your HMO's
+  approval" (`booking-hmo-waiting`) instead of a pay panel, a pass once approved, and the pay panel
+  with "Your HMO did not approve" (`booking-hmo-refused`) once refused. `my-bookings` carries
+  `hmo_status`, and `amount_due` less what the HMO approved.
+`payment-first.spec.js` holds both.
 
 **Turning on online payment (GCash) is configuration only — no code change.** [1.37.0] The whole
 path is wired, mounted and unflagged; it is dormant purely because the secrets are blank. In order:
@@ -284,8 +319,8 @@ against the *webhook* secret, so a missing one rejects every delivery 401 throug
 retry schedule while the money has already moved.
 
 **Two things change the day it goes on.** Unpaid client self-pay bookings start releasing their
-slot after 15 minutes instead of the manual payment window ([1.35.0], [1.123.0] — HMO and staff
-bookings stay permanent), and
+slot after 15 minutes instead of the manual payment window ([1.35.0], [1.123.0]; an HMO booking
+still waits on its claim, and a desk booking is paid as it is made, [1.132.0]), and
 the client's booking cards begin offering GCash instead of "pay at the counter".
 
 **Outbound email is configured and working.** `[1.50.0]` The clinic sends from
@@ -509,11 +544,14 @@ is retired, and the Desk, the portal and Visit History offer and show neither. I
 `jobs/unpaidExpiryScheduler.js` runs `unpaidExpiryService.removeExpired` every five minutes, which
 DELETES (`visitRepository.removeVisits`, child to parent, uploaded files after the commit) every
 unpaid visit whose time is up (`findExpiredUnpaid`): a walk-in after its day; a booking after its
-day, staff and HMO bookings included (they take a slot without paying first, but the patient still
-has to come); a patient's own booking once its time to pay lapses. Each leaves one Activity Log
-line (`visit.removed_unpaid`, "System (unpaid, time up)") and a released booking emails its patient
-(`sendBookingReleased`). Never anything waiting on someone (an HMO decision, an online proof to
-check) and never anything that had a receipt. A PAID visit still with a department is on the Desk's
+day; a booking whose hold lapsed (a patient's own, not paid within its time to pay; an HMO one
+whose claim was undecided at its start or refused and not paid in time, `[1.132.0]`). Each leaves
+one Activity Log line (`visit.removed_unpaid`, "System (unpaid, time up)") and a released booking
+emails its patient (`sendBookingReleased`, worded by `why`). Never anything waiting on an online
+proof to check, never a visit waiting on an HMO decision other than a booking whose hold for it
+ran out, and never anything that had a receipt. The HMO's decision is read with
+`hmoEffectiveStatus`: a claim refused as a whole leaves its lines reading 'Pending', and the first
+version of this treated such a visit as waiting for good. A PAID visit still with a department is on the Desk's
 "From earlier days" table; a paid booking nobody came for is on "Paid bookings nobody came for",
 to be moved. A booking whose time to pay ran out cannot be checked in (409, "start a walk-in
 visit") and, moved by the patient first, gets a fresh time to pay (`restartLapsedHold`).

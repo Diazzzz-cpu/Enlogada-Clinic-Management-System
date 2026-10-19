@@ -8,6 +8,9 @@ const notificationService = require('./notificationService');
 const { HMO_CARD_UPLOAD_ROOT } = require('../config/upload');
 const { CLIENT_ROLE, isStaffUser } = require('../constants/roles');
 const visitRepository = require('../repositories/visitRepository');
+const appointmentRepository = require('../repositories/appointmentRepository');
+const appointmentEmailService = require('./appointmentEmailService');
+const logger = require('../config/logger');
 const {
   assertReferralIfRequired, assertDoctorRequestIfRequired, normaliseReferral, isNamed,
 } = require('./referralService');
@@ -62,6 +65,53 @@ async function handOffToCashier(request, { type, title, detail }) {
     message: patient ? `${patient} — ${detail}` : detail,
   });
 }
+
+/**
+ * Payment first, for a booking waiting on its HMO. [1.132.0]
+ *
+ * Steven's rule: a booking is kept once it is paid, and for an HMO booking the HMO's approval is
+ * the payment. The booking holds its slot until its own start while the claim waits
+ * (appointmentRepository.holdForHmo). Once nothing on the visit is still waiting:
+ *   - something approved: the booking is kept, as a paid one is (a test the HMO refused is paid at
+ *     the clinic, like any HMO visit's);
+ *   - everything refused: the patient may still pay it themselves, within the payment window
+ *     from now, after which it is released like any unpaid booking.
+ * Runs in the decision's transaction. Returns what to tell the patient, which is sent after it.
+ */
+async function settleBookingAfterDecision(visitId) {
+  const hold = await appointmentRepository.findHoldByVisitId(visitId);
+  if (!hold || hold.status !== 'Pending' || !hold.held_until) return null;
+  const decision = await hmoRepository.findDecisionForVisit(visitId);
+  if (!decision || decision.pending > 0 || decision.approved + decision.refused === 0) return null;
+
+  if (decision.approved > 0) {
+    const kept = await appointmentRepository.confirmHold(visitId);
+    return kept && { appointmentId: kept.id, approved: true, refusedTests: decision.refused_tests, reason: decision.reason };
+  }
+  const held = await appointmentRepository.holdForPaymentAfterHmo(visitId);
+  return held && { appointmentId: held.id, approved: false, reason: decision.reason, payBy: held.held_until };
+}
+
+/** Emails the patient the HMO's answer on their booking. Never awaited by the request. */
+async function tellPatient(outcome) {
+  if (!outcome) return;
+  const booking = await appointmentRepository.findEmailContextById(outcome.appointmentId);
+  if (!booking?.email) return;
+  await appointmentEmailService.sendHmoDecision({
+    to: booking.email,
+    patientName: `${booking.first_name} ${booking.last_name}`,
+    reference: booking.appointment_reference,
+    date: booking.scheduled_date,
+    time: booking.scheduled_time,
+    approved: outcome.approved,
+    refusedTests: outcome.refusedTests || [],
+    reason: outcome.reason,
+    payBy: outcome.payBy || null,
+  });
+}
+const tellPatientLater = (outcome) => {
+  tellPatient(outcome).catch((err) => logger.error(`HMO decision email failed: ${err.message}`));
+};
 
 // Mirrors testService.js's assertClientOwnsVisit, which exists for the same reason: that endpoint
 // also authorizes the Client role for self-service booking and originally trusted whatever ids the
@@ -271,6 +321,9 @@ class HmoService {
           : 'Physical HMO card confirmed at the desk'
       });
 
+      // Payment first [1.132.0]: a booking waiting on this claim holds its slot until its start.
+      for (const v of visits) await appointmentRepository.holdForHmo(v.id);
+
       return request;
     });
   }
@@ -374,10 +427,14 @@ class HmoService {
       }
     }
 
-    const approved = await hmoRepository.approveRequest(id, {
-      approvalCode,
-      decidedBy: requestingUser?.userId ?? null,
+    const { approved, told } = await db.withTransaction(async () => {
+      const row = await hmoRepository.approveRequest(id, {
+        approvalCode,
+        decidedBy: requestingUser?.userId ?? null,
+      });
+      return { approved: row, told: await settleBookingAfterDecision(request.patient_visit_id) };
     });
+    tellPatientLater(told);
 
     await auditService.log({
       actorId: requestingUser?.userId,
@@ -428,10 +485,14 @@ class HmoService {
       throw error;
     }
 
-    const rejected = await hmoRepository.rejectRequest(id, {
-      decisionReason: reason,
-      decidedBy: requestingUser?.userId ?? null,
+    const { rejected, told } = await db.withTransaction(async () => {
+      const row = await hmoRepository.rejectRequest(id, {
+        decisionReason: reason,
+        decidedBy: requestingUser?.userId ?? null,
+      });
+      return { rejected: row, told: await settleBookingAfterDecision(request.patient_visit_id) };
     });
+    tellPatientLater(told);
 
     await auditService.log({
       actorId: requestingUser?.userId,
@@ -512,11 +573,14 @@ class HmoService {
       throw error;
     }
 
-    const updated = await hmoRepository.updateTestApprovalStatus(hmoRequestTestId, approvalStatus, {
-      // A reason on an approval would read as a caveat on cover the HMO did not attach; the field
-      // is cleared so the column holds refusals only, which is what anyone reading it expects.
-      decisionReason: approvalStatus === 'Rejected' ? reason : null,
-      decidedBy: requestingUser?.userId ?? null,
+    const { updated, told } = await db.withTransaction(async () => {
+      const row = await hmoRepository.updateTestApprovalStatus(hmoRequestTestId, approvalStatus, {
+        // A reason on an approval would read as a caveat on cover the HMO did not attach; the field
+        // is cleared so the column holds refusals only, which is what anyone reading it expects.
+        decisionReason: approvalStatus === 'Rejected' ? reason : null,
+        decidedBy: requestingUser?.userId ?? null,
+      });
+      return { updated: row, told: row && line ? await settleBookingAfterDecision(line.patient_visit_id) : null };
     });
 
     if (!updated) {
@@ -524,6 +588,7 @@ class HmoService {
       error.statusCode = 404;
       throw error;
     }
+    tellPatientLater(told);
 
     await auditService.log({
       actorId: requestingUser?.userId,

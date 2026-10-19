@@ -18,6 +18,8 @@ const packageService = require('./packageService');
 const hmoService = require('./hmoService');
 const { discardHmoCard } = require('../config/upload');
 const visitService = require('./visitService');
+const paymentService = require('./paymentService');
+const { formatCurrency } = require('../utils/money');
 const auditService = require('./auditService');
 const appointmentEmailService = require('./appointmentEmailService');
 const logger = require('../config/logger');
@@ -196,6 +198,72 @@ function formatDateOnly(value) {
   return `${y}-${m}-${day}`;
 }
 
+const holds = (user, permission) =>
+  (user?.roles || []).includes('SuperAdmin') || (user?.permissions || []).includes(permission);
+
+/**
+ * Who may book, and how it is paid. [1.132.0] Payment first.
+ *
+ * A patient books from the portal and pays for it there (or their HMO approves it); a payment
+ * sent WITH a patient's booking is refused, as nothing here could take it.
+ *
+ * Staff book at the clinic, where the patient is, so a self-pay booking is paid in the same
+ * request (`payment`), never held unpaid; an HMO booking waits on its HMO. A booking opens a
+ * visit with its tests, so it needs what starting a walk-in needs (visits:create, tests:assign),
+ * plus the right to take the money (billing:process) or to raise the claim (hmo:request). Before
+ * this, any member of staff could book, a laboratory account included.
+ */
+function assertMayBook(user, { hmo, payNow }) {
+  const refuse = (status, message) => {
+    const error = new Error(message);
+    error.statusCode = status;
+    throw error;
+  };
+  if (!isStaffUser(user)) {
+    if (payNow) refuse(400, 'A booking is paid from your portal once it is made.');
+    return;
+  }
+  if (!holds(user, 'visits:create') || !holds(user, 'tests:assign')) {
+    refuse(403, 'Booking a patient opens a visit with their tests, which your account cannot do.');
+  }
+  if (hmo) {
+    if (!holds(user, 'hmo:request')) refuse(403, 'Your account cannot raise an HMO claim, which an HMO booking is.');
+    if (payNow) refuse(400, 'An HMO booking waits for its HMO, so it is not paid as it is made. Book it as self-pay to take payment now.');
+    return;
+  }
+  if (!holds(user, 'billing:process')) {
+    refuse(403, 'A booking made at the clinic is paid there and then, so it is made by someone who can take the payment.');
+  }
+  if (!payNow) {
+    refuse(400, 'A booking made at the clinic is paid there and then. Take the payment with the booking (payment method and amount).');
+  }
+  if (!payNow.paymentMethod || payNow.amount === undefined || payNow.amount === null || payNow.amount === '') {
+    refuse(400, 'Say how the booking is paid: the payment method and the amount.');
+  }
+}
+
+/** Takes the payment for a booking being made, inside the booking's transaction. [1.132.0] */
+function payOnTheSpot(visitId, payNow, processedBy) {
+  return paymentService.processPayment({
+    patientVisitId: visitId,
+    processedBy,
+    paymentMethod: payNow.paymentMethod,
+    referenceNumber: payNow.referenceNumber || null,
+    amount: payNow.amount,
+    // Announced after the booking commits, not from inside its transaction.
+    announce: false,
+  });
+}
+
+/** The till's "Payment Confirmed" notice, for a booking paid as it was made. Never fails it. */
+async function announcePayment(payment, patientName) {
+  await notificationService.notifyRoles(['Admin', 'SuperAdmin'], {
+    title: 'Payment Confirmed',
+    message: `Receipt #${payment.receipt_number} — ${patientName}, ${formatCurrency(payment.amount)}`,
+    type: 'success',
+  });
+}
+
 class AppointmentService {
   /**
    * Bookable times for one date, from the weekly pattern plus any override for that date.
@@ -284,7 +352,8 @@ class AppointmentService {
   // not at all.
   async createAppointment({
     patientId, scheduledDate, scheduledTime, notes, createdBy, requestingUser,
-    testIds = [], packageIds = [], hmo = null, hmoCardFile = null, doctorRequestFile = null, referral = null
+    testIds = [], packageIds = [], hmo = null, hmoCardFile = null, doctorRequestFile = null, referral = null,
+    payNow = null
   }) {
     // db.withTransaction rather than a hand-managed db.pool.connect(). Everything underneath —
     // testService.attachTests, hmoService.createRequest and the auditService.log inside it — runs
@@ -294,6 +363,7 @@ class AppointmentService {
     // free. It also removes the `committed` flag this used to need — the post-commit work below
     // is now structurally outside the transaction rather than inside its try.
     let outcome;
+    let payerName = 'a patient';
     try {
       // Inside the try, though it runs before the transaction: multer has already written the card
       // by the time this method is entered, so a 403 here would otherwise leave it on disk forever.
@@ -306,6 +376,11 @@ class AppointmentService {
         error.statusCode = 400;
         throw error;
       }
+
+      // Payment first. [1.132.0] Steven: a booking made at the clinic is paid there and then, in
+      // this same request, so the desk never holds a slot for someone who has not paid; an HMO
+      // booking waits on its HMO instead (see `provisional` below).
+      assertMayBook(requestingUser, { hmo: Boolean(hmo), payNow });
 
       // The same rule the front desk applies when it registers a walk-in: a 'Private' patient is
       // by definition one a physician referred, so the booking has to say who. It was enforced at
@@ -324,6 +399,7 @@ class AppointmentService {
         error.statusCode = 404;
         throw error;
       }
+      payerName = `${bookingPatient.first_name} ${bookingPatient.last_name}`;
       // [1.107.0] A patient's HMO booking, or a Private patient's, carries the doctor's signed
       // request, and that paper also answers "who referred them" — so a patient no longer types
       // the doctor's name. Optional for self-pay.
@@ -389,7 +465,13 @@ class AppointmentService {
             visitTests = await testRepository.findTestsByVisitId(existing.patient_visit_id);
           }
 
-          return { appointment: existing, visitTests, hmoRequest: null, alreadyBooked: true };
+          // A booking made at the clinic is paid as it is made [1.132.0]: a re-sent one whose first
+          // reply was lost is already paid, and is returned as it is.
+          const payment = payNow && !(await paymentRepository.hasPaidPayment(existing.patient_visit_id))
+            ? await payOnTheSpot(existing.patient_visit_id, payNow, createdBy)
+            : null;
+
+          return { appointment: existing, visitTests, hmoRequest: null, payment, alreadyBooked: true };
         }
 
         const { rows } = await db.query(
@@ -440,6 +522,11 @@ class AppointmentService {
         // A self-pay booking a patient makes now holds its slot for the payment window whenever
         // the clinic takes payment online at all; before, only the (switched-off) gateway did,
         // so an unpaid booking held its slot for good.
+        //
+        // [1.132.0] Payment first, for every booking. An HMO booking, staff-made or not, holds its
+        // slot until its own start while the claim waits (the HMO's approval is its payment, see
+        // hmoService.settleBookingAfterDecision). A booking made at the clinic is paid below, in
+        // this transaction, so it takes its slot outright.
         const selfPayOnline = !isStaffUser(requestingUser) && !hmo;
         const gatewayOn = paymentGatewayService.isConfigured();
         const manualOn = selfPayOnline && !gatewayOn && (await paymentMethodRepository.findActive()).length > 0;
@@ -450,7 +537,7 @@ class AppointmentService {
           scheduledDate,
           scheduledTime,
           notes,
-          provisional: payingOnline
+          provisional: hmo ? 'hmo' : payingOnline
         });
 
         // 6. Attach the chosen tests, and the HMO claim if one was made. Order matters:
@@ -476,10 +563,15 @@ class AppointmentService {
           }, requestingUser, { ownershipAlreadyAsserted: true });
         }
 
+        // Paid as it is made [1.132.0], through the till's own path (one receipt, the cash-up, the
+        // statutory register), in this transaction: the booking exists paid, or not at all.
+        const payment = payNow ? await payOnTheSpot(visit.id, payNow, createdBy) : null;
+
         return {
           appointment: { ...appointment, queue_number: visit.queue_number },
           visitTests,
           hmoRequest,
+          payment,
           alreadyBooked: false,
           queueNumber: visit.queue_number
         };
@@ -495,6 +587,7 @@ class AppointmentService {
 
     // ── Committed from here. Nothing below may delete the evidence or fail the booking. ──────
     if (outcome.alreadyBooked) {
+      if (outcome.payment) await announcePayment(outcome.payment, payerName);
       // A retry re-sends the evidence the original booking already carries, and this path files
       // no new claim for it to attach to. Drop the bytes rather than letting a re-submission swap
       // the evidence under a claim an Admin may already have reviewed.
@@ -502,6 +595,8 @@ class AppointmentService {
       // No notification either: staff were already told about this booking when it was made.
       return outcome;
     }
+
+    if (outcome.payment) await announcePayment(outcome.payment, payerName);
 
     // Module 18 (Notification): Receptionist owns intake/check-in for a booked appointment;
     // Admin/SuperAdmin have standing oversight (matches the existing Appointments Oversight
@@ -719,6 +814,9 @@ class AppointmentService {
       // time to pay, or the move would land a booking that holds nothing and cannot be paid.
       const reheld = await appointmentRepository.restartLapsedHold(id, { gateway: paymentGatewayService.isConfigured() });
       if (reheld) moved = reheld;
+      // [1.132.0] One still waiting on its HMO holds the new slot until the new start instead.
+      const hmoHeld = await appointmentRepository.holdForHmo(moved.patient_visit_id);
+      if (hmoHeld) moved = hmoHeld;
 
       // Audited: a booking moving is a change to a commitment made to a patient, and when staff
       // do it on someone's behalf the record of who and when is the whole point. Low volume, so

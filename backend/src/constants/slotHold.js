@@ -12,21 +12,24 @@
  * A booking occupies its slot when it is not cancelled AND its claim is still good. A claim is
  * good when `held_until IS NULL` — a permanent booking — or when the hold has not yet lapsed.
  *
- * Permanent (held_until NULL) covers everything except one case:
- *   - anything staff creates: the patient is standing at the desk
- *   - an HMO booking: it is settled at the clinic by design, so it cannot be conditional on an
- *     online payment that will never happen
- *   - any booking that has been paid: the hold is cleared on settlement
+ * Payment first [1.132.0]. Permanent (held_until NULL) is a booking somebody has committed to:
+ *   - one that has been paid: the hold is cleared on settlement. A booking made at the clinic is
+ *     paid there and then, so it is permanent from the start;
+ *   - an HMO booking the HMO approved: the approval is what payment is for a self-pay one.
  *
- * Provisional (held_until set) is only a client's own self-pay booking that is waiting on an
- * online payment. That is the one case where nobody has committed anything yet.
+ * Provisional (held_until set) is everything still waiting on that:
+ *   - a patient's own self-pay booking, until it is paid (the gateway's 15 minutes, or the
+ *     manual payment window below);
+ *   - an HMO booking, until its claim is decided, at the latest the booking's own start time
+ *     (HMO_HOLD_SQL). Refused, it gets the payment window from the refusal, like any self-pay one.
  *
  * ── Why a read-time predicate and not a cleanup job ─────────────────────────────────────────
  *
  * A sweeper would reopen the slot at the next sweep rather than at the moment the hold ends, so
  * between the two the slot is still wrongly blocked — the original bug, just shorter. This term
  * makes the slot reopen exactly when the hold lapses, with nothing scheduled and nothing to fail.
- * The abandoned row stays as a record of the attempt.
+ * The abandoned booking is removed a few minutes later by unpaidExpiryService [1.131.0], which
+ * leaves its line in the Activity Log; the slot never waits for that.
  *
  * `CURRENT_TIMESTAMP` is evaluated by Postgres, never by JavaScript: the server's clock is the one
  * that decides, and it is the same clock `CURRENT_DATE` uses everywhere else in this codebase.
@@ -68,4 +71,17 @@ const PAY_WINDOW_MINUTES = (() => {
 })();
 const PAY_WINDOW_EXPIRY_SQL = `CURRENT_TIMESTAMP + INTERVAL '${PAY_WINDOW_MINUTES} minutes'`;
 
-module.exports = { OCCUPIES_SLOT, HOLD_MINUTES, HOLD_EXPIRY_SQL, PAY_WINDOW_MINUTES, PAY_WINDOW_EXPIRY_SQL };
+/**
+ * How long an HMO booking holds its slot while the claim waits: until the booking's own start.
+ * [1.132.0] Payment first: an HMO booking is kept once its HMO approves it, which is what payment
+ * is for a self-pay one. A claim still undecided when the appointment is due has not been
+ * approved, so the slot is released (unpaidExpiryService) and the patient told.
+ *
+ * @param {string} date SQL yielding the booking's date
+ * @param {string} time SQL yielding the booking's time
+ */
+const HMO_HOLD_SQL = (date, time) => `(${date})::date + (${time})::time`;
+
+module.exports = {
+  OCCUPIES_SLOT, HOLD_MINUTES, HOLD_EXPIRY_SQL, PAY_WINDOW_MINUTES, PAY_WINDOW_EXPIRY_SQL, HMO_HOLD_SQL,
+};

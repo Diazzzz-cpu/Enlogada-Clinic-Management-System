@@ -54,6 +54,8 @@ const BookingPass = ({
   queueNumber,
   isPaid,
   canPayOnline = false,
+  // [1.132.0] Kept because the patient's HMO approved it, as a paid booking is.
+  hmoApproved = false,
   receiptNumber = null,
   // [1.62.0] Absent on any booking not currently in today's queue, and the pass simply omits the
   // estimate in that case rather than showing a zero.
@@ -178,6 +180,11 @@ const BookingPass = ({
         {isPaid === true && (
           <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-micro font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200">
             Paid
+          </span>
+        )}
+        {hmoApproved && isPaid !== true && (
+          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-micro font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200">
+            Approved by your HMO
           </span>
         )}
 

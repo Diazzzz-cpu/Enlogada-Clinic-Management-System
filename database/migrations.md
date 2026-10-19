@@ -1,5 +1,81 @@
 # Database Migration & Schema History
 
+## [1.133.0] - 2026-10-19 (Capstone paper diagrams updated to [1.132.0])
+
+No migration. Documentation only.
+
+Updated `docs/diagrams/buildDiagrams.cjs`, `docs/diagrams/README.md`, all five `.drawio` files
+(`flowcharts.drawio`, `usecases.drawio`, `dfd-level0.drawio`, `dfd-level1.drawio`, `erd.drawio`)
+and all 36 exported PNGs in `docs/diagrams/png/` so every figure matches the system as of `[1.132.0]`:
+- **Flowcharts (`flowcharts.drawio`):**
+  - *Super Admin & Admin:* Added the `Patient Feedback` column (`Manage survey questions` ->
+    `Review visit feedback`); updated `Reports` from `View analytics` / `Export CSV` to
+    `Generate report` -> `Print A4 or export Excel` (`[1.111.0]`, `[1.119.0]`); updated
+    `Clinic Schedule` to show `Affected patients emailed` when closures or hours move bookings
+    (`[1.105.0]`); updated Admin `Service Requests` to show the HMO claim deadline and patient
+    notification (`[1.124.0]`), `Appointments` to read-only (`View bookings and moves`),
+    `Patient Records` to include archiving/restoring (`[1.120.0]`), and `Cashier Monitoring` to
+    `Review cashier takings` with refunds removed (`[1.121.0]`).
+  - *Receptionist:* Removed the manual `Someone at the desk? -> Mark a no-show` branch (`[1.131.0]`);
+    added `Reschedule a booking? -> Move to new date and time` (`[1.105.0]`, `[1.131.0]`); updated
+    the department routing check to `Paid or HMO approved?` (`[1.132.0]`); added the
+    `Patient Records` column (`Open patient file` -> `Link walk-in to account`, `[1.118.0]`,
+    `[1.125.0]`) and `Record paper feedback` under `Visit History` (`[1.106.0]`).
+  - *Cashier:* Added `Confirm final tests` before payment on the `Billing Queue` (`[1.109.0]`) and
+    removed the `Reverse a receipt? -> Record the refund` branch from `Transaction History`
+    (`[1.121.0]`).
+  - *Laboratory & Ultrasound:* Updated result release so `Authorise: copy in portal` places the
+    digital copy in the portal and `Email report to patient?` is an optional branch after release
+    (`[1.113.0]`), followed by `Ticket moves to history`; updated History to `Release corrected report`
+    and `Print or email report`.
+  - *X-Ray:* Replaced the shared report-upload flow with `XRAY_FLOW` (`Open a released ticket` ->
+    `Perform the X-ray exam` -> `Confirm and mark exam done` -> `Ticket moves to history`, and
+    `Search completed exams` -> `View exam and who did it` on `X-Ray History`, `[1.129.0]`).
+  - *Client / Patient:* Updated the four-column chained flow to show attaching the HMO card and
+    doctor's request at booking (`[1.122.0]`), receiving the booking reference and email first while
+    waiting for HMO approval or confirming tests and uploading payment proof before receiving the
+    `QR booking pass` (`[1.48.0]`, `[1.123.0]`, `[1.132.0]`), receiving the reminder email and
+    rescheduling if needed (`[1.105.0]`, `[1.130.0]`, `[1.131.0]`), viewing the digital copy in the
+    portal (`[1.113.0]`, `[1.115.0]`), and answering visit feedback (`[1.106.0]`).
+- **Use Cases (`usecases.drawio`):**
+  - Replaced `View System Analytics` and `Export CSV` with `Generate Reports` and `«extend»`
+    `Print or Export Report`; added `View Patient Feedback` (`«extend»` `Manage Feedback Questions`)
+    to Super Admin and Admin, and `Archive and Restore Patient Records` to Admin.
+  - Replaced `Mark No-Show` on Receptionist with `Reschedule Booking`, `View Patient Records`
+    (`«extend»` `Link Walk-In to Account`), and `«extend»` `Record Paper Feedback` on
+    `View Visit History`.
+  - Removed `Reverse a Payment` from Cashier and added `Confirm Final Tests` and `Withdraw HMO Claim`.
+  - Changed `Email Result to Patient` on Laboratory and Ultrasound to an `«extend»` of
+    `Release Result` (removing `«include»` `Record Delivery`) and added `View Patient Records`.
+  - Replaced X-Ray's report upload/release/email/print cases with `Mark X-Ray Exam Done`
+    (`«include»` `Record Exam Completion`), `Search X-Ray History`, and `View Patient Records`.
+  - Updated Client / Patient (`Reschedule Booking` instead of `Reschedule or Cancel Booking`,
+    `Generate QR Booking Pass` as `«extend»` on `Book Appointment`, `Confirm Final Tests` as
+    `«include»` on `Pay Online and Upload Proof`, plus `Upload Doctor's Request`,
+    `View Digital Copy of Results`, and `Answer Visit Feedback`).
+- **DFD Level 0 (`dfd-level0.drawio`):**
+  - Kept the 8 external entities on `Context` (omitting public report verification per Steven's
+    direction) and changed the `X-Ray Staff` context flow from `x-ray results` to `x-ray exams done`.
+  - Removed `No-show` from Receptionist, `Refund details` from Cashier, and report upload/release
+    flows from X-Ray Staff; added feedback, rescheduling, confirmed tests, optional result email
+    requests, doctor's request, booking reference, reminder/status emails, and digital result copy
+    flows across the per-actor sheets.
+- **DFD Level 1 (`dfd-level1.drawio`):**
+  - Added store `D10 Patient Feedback` and processes `21.0 Record Completed Exam` and
+    `22.0 Manage Patient Feedback`.
+  - Updated `Super Admin` and `Admin` to include `22.0 Manage Patient Feedback` (`D10`) and affected
+    bookings on `15.0 Manage Schedule`; updated `Receptionist` to include `3.0 Manage Appointments`
+    (rescheduling) and `22.0 Manage Patient Feedback` (`D10`); updated `Cashier` to confirm final
+    tests in `D3` and read `Payments` (without refunds) from `D4`; updated `Laboratory Staff` and
+    `Ultrasound Staff` so `19.0 Send Emails` takes an `Email request` input; updated `Xray Staff`
+    to use `21.0 Record Completed Exam` writing to `D3` (removing `D6 Diagnostic Results`); updated
+    `Client Patient` to separate `Booking reference` (`3.0`) from `Receipt and QR pass` (`9.0`),
+    show automatic reminder/slot-expiry emails on `19.0 Send Emails`, and record survey answers via
+    `22.0 Manage Patient Feedback` (`D10`).
+- **ERD (`erd.drawio`):**
+  - Re-generated from the live 33-table PostgreSQL schema (`Clinical Core` now shows
+    `visit_tests.performed_at`, `visit_tests.performed_by`, and `test_results.verification_code`).
+
 ## [1.132.0] - 2026-10-19 (Payment first, for every booking)
 
 Run on an existing database: `node src/scripts/migrateHmoApprovalFirst.js`. Data only, no schema

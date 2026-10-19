@@ -4,11 +4,11 @@
  * The flowcharts, use cases and data flow diagrams are laid out from the specs below; the ERD is
  * read from the live database, so it cannot drift from the schema. Run from anywhere:
  *
- *   node docs/diagrams/build-diagrams.cjs
+ *   node docs/diagrams/buildDiagrams.cjs
  *
  * Output: one .drawio file per group, each with a tab per figure. Open in draw.io to adjust the
  * placement by hand — the layout here is deliberately roomy so boxes can be dragged without
- * crossing lines. Export with export-png.cmd beside this file.
+ * crossing lines. Export with exportPng.ps1 beside this file.
  */
 const fs = require('fs');
 const path = require('path');
@@ -239,8 +239,9 @@ const SUPER_ADMIN_FLOW = {
     [{ k: 'proc', l: 'Staff Accounts' }, { k: 'proc', l: 'Add or deactivate staff' }],
     [{ k: 'proc', l: 'Services Catalog' }, { k: 'proc', l: 'Edit tests and prices' }],
     [{ k: 'proc', l: 'Payment Methods' }, { k: 'proc', l: 'Publish GCash and QR' }],
-    [{ k: 'proc', l: 'Clinic Schedule' }, { k: 'proc', l: 'Set hours and closures' }],
-    [{ k: 'proc', l: 'Reports' }, { k: 'proc', l: 'View analytics' }, { k: 'io', l: 'Export CSV' }],
+    [{ k: 'proc', l: 'Clinic Schedule' }, { k: 'proc', l: 'Set hours and closures' }, { k: 'proc', l: 'Affected patients emailed' }],
+    [{ k: 'proc', l: 'Reports' }, { k: 'proc', l: 'Generate report' }, { k: 'io', l: 'Print A4 or export Excel' }],
+    [{ k: 'proc', l: 'Patient Feedback' }, { k: 'proc', l: 'Manage survey questions' }, { k: 'proc', l: 'Review visit feedback' }],
     [{ k: 'proc', l: 'Activity Log' }, { k: 'proc', l: 'Review audit trail' }],
   ],
 };
@@ -248,50 +249,53 @@ const SUPER_ADMIN_FLOW = {
 const ADMIN_FLOW = {
   name: 'Admin', actor: 'Admin', landing: 'Today',
   columns: [
-    [{ k: 'proc', l: 'Service Requests' }, { k: 'proc', l: 'Open the HMO claim' },
+    [{ k: 'proc', l: 'Service Requests' }, { k: 'proc', l: 'Open HMO claim and deadline' },
       { k: 'dec', l: 'Approve the claim?', mainLabel: 'yes',
-        side: { l: 'Record the reason', label: 'no', mergeTo: 2 } },
-      { k: 'proc', l: 'Record approval code' }, { k: 'proc', l: 'Cashier is notified' }],
-    [{ k: 'proc', l: 'Appointments' }, { k: 'proc', l: 'View or update booking' }],
-    [{ k: 'proc', l: 'Patient Records' }, { k: 'proc', l: 'Search and correct' }, { k: 'io', l: 'Print record' }],
-    [{ k: 'proc', l: 'Cashier Monitoring' }, { k: 'proc', l: 'Review takings and refunds' }],
+        side: { l: 'Record refusal reason', label: 'no', mergeTo: 2 } },
+      { k: 'proc', l: 'Record approval code' }, { k: 'proc', l: 'Notify cashier and patient' }],
+    [{ k: 'proc', l: 'Appointments' }, { k: 'proc', l: 'View bookings and moves' }],
+    [{ k: 'proc', l: 'Patient Records' }, { k: 'proc', l: 'Search, correct or archive' }, { k: 'io', l: 'Print record' }],
+    [{ k: 'proc', l: 'Cashier Monitoring' }, { k: 'proc', l: 'Review cashier takings' }],
     [{ k: 'proc', l: 'Staff Accounts' }, { k: 'proc', l: 'Add or update staff' }],
-    [{ k: 'proc', l: 'Reports' }, { k: 'proc', l: 'Generate report' }, { k: 'io', l: 'Print or export' }],
+    [{ k: 'proc', l: 'Reports' }, { k: 'proc', l: 'Generate report' }, { k: 'io', l: 'Print A4 or export Excel' }],
+    [{ k: 'proc', l: 'Patient Feedback' }, { k: 'proc', l: 'Manage survey questions' }, { k: 'proc', l: 'Review visit feedback' }],
     [{ k: 'proc', l: 'Activity Log' }, { k: 'proc', l: 'Review audit trail' }],
   ],
 };
 
 // One pass through the desk, not three.
 //
-// The first version drew the walk-in path three times — "Booking today? no -> Register as walk-in",
-// then a column for a patient on file and another for a new patient — and issued a queue ticket at
-// the end of each. The Desk is ONE screen: a box that takes a name, a reference or a scan, and the
-// answer decides whether the next click is Check in or Register. So the ticket is issued once, on
-// the one path, and registering is the no branch that rejoins it.
+// The Desk is ONE screen: a box that takes a name, a reference or a scan, and the answer decides
+// whether the next click is Reschedule, Check in or Start a walk-in visit. Unpaid bookings and
+// visits expire automatically on a timer rather than being marked no-show by hand.
 const RECEPTIONIST_FLOW = {
   name: 'Receptionist', actor: 'Receptionist', landing: 'Today',
   columns: [
     [{ k: 'proc', l: 'Desk' },
-      { k: 'dec', l: 'Someone at the desk?', mainLabel: 'yes',
-        side: { l: 'Mark a no-show', label: 'no', toEnd: true } },
       { k: 'proc', l: 'Search name, reference or QR' },
+      { k: 'dec', l: 'Reschedule a booking?', mainLabel: 'no',
+        side: { l: 'Move to new date and time', label: 'yes', toEnd: true } },
       { k: 'dec', l: 'Booking for today?', mainLabel: 'yes',
-        side: { l: 'Register walk-in', label: 'no', mergeTo: 2 } },
+        side: { l: 'Start visit or register walk-in', label: 'no', mergeTo: 2 } },
       { k: 'proc', l: 'Check in the booking' },
       { k: 'io', l: 'Issue queue ticket' },
       { k: 'proc', l: 'Attach or confirm tests' },
       { k: 'dec', l: 'HMO patient?', mainLabel: 'no',
         side: { l: 'Record card, send to Admin', label: 'yes' } },
-      { k: 'dec', l: 'Already paid online?', mainLabel: 'no',
+      { k: 'dec', l: 'Paid or HMO approved?', mainLabel: 'no',
         side: { l: 'Visit goes to department', label: 'yes', toEnd: true } },
       { k: 'proc', l: 'Send patient to the cashier' }],
-    [{ k: 'proc', l: 'Visit History' }, { k: 'proc', l: 'Review past visits' }],
+    [{ k: 'proc', l: 'Patient Records' },
+      { k: 'proc', l: 'Open patient file' },
+      { k: 'proc', l: 'Link walk-in to account' }],
+    [{ k: 'proc', l: 'Visit History' },
+      { k: 'proc', l: 'Review past visits' },
+      { k: 'proc', l: 'Record paper feedback' }],
   ],
 };
 
-// The till: one bill, one receipt, and the two other things the cashier does with a receipt.
-// Reversing one belongs under Transaction History, where the receipt is found, rather than
-// hanging off the landing screen as though a refund started from nowhere.
+// The till: one bill, one receipt, and online payment proof verification.
+// Before payment is taken, the cashier confirms the final list of tests with the patient.
 const CASHIER_FLOW = {
   name: 'Cashier', actor: 'Cashier', landing: 'Today',
   columns: [
@@ -300,6 +304,7 @@ const CASHIER_FLOW = {
       { k: 'proc', l: 'System computes the bill' },
       { k: 'dec', l: 'Senior or PWD ID?', mainLabel: 'no',
         side: { l: 'Apply 20% discount', label: 'yes' } },
+      { k: 'proc', l: 'Confirm final tests' },
       { k: 'proc', l: 'Take payment and change' },
       { k: 'io', l: 'Issue and print receipt' },
       { k: 'proc', l: 'Visit goes to department' }],
@@ -311,17 +316,13 @@ const CASHIER_FLOW = {
     [{ k: 'proc', l: 'Transaction History' },
       { k: 'proc', l: 'Pick date range' },
       { k: 'proc', l: 'View takings and receipts' },
-      { k: 'dec', l: 'Reverse a receipt?', mainLabel: 'no',
-        side: { l: 'Record the refund', label: 'yes', toEnd: true } },
       { k: 'io', l: 'Print receipt copy' }],
   ],
 };
 
-// A result IS the report file the department produces; nothing is retyped into the website, and
-// the clinic asked for it that way. The decision is the two acts the dialog offers: Save for
-// Later parks the ticket in 'Waiting for Release' with nothing authorised yet, and Authorize &
-// Release is what sends it — so the patient's email is drawn as the consequence of releasing
-// rather than as another thing the technologist does.
+// A result IS the report file the department produces; nothing is retyped into the website.
+// Save for Later parks the ticket in 'Waiting for Release', and Authorise & Release puts a
+// digital copy in the patient's portal; emailing is an optional step after release or from History.
 function departmentFlow(dept, formStep) {
   return {
     name: dept, actor: `${dept} Staff`, landing: 'Today',
@@ -332,16 +333,34 @@ function departmentFlow(dept, formStep) {
         { k: 'io', l: formStep },
         { k: 'dec', l: 'Ready to release?', mainLabel: 'yes',
           side: { l: 'Save for later', label: 'no', toEnd: true } },
-        { k: 'proc', l: 'Authorise and release' },
-        { k: 'proc', l: 'Patient emailed the report' }],
+        { k: 'proc', l: 'Authorise: copy in portal' },
+        { k: 'dec', l: 'Email report to patient?', mainLabel: 'no',
+          side: { l: 'Send report by email', label: 'yes' } },
+        { k: 'proc', l: 'Ticket moves to history' }],
       [{ k: 'proc', l: `${dept} History` },
         { k: 'proc', l: 'Search past reports' },
         { k: 'dec', l: 'Correction needed?', mainLabel: 'no',
-          side: { l: 'Correct and re-notify', label: 'yes', toEnd: true } },
-        { k: 'io', l: 'Print or resend report' }],
+          side: { l: 'Release corrected report', label: 'yes' } },
+        { k: 'io', l: 'Print or email report' }],
     ],
   };
 }
+
+// X-Ray films are handed to the patient in a physical envelope at the clinic, never uploaded or
+// released in the system. The technologist confirms the exam was performed on the worklist.
+const XRAY_FLOW = {
+  name: 'X-Ray', actor: 'X-Ray Staff', landing: 'Today',
+  columns: [
+    [{ k: 'proc', l: 'X-Ray Worklist' },
+      { k: 'proc', l: 'Open a released ticket' },
+      { k: 'proc', l: 'Perform the X-ray exam' },
+      { k: 'proc', l: 'Confirm and mark exam done' },
+      { k: 'proc', l: 'Ticket moves to history' }],
+    [{ k: 'proc', l: 'X-Ray History' },
+      { k: 'proc', l: 'Search completed exams' },
+      { k: 'proc', l: 'View exam and who did it' }],
+  ],
+};
 
 const CLIENT_FLOW = {
   name: 'Client Patient', actor: 'Client / Patient', landing: 'View services', gate: false,
@@ -350,19 +369,23 @@ const CLIENT_FLOW = {
     [{ k: 'proc', l: 'Book a visit' },
       { k: 'dec', l: 'Have an account?', mainLabel: 'yes', side: { l: 'Register and verify code', label: 'no' } },
       { k: 'proc', l: 'Choose patient profile' },
-      { k: 'proc', l: 'Pick date and time' },
-      { k: 'proc', l: 'Pick tests' }],
-    [{ k: 'dec', l: 'HMO patient?', mainLabel: 'no', side: { l: 'Enter member and card', label: 'yes' } },
-      { k: 'proc', l: 'Confirm booking' },
-      { k: 'proc', l: 'Get reference and QR' },
-      { k: 'proc', l: 'Email with instructions' }],
-    [{ k: 'dec', l: 'Pay now?', mainLabel: 'no', side: { l: 'Pay GCash, upload proof', label: 'yes' } },
+      { k: 'proc', l: 'Pick date, time and tests' },
+      { k: 'dec', l: 'HMO patient?', mainLabel: 'no', side: { l: 'Attach HMO card and request', label: 'yes' } },
+      { k: 'proc', l: 'Confirm booking' }],
+    [{ k: 'io', l: 'Get reference and email' },
+      { k: 'dec', l: 'Self-pay booking?', mainLabel: 'yes', side: { l: 'Wait for HMO approval', label: 'no', mergeTo: 2 } },
+      { k: 'io', l: 'Confirm tests, upload proof' },
+      { k: 'proc', l: 'Payment or HMO approved' },
+      { k: 'io', l: 'Get QR booking pass' }],
+    [{ k: 'io', l: 'Receive reminder email' },
+      { k: 'dec', l: 'Need another date?', mainLabel: 'no', side: { l: 'Reschedule booking', label: 'yes' } },
       { k: 'proc', l: 'Arrive at clinic' },
-      { k: 'proc', l: 'Desk scans QR' },
-      { k: 'proc', l: 'Get queue ticket' }],
+      { k: 'proc', l: 'Desk scans QR pass' },
+      { k: 'io', l: 'Get queue ticket' }],
     [{ k: 'proc', l: 'Test performed' },
-      { k: 'proc', l: 'Result released' },
-      { k: 'io', l: 'View or print result' }],
+      { k: 'proc', l: 'Result released by clinic' },
+      { k: 'io', l: 'View digital copy in portal' },
+      { k: 'io', l: 'Answer visit feedback' }],
   ],
 };
 
@@ -390,29 +413,29 @@ function useCase(spec) {
 
 const USE_CASES = [
   { name: 'Super Admin', actor: 'Super Admin',
-    cases: ['Login', 'View Today', 'Manage Roles and Permissions', 'Manage Per-Account Access', 'Manage Staff and Admin Accounts', 'Manage Services, Packages and Pricing', 'Publish Payment Channels', 'Manage Clinic Schedule', 'View System Analytics', 'View Activity Log', 'Archive and Restore Patient Records', 'Logout'],
-    relations: [{ from: 'Manage Roles and Permissions', to: 'Record Change in Activity Log', kind: 'include' }] },
+    cases: ['Login', 'View Today', 'Manage Roles and Permissions', 'Manage Per-Account Access', 'Manage Staff and Admin Accounts', 'Manage Services, Packages and Pricing', 'Publish Payment Channels', 'Manage Clinic Schedule', 'Generate Reports', 'View Patient Feedback', 'View Activity Log', 'Archive and Restore Patient Records', 'Logout'],
+    relations: [{ from: 'Manage Roles and Permissions', to: 'Record Change in Activity Log', kind: 'include' }, { from: 'Generate Reports', to: 'Print or Export Report', kind: 'extend' }, { from: 'View Patient Feedback', to: 'Manage Feedback Questions', kind: 'extend' }] },
   { name: 'Admin', actor: 'Admin',
-    cases: ['Login', 'View Today', 'Decide HMO Claims', 'Manage Staff Accounts', 'Manage Appointments', 'Manage Patient Records', 'Monitor Cashier Transactions', 'Generate Reports', 'View Activity Log', 'Logout'],
-    relations: [{ from: 'Manage Patient Records', to: 'Print Records and Results', kind: 'extend' }, { from: 'Generate Reports', to: 'Export CSV', kind: 'extend' }] },
+    cases: ['Login', 'View Today', 'Decide HMO Claims', 'Manage Staff Accounts', 'View Appointments', 'Manage Patient Records', 'Archive and Restore Patient Records', 'Monitor Cashier Transactions', 'Generate Reports', 'View Patient Feedback', 'View Activity Log', 'Logout'],
+    relations: [{ from: 'Manage Patient Records', to: 'Print Records and Results', kind: 'extend' }, { from: 'Generate Reports', to: 'Print or Export Report', kind: 'extend' }, { from: 'View Patient Feedback', to: 'Manage Feedback Questions', kind: 'extend' }] },
   { name: 'Receptionist', actor: 'Receptionist',
-    cases: ['Login', 'View Today', 'Find Patient or Booking', 'Verify QR Code', 'Check In Patient', 'Register Walk-In', 'Assign Tests to a Visit', 'Raise HMO Claim', 'Mark No-Show', 'View Visit History', 'Logout'],
-    relations: [{ from: 'Check In Patient', to: 'Issue Queue Ticket', kind: 'include' }, { from: 'Register Walk-In', to: 'Create Patient Record', kind: 'include' }] },
+    cases: ['Login', 'View Today', 'Find Patient or Booking', 'Verify QR Code', 'Check In Patient', 'Register Walk-In', 'Assign Tests to a Visit', 'Raise HMO Claim', 'Reschedule Booking', 'View Patient Records', 'View Visit History', 'Logout'],
+    relations: [{ from: 'Check In Patient', to: 'Issue Queue Ticket', kind: 'include' }, { from: 'Register Walk-In', to: 'Create Patient Record', kind: 'include' }, { from: 'View Patient Records', to: 'Link Walk-In to Account', kind: 'extend' }, { from: 'View Visit History', to: 'Record Paper Feedback', kind: 'extend' }] },
   { name: 'Cashier', actor: 'Cashier',
-    cases: ['Login', 'View Today', 'Process Billing and Payment', 'Apply Statutory Discount', 'Review Online Payment Proof', 'Reverse a Payment', 'View Transaction History', 'Logout'],
+    cases: ['Login', 'View Today', 'Confirm Final Tests', 'Process Billing and Payment', 'Apply Statutory Discount', 'Withdraw HMO Claim', 'Review Online Payment Proof', 'View Transaction History', 'Logout'],
     relations: [{ from: 'Process Billing and Payment', to: 'Issue Receipt', kind: 'include' }, { from: 'View Transaction History', to: 'Print Receipt Copy', kind: 'extend' }] },
   { name: 'Laboratory Staff', actor: 'Laboratory Staff',
-    cases: ['Login', 'View Today', 'View Laboratory Worklist', 'Upload Laboratory Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
-    relations: [{ from: 'Search Result History', to: 'Print Laboratory Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
+    cases: ['Login', 'View Today', 'View Laboratory Worklist', 'Upload Laboratory Report', 'Release Result', 'Replace Released Report', 'Search Result History', 'View Patient Records', 'Logout'],
+    relations: [{ from: 'Release Result', to: 'Email Result to Patient', kind: 'extend' }, { from: 'Search Result History', to: 'Print Laboratory Result', kind: 'extend' }] },
   { name: 'Ultrasound Staff', actor: 'Ultrasound Staff',
-    cases: ['Login', 'View Today', 'View Ultrasound Worklist', 'Upload Ultrasound Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
-    relations: [{ from: 'Search Result History', to: 'Print Ultrasound Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
+    cases: ['Login', 'View Today', 'View Ultrasound Worklist', 'Upload Ultrasound Report', 'Release Result', 'Replace Released Report', 'Search Result History', 'View Patient Records', 'Logout'],
+    relations: [{ from: 'Release Result', to: 'Email Result to Patient', kind: 'extend' }, { from: 'Search Result History', to: 'Print Ultrasound Result', kind: 'extend' }] },
   { name: 'Xray Staff', actor: 'X-Ray Staff',
-    cases: ['Login', 'View Today', 'View X-Ray Worklist', 'Upload X-Ray Report', 'Release Result', 'Email Result to Patient', 'Replace Released Report', 'Search Result History', 'Logout'],
-    relations: [{ from: 'Search Result History', to: 'Print X-Ray Result', kind: 'extend' }, { from: 'Release Result', to: 'Record Delivery', kind: 'include' }] },
+    cases: ['Login', 'View Today', 'View X-Ray Worklist', 'Mark X-Ray Exam Done', 'Search X-Ray History', 'View Patient Records', 'Logout'],
+    relations: [{ from: 'Mark X-Ray Exam Done', to: 'Record Exam Completion', kind: 'include' }] },
   { name: 'Client Patient', actor: 'Client / Patient',
-    cases: ['Register Account', 'Login', 'View Available Services', 'Manage Patient Profiles', 'Book Appointment', 'Reschedule or Cancel Booking', 'Pay Online and Upload Proof', 'View Diagnostic Results', 'View Receipt', 'Manage Account Profile', 'Logout'],
-    relations: [{ from: 'Register Account', to: 'Verify Emailed Code', kind: 'include' }, { from: 'Book Appointment', to: 'Generate QR Booking Pass', kind: 'include' }, { from: 'Login', to: 'Sign In with Google', kind: 'extend' }] },
+    cases: ['Register Account', 'Login', 'View Available Services', 'Manage Patient Profiles', 'Book Appointment', "Upload Doctor's Request", 'Reschedule Booking', 'Pay Online and Upload Proof', 'View Digital Copy of Results', 'View Receipt', 'Answer Visit Feedback', 'Manage Account Profile', 'Logout'],
+    relations: [{ from: 'Register Account', to: 'Verify Emailed Code', kind: 'include' }, { from: 'Login', to: 'Sign In with Google', kind: 'extend' }, { from: 'Book Appointment', to: 'Generate QR Booking Pass', kind: 'extend' }, { from: 'Pay Online and Upload Proof', to: 'Confirm Final Tests', kind: 'include' }] },
 ];
 
 // ── 3. DFD level 0 ──────────────────────────────────────────────────────────────────────────────
@@ -460,29 +483,29 @@ function dfd0(spec) {
 
 const DFD0 = [
   { name: 'Super Admin',
-    inputs: ['Login details', 'Role access', 'Services and prices', 'Payment channel', 'Clinic hours', 'Report request'],
-    outputs: ['Account confirmed', 'Updated access', 'Updated services', 'Analytics', 'Audit trail'] },
+    inputs: ['Login details', 'Role access', 'Services and prices', 'Payment channel', 'Clinic hours', 'Feedback questions', 'Report request'],
+    outputs: ['Account confirmed', 'Updated access', 'Updated services', 'Reports', 'Patient feedback', 'Audit trail'] },
   { name: 'Admin',
-    inputs: ['Login details', 'HMO decision', 'Staff account', 'Record correction', 'Report request'],
-    outputs: ['Account confirmed', 'HMO claims', 'Patient records', 'Reports', 'Payment records'] },
+    inputs: ['Login details', 'HMO decision', 'Staff account', 'Record update', 'Feedback questions', 'Report request'],
+    outputs: ['Account confirmed', 'HMO claims', 'Patient records', 'Reports', 'Patient feedback', 'Payment records'] },
   { name: 'Receptionist',
-    inputs: ['Login details', 'Walk-in details', 'Scanned QR code', 'Test request', 'HMO claim', 'No-show'],
-    outputs: ['Account confirmed', 'Booking details', 'Queue ticket', 'Billing request', 'HMO decision'] },
+    inputs: ['Login details', 'Walk-in details', 'Scanned QR code', 'Test request', 'HMO claim', 'Reschedule request', 'Paper feedback'],
+    outputs: ['Account confirmed', 'Booking details', 'Queue ticket', 'Billing request', 'HMO decision', 'Patient records'] },
   { name: 'Cashier',
-    inputs: ['Login details', 'Payment details', 'Discount claim', 'Proof decision', 'Refund details'],
+    inputs: ['Login details', 'Confirmed tests', 'Payment details', 'Discount claim', 'Proof decision'],
     outputs: ['Account confirmed', 'Patients to bill', 'Receipt', 'Payment proofs', 'Takings'] },
   { name: 'Laboratory Staff',
-    inputs: ['Login details', 'Laboratory report file', 'Status update', 'Report delivery'],
+    inputs: ['Login details', 'Laboratory report file', 'Release authorisation', 'Email request'],
     outputs: ['Account confirmed', 'Laboratory requests', 'Patient details', 'Released result'] },
   { name: 'Ultrasound Staff',
-    inputs: ['Login details', 'Ultrasound report file', 'Status update', 'Report delivery'],
+    inputs: ['Login details', 'Ultrasound report file', 'Release authorisation', 'Email request'],
     outputs: ['Account confirmed', 'Ultrasound requests', 'Patient details', 'Released result'] },
   { name: 'Xray Staff',
-    inputs: ['Login details', 'X-ray report file', 'Status update', 'Report delivery'],
-    outputs: ['Account confirmed', 'X-ray requests', 'Patient details', 'Released result'] },
+    inputs: ['Login details', 'Exam marked done'],
+    outputs: ['Account confirmed', 'X-ray requests', 'Patient details', 'Completed exams'] },
   { name: 'Client Patient',
-    inputs: ['Registration details', 'Verification code', 'Login details', 'Patient profile', 'Booking request', 'Proof of payment'],
-    outputs: ['Account confirmed', 'QR booking pass', 'Preparation notes', 'Receipt', 'Results'] },
+    inputs: ['Registration details', 'Verification code', 'Login details', 'Patient profile', 'Booking and doctor request', 'Proof of payment', 'Visit feedback'],
+    outputs: ['Account confirmed', 'Booking reference', 'QR booking pass', 'Reminder and status emails', 'Receipt', 'Digital copy of result'] },
 ];
 
 function dfd0Context() {
@@ -496,7 +519,7 @@ function dfd0Context() {
     Cashier: 'billing, receipts, takings',
     'Laboratory Staff': 'laboratory results',
     'Ultrasound Staff': 'ultrasound results',
-    'X-Ray Staff': 'x-ray results',
+    'X-Ray Staff': 'x-ray exams done',
     Admin: 'HMO decisions, reports',
     'Super Admin': 'access, services, schedule',
   };
@@ -516,6 +539,7 @@ const STORES = {
   D1: 'Users and Access', D2: 'Patients', D3: 'Appointments and Visits',
   D4: 'Payments', D5: 'Service Catalogue', D6: 'Diagnostic Results',
   D7: 'HMO Claims', D8: 'Clinic Schedule', D9: 'Logs and Notifications',
+  D10: 'Patient Feedback',
 };
 
 // The shape the paper's own Level 1 figures use, and Steven's reference: ONE small actor at the
@@ -530,11 +554,11 @@ const STORES = {
 // end, where it is next to the thing it describes.
 function dfd1(spec) {
   const p = new Page(spec.name);
-  const PROC_H = 110, ROW_H = 190, TOP = 70;
+  const PROC_H = 116, ROW_H = 190, TOP = 70;
   const ENT_X = 40, ENT_W = 200, ENT_H = 150;
   const PROC_X = 700, PROC_W = 280, STORE_X = 1180;
   // The tracks stop 170px short of the process, which leaves a clear band for the labels.
-  const TRACK_GAP = 24, TRACK_FIRST = PROC_X - 170, LABEL = { dx: -80, dy: 0 };
+  const TRACK_GAP = 22, TRACK_FIRST = PROC_X - 170, LABEL = { dx: -80, dy: 0 };
 
   const ent = p.node(spec.name, ENT_X, TOP, ENT_W, ENT_H, S.entity);
   const entRight = ENT_X + ENT_W;
@@ -627,6 +651,8 @@ const P = {
   reports: { n: '18.0', name: 'Generate Reports' },
   notify: { n: '19.0', name: 'Send Emails' },
   audit: { n: '20.0', name: 'Record Audit Trail' },
+  examDone: { n: '21.0', name: 'Record Completed Exam' },
+  feedback: { n: '22.0', name: 'Manage Patient Feedback' },
 };
 const login = () => ({ ...P.login, in: ['Login details'], out: ['Account confirmed'], stores: [{ id: 'D1', to: 'Check credentials', from: 'Account details' }] });
 
@@ -634,37 +660,47 @@ const DFD1 = [
   { name: 'Super Admin', processes: [
     login(), { ...P.rbac, in: ['Role access'], out: ['Updated access'], stores: [{ id: 'D1', to: 'Save access' }] },
     { ...P.catalogue, in: ['Services and prices'], out: ['Updated services'], stores: [{ id: 'D5', to: 'Save service', from: 'Service list' }] },
-    { ...P.schedule, in: ['Clinic hours'], out: ['Published hours'], stores: [{ id: 'D8', to: 'Save hours' }] },
-    { ...P.reports, in: ['Report request'], out: ['Analytics'], stores: [{ id: 'D4', from: 'Payments' }, { id: 'D3', from: 'Visits' }] },
+    { ...P.schedule, in: ['Clinic hours'], out: ['Published hours'], stores: [{ id: 'D8', to: 'Save hours' }, { id: 'D3', from: 'Affected bookings' }] },
+    { ...P.reports, in: ['Report request'], out: ['Reports'], stores: [{ id: 'D4', from: 'Payments' }, { id: 'D3', from: 'Visits and tests' }] },
+    { ...P.feedback, in: ['Feedback questions'], out: ['Patient feedback'], stores: [{ id: 'D10', to: 'Save questions', from: 'Feedback answers' }] },
     { ...P.audit, out: ['Audit trail'], stores: [{ id: 'D9', from: 'Audit entries' }] }] },
   { name: 'Admin', processes: [
-    login(), { ...P.hmoDecide, in: ['HMO decision'], out: ['HMO claims'], stores: [{ id: 'D7', to: 'Save decision', from: 'Pending claims' }] },
-    { ...P.staff, in: ['Staff account'], out: ['Account created'], stores: [{ id: 'D1', to: 'Save account' }] },
-    { ...P.records, in: ['Record correction'], out: ['Patient records'], stores: [{ id: 'D2', to: 'Update record', from: 'Patient details' }] },
-    { ...P.reports, in: ['Report request'], out: ['Reports'], stores: [{ id: 'D4', from: 'Payments' }, { id: 'D3', from: 'Visits and tests' }] }] },
+    login(), { ...P.hmoDecide, in: ['HMO decision'], out: ['HMO claims'], stores: [{ id: 'D7', to: 'Save decision', from: 'Pending claims' }, { id: 'D9', to: 'Notify cashier and patient' }] },
+    { ...P.staff, in: ['Staff account'], out: ['Account saved'], stores: [{ id: 'D1', to: 'Save account' }] },
+    { ...P.records, in: ['Record update'], out: ['Patient records'], stores: [{ id: 'D2', to: 'Update or archive', from: 'Patient details' }] },
+    { ...P.reports, in: ['Report request'], out: ['Reports'], stores: [{ id: 'D4', from: 'Payments' }, { id: 'D3', from: 'Visits and tests' }] },
+    { ...P.feedback, in: ['Feedback questions'], out: ['Patient feedback'], stores: [{ id: 'D10', to: 'Save questions', from: 'Feedback answers' }] }] },
   { name: 'Receptionist', processes: [
-    login(), { ...P.profiles, in: ['Walk-in details'], out: ['Record created'], stores: [{ id: 'D2', to: 'Save patient', from: 'Patient details' }] },
+    login(), { ...P.profiles, in: ['Walk-in details'], out: ['Patient records'], stores: [{ id: 'D2', to: 'Save or link patient', from: 'Patient details' }] },
+    { ...P.appts, in: ['Reschedule request'], out: ['Updated booking'], stores: [{ id: 'D3', to: 'Move booking', from: 'Bookings' }] },
     { ...P.checkin, in: ['Scanned QR code'], out: ['Queue ticket'], stores: [{ id: 'D3', to: 'Save arrival and ticket', from: "Today's bookings" }] },
     { ...P.requests, in: ['Test request'], out: ['Billing request'], stores: [{ id: 'D3', to: 'Save visit tests' }, { id: 'D5', from: 'Services and packages' }] },
-    { ...P.hmoRaise, in: ['HMO claim'], out: ['Claim sent'], stores: [{ id: 'D7', to: 'Save claim and card' }] }] },
+    { ...P.hmoRaise, in: ['HMO claim'], out: ['Claim sent'], stores: [{ id: 'D7', to: 'Save claim and card' }] },
+    { ...P.feedback, in: ['Paper feedback'], stores: [{ id: 'D10', to: 'Save paper feedback' }] }] },
   { name: 'Cashier', processes: [
-    login(), { ...P.billing, in: ['Payment details'], out: ['Receipt'], stores: [{ id: 'D4', to: 'Save payment', from: 'Discount types' }, { id: 'D3', from: 'Tests and prices' }] },
+    login(), { ...P.billing, in: ['Tests and payment'], out: ['Receipt'], stores: [{ id: 'D4', to: 'Save payment', from: 'Discount types' }, { id: 'D3', to: 'Confirm final tests', from: 'Tests and prices' }] },
     { ...P.proof, in: ['Proof decision'], out: ['Payment proofs'], stores: [{ id: 'D4', to: 'Save outcome', from: 'Uploaded proofs' }] },
     { ...P.release, out: ['Sent to department'], stores: [{ id: 'D3', to: 'Set to processing' }] },
-    { ...P.reports, in: ['Date range'], out: ['Takings'], stores: [{ id: 'D4', from: 'Payments and refunds' }] }] },
-  ...['Laboratory', 'Ultrasound', 'Xray'].map((dept) => ({
+    { ...P.reports, in: ['Date range'], out: ['Takings'], stores: [{ id: 'D4', from: 'Payments' }] }] },
+  ...['Laboratory', 'Ultrasound'].map((dept) => ({
     name: `${dept} Staff`, processes: [
       login(),
-      { ...P.results, in: [`${dept === 'Xray' ? 'X-ray' : dept} report file`], out: ['Test requests'], stores: [{ id: 'D6', to: 'Save report and version' }, { id: 'D3', from: 'Released tests' }] },
-      { ...P.deliver, in: ['Status update'], out: ['Released result'], stores: [{ id: 'D6', to: 'Save release' }] },
-      { ...P.notify, out: ['Result emailed'], stores: [{ id: 'D9', to: 'Save notification' }] }],
+      { ...P.results, in: [`${dept} report file`], out: ['Test requests'], stores: [{ id: 'D6', to: 'Save report and version' }, { id: 'D3', from: 'Released tests' }] },
+      { ...P.deliver, in: ['Release authorisation'], out: ['Released result'], stores: [{ id: 'D6', to: 'Save release and code' }] },
+      { ...P.notify, in: ['Email request'], out: ['Result emailed'], stores: [{ id: 'D9', to: 'Save notification' }] }],
   })),
+  { name: 'Xray Staff', processes: [
+    login(),
+    { ...P.examDone, in: ['Exam marked done'], out: ['X-ray requests'], stores: [{ id: 'D3', to: 'Save exam completion', from: 'Released X-ray tests' }] },
+    { ...P.records, out: ['Patient details'], stores: [{ id: 'D2', from: 'Patient records' }] }] },
   { name: 'Client Patient', processes: [
     { ...P.login, in: ['Registration details', 'Login details'], out: ['Verification code', 'Account confirmed'], stores: [{ id: 'D1', to: 'Save account and code', from: 'Account details' }] },
     { ...P.profiles, in: ['Patient profile'], out: ['Saved profiles'], stores: [{ id: 'D2', to: 'Save profile', from: 'Profile details' }] },
-    { ...P.appts, in: ['Booking request'], out: ['QR booking pass'], stores: [{ id: 'D3', to: 'Save booking', from: 'Open slots' }, { id: 'D8', from: 'Clinic hours' }] },
-    { ...P.proof, in: ['Proof of payment'], out: ['Receipt'], stores: [{ id: 'D4', to: 'Save submission' }] },
-    { ...P.deliver, out: ['Results'], stores: [{ id: 'D6', from: 'Released results' }] }] },
+    { ...P.appts, in: ['Booking and test slip'], out: ['Booking reference'], stores: [{ id: 'D3', to: 'Save booking', from: 'Open slots' }, { id: 'D8', from: 'Clinic hours' }] },
+    { ...P.proof, in: ['Proof of payment'], out: ['Receipt and QR pass'], stores: [{ id: 'D4', to: 'Save submission' }, { id: 'D3', from: 'Paid or HMO booking' }] },
+    { ...P.deliver, out: ['Digital copy of result'], stores: [{ id: 'D6', from: 'Released results' }] },
+    { ...P.notify, out: ['Reminders and updates'], stores: [{ id: 'D9', from: 'Notifications' }, { id: 'D3', to: 'Release expired slot' }] },
+    { ...P.feedback, in: ['Visit feedback'], stores: [{ id: 'D10', to: 'Save feedback', from: 'Survey questions' }] }] },
 ];
 
 // ── 5. ERD, read from the live database ─────────────────────────────────────────────────────────
@@ -782,7 +818,7 @@ async function readSchema() {
     flowchart(SUPER_ADMIN_FLOW), flowchart(ADMIN_FLOW), flowchart(RECEPTIONIST_FLOW), flowchart(CASHIER_FLOW),
     flowchart(departmentFlow('Laboratory', 'Upload report file')),
     flowchart(departmentFlow('Ultrasound', 'Upload report file')),
-    flowchart(departmentFlow('X-Ray', 'Upload report file')),
+    flowchart(XRAY_FLOW),
     flowchart(CLIENT_FLOW),
   ]);
   writeFile('usecases.drawio', USE_CASES.map(useCase));

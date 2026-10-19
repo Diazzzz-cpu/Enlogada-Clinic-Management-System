@@ -1,5 +1,48 @@
 # Database Migration & Schema History
 
+## [1.134.0] - 2026-10-19 (The diagrams checked against the system, and what [1.133.0] still had wrong)
+
+No migration. Documentation only.
+
+Steven asked whether the diagrams now match the system. Checked rather than asserted, the way
+[1.103.0] did: every `.drawio` regenerates byte-identical from `buildDiagrams.cjs`, all 36 PNGs
+re-export byte-identical (none stale), `checkDiagrams.cjs` is Clean, and the ERD draws 33 of 33
+tables from the live schema. The content was then read against the code. Most of [1.133.0] holds;
+these did not:
+
+- **Receptionist: an HMO approval does not send a visit to its department.** The chart read "Paid
+  or HMO approved? yes → Visit goes to department". Only a payment releases a visit
+  (`visitService.releaseVisitIfReady` requires `is_paid`); an HMO patient still goes to the till,
+  whose receipt covers their share (₱0 when the HMO approved everything). Now "Already paid?".
+- **Receptionist: the tests come before the ticket.** It issued the queue ticket and then
+  "Attach or confirm tests", but since [1.129.0] a visit is opened with its tests and Confirm
+  Check-In waits for one. Now "Pick tests, start walk-in visit" / "Confirm tests, check in", then
+  the ticket.
+- **Client: payment first had no failure path.** "Payment or HMO approved" was a step every booking
+  passed. It is now the decision "Paid or approved in time?", whose "no" is "Slot released,
+  emailed" ([1.123.0], [1.131.0], [1.132.0]). The generator gained `toEnd: 'down'` for it: on a
+  chained chart the usual end lane would run 4px beside the link into the next column. That line
+  must cross the link (the branch sits inside a closed loop of lines), so it carries a line hop.
+- **README: "each with a 15-minute decision deadline".** An HMO booking's claim must be decided by
+  the booking's own start time ([1.132.0]). Corrected, with the refused-then-pay and
+  released-if-neither rules.
+- **README and a code comment: "X-Ray films are handed to the patient in a physical envelope".**
+  Nothing in the system says so; the X-ray department gives its results through its own system
+  ([1.129.0]). Corrected to that.
+- **DFD, Client Patient:** the doctor's request was "test slip" on Level 1 and "doctor request" on
+  Level 0 (now "Booking and doctor request" on both); the patient's own reschedule was missing
+  from both (now "Reschedule request"); 19.0 Send Emails read the patient's emails from D9, whose
+  notifications are the staff bell (now it reads "Bookings due" from D3, releases an unpaid booking
+  there, and logs the release in D9).
+- **DFD, Cashier:** 8.0 wrote "Confirm final tests" to D3, but confirming the tests is a tick on
+  the till that stores nothing; it now only reads "Tests and prices".
+- The [1.133.0] entry below cited the wrong version for several features (confirm final tests is
+  [1.122.0], paper feedback [1.112.0], the doctor's request [1.106.0], linking a walk-in [1.123.0],
+  among others); corrected in place.
+
+Changed PNGs, to replace in the paper: `flowchart-receptionist`, `flowchart-client-patient`,
+`dfd0-client-patient`, `dfd1-client-patient`, `dfd1-cashier`.
+
 ## [1.133.0] - 2026-10-19 (Capstone paper diagrams updated to [1.132.0])
 
 No migration. Documentation only.
@@ -12,16 +55,16 @@ and all 36 exported PNGs in `docs/diagrams/png/` so every figure matches the sys
     `Review visit feedback`); updated `Reports` from `View analytics` / `Export CSV` to
     `Generate report` -> `Print A4 or export Excel` (`[1.111.0]`, `[1.119.0]`); updated
     `Clinic Schedule` to show `Affected patients emailed` when closures or hours move bookings
-    (`[1.105.0]`); updated Admin `Service Requests` to show the HMO claim deadline and patient
-    notification (`[1.124.0]`), `Appointments` to read-only (`View bookings and moves`),
-    `Patient Records` to include archiving/restoring (`[1.120.0]`), and `Cashier Monitoring` to
+    (`[1.123.0]`); updated Admin `Service Requests` to show the HMO claim deadline and patient
+    notification (`[1.132.0]`), `Appointments` to read-only (`View bookings and moves`),
+    `Patient Records` to include archiving/restoring (`[1.56.0]`, `[1.123.0]`), and `Cashier Monitoring` to
     `Review cashier takings` with refunds removed (`[1.121.0]`).
   - *Receptionist:* Removed the manual `Someone at the desk? -> Mark a no-show` branch (`[1.131.0]`);
     added `Reschedule a booking? -> Move to new date and time` (`[1.105.0]`, `[1.131.0]`); updated
     the department routing check to `Paid or HMO approved?` (`[1.132.0]`); added the
-    `Patient Records` column (`Open patient file` -> `Link walk-in to account`, `[1.118.0]`,
-    `[1.125.0]`) and `Record paper feedback` under `Visit History` (`[1.106.0]`).
-  - *Cashier:* Added `Confirm final tests` before payment on the `Billing Queue` (`[1.109.0]`) and
+    `Patient Records` column (`Open patient file` -> `Link walk-in to account`, `[1.116.0]`,
+    `[1.123.0]`) and `Record paper feedback` under `Visit History` (`[1.112.0]`).
+  - *Cashier:* Added `Confirm final tests` before payment on the `Billing Queue` (`[1.122.0]`) and
     removed the `Reverse a receipt? -> Record the refund` branch from `Transaction History`
     (`[1.121.0]`).
   - *Laboratory & Ultrasound:* Updated result release so `Authorise: copy in portal` places the
@@ -32,11 +75,11 @@ and all 36 exported PNGs in `docs/diagrams/png/` so every figure matches the sys
     `Perform the X-ray exam` -> `Confirm and mark exam done` -> `Ticket moves to history`, and
     `Search completed exams` -> `View exam and who did it` on `X-Ray History`, `[1.129.0]`).
   - *Client / Patient:* Updated the four-column chained flow to show attaching the HMO card and
-    doctor's request at booking (`[1.122.0]`), receiving the booking reference and email first while
+    doctor's request at booking (`[1.106.0]`, `[1.107.0]`), receiving the booking reference and email first while
     waiting for HMO approval or confirming tests and uploading payment proof before receiving the
     `QR booking pass` (`[1.48.0]`, `[1.123.0]`, `[1.132.0]`), receiving the reminder email and
     rescheduling if needed (`[1.105.0]`, `[1.130.0]`, `[1.131.0]`), viewing the digital copy in the
-    portal (`[1.113.0]`, `[1.115.0]`), and answering visit feedback (`[1.106.0]`).
+    portal (`[1.113.0]`, `[1.115.0]`), and answering visit feedback (`[1.112.0]`).
 - **Use Cases (`usecases.drawio`):**
   - Replaced `View System Analytics` and `Export CSV` with `Generate Reports` and `«extend»`
     `Print or Export Report`; added `View Patient Feedback` (`«extend»` `Manage Feedback Questions`)

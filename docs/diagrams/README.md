@@ -50,13 +50,14 @@ throws work away.
 Worth knowing before a panelist asks, because each one differs from the old figures:
 
 - There is no veterinary branch anywhere. Pet patients were removed from the system.
-- A booking issues a reference and confirmation email first. A self-pay booking holds its slot for 60 minutes while the patient confirms final tests, pays via GCash or bank transfer, and uploads proof; an HMO booking waits for Admin's decision. The **QR booking pass** is issued only once the booking is paid or HMO-approved.
-- The **queue ticket** is issued later, at check-in or walk-in registration at the Front Desk.
+- A booking issues a reference and confirmation email first. A self-pay booking holds its slot for 60 minutes while the patient confirms final tests, pays via GCash or bank transfer, and uploads proof; an HMO booking holds its slot until its own start time while an Admin decides the claim (refused, the patient has 60 minutes to pay it). Neither paid nor approved in time, the slot is released and the patient emailed. The **QR booking pass** is issued only once the booking is paid or HMO-approved.
+- The **queue ticket** is issued later, at check-in or walk-in registration at the Front Desk, once the visit's tests are chosen: a visit is never opened without them.
+- A visit reaches its department only once it is **paid**. An HMO patient still goes to the cashier, whose receipt covers the patient's share (₱0 when the HMO approved everything).
 - Before taking payment, the cashier confirms the final list of tests with the patient and issues the **receipt** (never the queue number). There is no refund or receipt reversal in the system.
 - Bookings and visits are never cancelled or marked no-show by hand. Unpaid bookings and unpaid visits expire automatically on a timer and log the expiry to the Activity Log; paid bookings that need another date are rescheduled.
-- An Admin decides HMO claims (each with a 15-minute decision deadline) and generates four-tab A4/Excel reports, but cannot write or release a diagnostic result; the department does that.
+- An Admin decides HMO claims (a claim on a booking must be decided by the booking's start time, shown as "decide by") and generates four-tab A4/Excel reports, but cannot write or release a diagnostic result; the department does that.
 - Laboratory and Ultrasound attach and authorise a report file, placing a marked digital copy with a verification code in the patient's portal. Emailing the report to the patient is an optional choice after release or from History, never automatic on release.
-- X-Ray films are handed to the patient in a physical envelope at the clinic. X-Ray staff never upload, release, print, or email a report file in the system; they confirm and mark the exam done on the X-Ray Worklist (`performed_at` and `performed_by`).
+- The X-ray department gives its results through its own system, so X-Ray staff never upload, release, print, or email a report file here; they mark the exam done on the X-Ray Worklist (`performed_at` and `performed_by`), and the patient's portal says the result comes from the X-ray department.
 - Results keep their history: an amendment releases a new version and the previous one stays on record.
 - Patients can answer a visit feedback survey in the portal (or have a paper form recorded by the Receptionist from Visit History), and Admin / Super Admin manage the survey questions.
 

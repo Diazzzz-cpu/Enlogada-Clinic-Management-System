@@ -175,6 +175,11 @@ function flowchart(spec) {
         const rejoin = main[si + (step.side.mergeTo || 1)];
         if (step.side.back) {
           p.edge(side, at.cell, '', S.edge, [[cx + NODE_W + 36 + SIDE_W / 2, at.y - 26], [cx + NODE_W / 2, at.y - 26]]);
+        } else if (step.side.toEnd === 'down') {
+          // A branch that finishes here and drops STRAIGHT DOWN to the corridor. Asked for, never
+          // assumed: it is only clear when no side box sits below it in its column. On a chained
+          // chart the lane to the right would run beside the link into the next column, 4px away.
+          merges.push({ cell: side, down: true });
         } else if (step.side.toEnd || !rejoin) {
           // A branch that finishes here, e.g. a refusal. It leaves to the RIGHT and drops in a
           // lane of its own: straight down out of the box, which is the obvious route, runs the
@@ -224,7 +229,13 @@ function flowchart(spec) {
   finishers.forEach((cell) => {
     p.edge(cell, end, '', S.edge + 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;', [[cell.x + cell.w / 2, corridor]]);
   });
-  merges.forEach(({ cell, lane }) => {
+  merges.forEach(({ cell, lane, down }) => {
+    if (down) {
+      // On a chained chart the link into the next column closes the side column off below, so
+      // this line has to cross it; the arc hop says the two only pass.
+      p.edge(cell, end, '', S.edge + 'jumpStyle=arc;jumpSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;', [[cell.x + cell.w / 2, corridor]]);
+      return;
+    }
     p.edge(cell, end, '', S.edge + 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;',
       [[lane, cell.y + cell.h / 2], [lane, corridor]]);
   });
@@ -268,6 +279,11 @@ const ADMIN_FLOW = {
 // The Desk is ONE screen: a box that takes a name, a reference or a scan, and the answer decides
 // whether the next click is Reschedule, Check in or Start a walk-in visit. Unpaid bookings and
 // visits expire automatically on a timer rather than being marked no-show by hand.
+//
+// The tests come BEFORE the ticket [1.129.0]: a visit is opened with its tests, and Confirm
+// Check-In waits for one. And only a PAYMENT sends a visit to its department
+// (visitService.releaseVisitIfReady): an HMO patient still goes to the till, whose receipt covers
+// the patient's share, ₱0 when the HMO approved everything.
 const RECEPTIONIST_FLOW = {
   name: 'Receptionist', actor: 'Receptionist', landing: 'Today',
   columns: [
@@ -276,13 +292,12 @@ const RECEPTIONIST_FLOW = {
       { k: 'dec', l: 'Reschedule a booking?', mainLabel: 'no',
         side: { l: 'Move to new date and time', label: 'yes', toEnd: true } },
       { k: 'dec', l: 'Booking for today?', mainLabel: 'yes',
-        side: { l: 'Start visit or register walk-in', label: 'no', mergeTo: 2 } },
-      { k: 'proc', l: 'Check in the booking' },
+        side: { l: 'Pick tests, start walk-in visit', label: 'no', mergeTo: 2 } },
+      { k: 'proc', l: 'Confirm tests, check in' },
       { k: 'io', l: 'Issue queue ticket' },
-      { k: 'proc', l: 'Attach or confirm tests' },
       { k: 'dec', l: 'HMO patient?', mainLabel: 'no',
         side: { l: 'Record card, send to Admin', label: 'yes' } },
-      { k: 'dec', l: 'Paid or HMO approved?', mainLabel: 'no',
+      { k: 'dec', l: 'Already paid?', mainLabel: 'no',
         side: { l: 'Visit goes to department', label: 'yes', toEnd: true } },
       { k: 'proc', l: 'Send patient to the cashier' }],
     [{ k: 'proc', l: 'Patient Records' },
@@ -346,8 +361,8 @@ function departmentFlow(dept, formStep) {
   };
 }
 
-// X-Ray films are handed to the patient in a physical envelope at the clinic, never uploaded or
-// released in the system. The technologist confirms the exam was performed on the worklist.
+// The X-ray department gives its results through its own system [1.129.0], so nothing is uploaded,
+// released or emailed here. The technologist marks the exam done on the worklist.
 const XRAY_FLOW = {
   name: 'X-Ray', actor: 'X-Ray Staff', landing: 'Today',
   columns: [
@@ -372,10 +387,14 @@ const CLIENT_FLOW = {
       { k: 'proc', l: 'Pick date, time and tests' },
       { k: 'dec', l: 'HMO patient?', mainLabel: 'no', side: { l: 'Attach HMO card and request', label: 'yes' } },
       { k: 'proc', l: 'Confirm booking' }],
+    // Payment first [1.123.0] [1.132.0]: a self-pay booking holds its slot for the payment window,
+    // an HMO booking until its start while the claim waits; neither paid nor approved in time,
+    // the slot is released and the patient emailed.
     [{ k: 'io', l: 'Get reference and email' },
-      { k: 'dec', l: 'Self-pay booking?', mainLabel: 'yes', side: { l: 'Wait for HMO approval', label: 'no', mergeTo: 2 } },
-      { k: 'io', l: 'Confirm tests, upload proof' },
-      { k: 'proc', l: 'Payment or HMO approved' },
+      { k: 'dec', l: 'Self-pay booking?', mainLabel: 'yes', side: { l: 'Wait for HMO decision', label: 'no', mergeTo: 2 } },
+      { k: 'io', l: 'Confirm tests, pay, upload proof' },
+      { k: 'dec', l: 'Paid or approved in time?', mainLabel: 'yes',
+        side: { l: 'Slot released, emailed', label: 'no', toEnd: 'down' } },
       { k: 'io', l: 'Get QR booking pass' }],
     [{ k: 'io', l: 'Receive reminder email' },
       { k: 'dec', l: 'Need another date?', mainLabel: 'no', side: { l: 'Reschedule booking', label: 'yes' } },
@@ -504,7 +523,7 @@ const DFD0 = [
     inputs: ['Login details', 'Exam marked done'],
     outputs: ['Account confirmed', 'X-ray requests', 'Patient details', 'Completed exams'] },
   { name: 'Client Patient',
-    inputs: ['Registration details', 'Verification code', 'Login details', 'Patient profile', 'Booking and doctor request', 'Proof of payment', 'Visit feedback'],
+    inputs: ['Registration details', 'Verification code', 'Login details', 'Patient profile', 'Booking and doctor request', 'Reschedule request', 'Proof of payment', 'Visit feedback'],
     outputs: ['Account confirmed', 'Booking reference', 'QR booking pass', 'Reminder and status emails', 'Receipt', 'Digital copy of result'] },
 ];
 
@@ -678,7 +697,7 @@ const DFD1 = [
     { ...P.hmoRaise, in: ['HMO claim'], out: ['Claim sent'], stores: [{ id: 'D7', to: 'Save claim and card' }] },
     { ...P.feedback, in: ['Paper feedback'], stores: [{ id: 'D10', to: 'Save paper feedback' }] }] },
   { name: 'Cashier', processes: [
-    login(), { ...P.billing, in: ['Tests and payment'], out: ['Receipt'], stores: [{ id: 'D4', to: 'Save payment', from: 'Discount types' }, { id: 'D3', to: 'Confirm final tests', from: 'Tests and prices' }] },
+    login(), { ...P.billing, in: ['Tests and payment'], out: ['Receipt'], stores: [{ id: 'D4', to: 'Save payment', from: 'Discount types' }, { id: 'D3', from: 'Tests and prices' }] },
     { ...P.proof, in: ['Proof decision'], out: ['Payment proofs'], stores: [{ id: 'D4', to: 'Save outcome', from: 'Uploaded proofs' }] },
     { ...P.release, out: ['Sent to department'], stores: [{ id: 'D3', to: 'Set to processing' }] },
     { ...P.reports, in: ['Date range'], out: ['Takings'], stores: [{ id: 'D4', from: 'Payments' }] }] },
@@ -696,10 +715,13 @@ const DFD1 = [
   { name: 'Client Patient', processes: [
     { ...P.login, in: ['Registration details', 'Login details'], out: ['Verification code', 'Account confirmed'], stores: [{ id: 'D1', to: 'Save account and code', from: 'Account details' }] },
     { ...P.profiles, in: ['Patient profile'], out: ['Saved profiles'], stores: [{ id: 'D2', to: 'Save profile', from: 'Profile details' }] },
-    { ...P.appts, in: ['Booking and test slip'], out: ['Booking reference'], stores: [{ id: 'D3', to: 'Save booking', from: 'Open slots' }, { id: 'D8', from: 'Clinic hours' }] },
+    { ...P.appts, in: ['Booking and doctor request', 'Reschedule request'], out: ['Booking reference'], stores: [{ id: 'D3', to: 'Save or move booking', from: 'Open slots' }, { id: 'D8', from: 'Clinic hours' }] },
     { ...P.proof, in: ['Proof of payment'], out: ['Receipt and QR pass'], stores: [{ id: 'D4', to: 'Save submission' }, { id: 'D3', from: 'Paid or HMO booking' }] },
     { ...P.deliver, out: ['Digital copy of result'], stores: [{ id: 'D6', from: 'Released results' }] },
-    { ...P.notify, out: ['Reminders and updates'], stores: [{ id: 'D9', from: 'Notifications' }, { id: 'D3', to: 'Release expired slot' }] },
+    // The server's own emails [1.130.0] [1.131.0]: reminders read the bookings due one, and an
+    // unpaid booking whose time is up is released and logged. Patient emails are not D9 rows;
+    // that store's notifications are the staff bell.
+    { ...P.notify, out: ['Reminders and updates'], stores: [{ id: 'D3', to: 'Release unpaid booking', from: 'Bookings due' }, { id: 'D9', to: 'Release logged' }] },
     { ...P.feedback, in: ['Visit feedback'], stores: [{ id: 'D10', to: 'Save feedback', from: 'Survey questions' }] }] },
 ];
 

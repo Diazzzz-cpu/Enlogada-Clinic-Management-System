@@ -188,16 +188,22 @@ function flowchart(spec) {
           endLane += 1;
           merges.push({ cell: side, lane: cx + NODE_W + 36 + SIDE_W + 22 + endLane * 20 });
         } else {
-          // Down the side column, across the gap above the step it rejoins, and into its TOP —
-          // the same point the main path arrives at, which is what a merge looks like.
+          // Down the side column, across the gap above the step it rejoins, and into its TOP.
           //
           // Entering from the RIGHT instead, which is the obvious way to draw it, put the line on
           // top of two other things: it cut through the box between the branch and its target, and
           // where the target was a decision it arrived at the very vertex that decision's own
           // branch leaves from, so one arrowhead appeared to point into the diamond and out of it.
+          //
+          // Beside the main path's arrow, with an arrowhead of its own [1.135.0]. It used to join
+          // the main path's line above the target and share its arrow, so the branch's line and
+          // the decision's "no" label met on one segment and the figure could not say which came
+          // from where. No entry point is fixed: draw.io drops the line straight onto the target's
+          // outline below the last waypoint, which on a diamond is its upper-right edge.
           const laneY = rejoin.y - 26;
-          p.edge(side, rejoin.cell, '', S.edge + 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;',
-            [[cx + NODE_W + 36 + SIDE_W / 2, laneY], [cx + NODE_W / 2, laneY]]);
+          const enterX = cx + NODE_W * (col[si + (step.side.mergeTo || 1)].k === 'dec' ? 0.64 : 0.76);
+          p.edge(side, rejoin.cell, '', S.edge + 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;',
+            [[cx + NODE_W + 36 + SIDE_W / 2, laneY], [enterX, laneY]]);
         }
       }
     });
@@ -222,22 +228,63 @@ function flowchart(spec) {
     }
   }
 
-  const corridor = lowest + 14;
-  const end = p.node('End', 60 + totalW / 2 - 60, corridor + 46, 120, 44, S.term);
+  // Every line into End has its own arrowhead and its own lane [1.135.0]. Steven: they all met on
+  // one corridor and entered End as a single arrow, so a figure could not say which box led where,
+  // and on a projector a shared line reads as boxes connected to each other.
+  //
+  // Each line gets an entry point of its own along End's top, in the order the lines arrive from
+  // left to right. Its lane nests the way the Level 0 DFD's corridors do: of the lines coming in
+  // from the left, the one furthest out runs lowest and lands furthest left, mirrored on the right,
+  // so no two lines cross. A line already over its entry point drops straight in. Each line's end is
+  // fixed on the ellipse itself (entryPerimeter=0 at the curve's own height for that x): left to
+  // draw.io, a line that dropped straight down was turned along to End's centre, because its
+  // router alternates vertical and horizontal segments, and landed on another line's arrowhead.
+  //
   // In a chained chart only the final column reaches End; the others continue into the next column.
+  const LANE_GAP = 18, ENTRY_GAP = 30;
+  const laneTop = lowest + 14;
   const finishers = spec.chain ? [lastOfColumn[lastOfColumn.length - 1]] : lastOfColumn;
-  finishers.forEach((cell) => {
-    p.edge(cell, end, '', S.edge + 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;', [[cell.x + cell.w / 2, corridor]]);
+  const into = [
+    ...finishers.map((cell) => ({ cell, x: cell.x + cell.w / 2, from: 'bottom' })),
+    // A `down` branch on a chained chart has to cross the link into the next column (the link
+    // closes the side column off below); the arc hop says the two only pass.
+    ...merges.map((m) => (m.down
+      ? { cell: m.cell, x: m.cell.x + m.cell.w / 2, from: 'bottom', hop: true }
+      : { cell: m.cell, x: m.lane, from: 'side' })),
+  ].sort((a, b) => a.x - b.x);
+  const endCx = 60 + totalW / 2;
+  const span = (into.length - 1) * ENTRY_GAP;
+  into.forEach((l, i) => { l.entry = endCx - span / 2 + i * ENTRY_GAP; });
+  // Slide the whole row of entries, by up to half a gap, so the line nearest one drops straight in:
+  // the Cashier's middle column otherwise made a 15px jog just above End.
+  const nearest = into.reduce((a, b) => (Math.abs(b.x - b.entry) < Math.abs(a.x - a.entry) ? b : a));
+  const slide = nearest.x - nearest.entry;
+  if (Math.abs(slide) <= ENTRY_GAP / 2) into.forEach((l) => { l.entry += slide; });
+  // Nearly over its entry point: take the line's own x rather than jog a few pixels, as long as it
+  // stays 16px clear of its neighbours' entries.
+  into.forEach((l, i) => {
+    if (Math.abs(l.x - l.entry) >= 12) return;
+    const prev = into[i - 1], next = into[i + 1];
+    if ((!prev || l.x - prev.entry >= 16) && (!next || next.entry - l.x >= 16)) l.entry = l.x;
   });
-  merges.forEach(({ cell, lane, down }) => {
-    if (down) {
-      // On a chained chart the link into the next column closes the side column off below, so
-      // this line has to cross it; the arc hop says the two only pass.
-      p.edge(cell, end, '', S.edge + 'jumpStyle=arc;jumpSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;', [[cell.x + cell.w / 2, corridor]]);
-      return;
-    }
-    p.edge(cell, end, '', S.edge + 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;',
-      [[lane, cell.y + cell.h / 2], [lane, corridor]]);
+  const fromLeft = into.filter((l) => l.x < l.entry).sort((a, b) => b.x - a.x);
+  const fromRight = into.filter((l) => l.x > l.entry).sort((a, b) => a.x - b.x);
+  fromLeft.forEach((l, k) => { l.depth = k; });
+  fromRight.forEach((l, k) => { l.depth = k; });
+  const depth = Math.max(fromLeft.length, fromRight.length);
+  const endY = laneTop + depth * LANE_GAP + 10;
+  const endW = Math.max(120, span + 100);
+  const end = p.node('End', endCx - endW / 2, endY, endW, 44, S.term);
+  into.forEach((l) => {
+    const exit = l.from === 'side' ? 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;' : 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;';
+    const u = (l.entry - endCx) / (endW / 2);
+    const onCurve = (1 - Math.sqrt(Math.max(0, 1 - u * u))) / 2;
+    const entry = `entryX=${((l.entry - (endCx - endW / 2)) / endW).toFixed(4)};entryY=${onCurve.toFixed(4)};entryDx=0;entryDy=0;entryPerimeter=0;`;
+    const style = S.edge + exit + entry + (l.hop ? 'jumpStyle=arc;jumpSize=12;' : '');
+    const out = l.from === 'side' ? [[l.x, l.cell.y + l.cell.h / 2]] : [];
+    const y = laneTop + (l.depth || 0) * LANE_GAP;
+    const route = l.entry === l.x ? [[l.x, laneTop]] : [[l.x, y], [l.entry, y]];
+    p.edge(l.cell, end, '', style, [...out, ...route]);
   });
   return p;
 }

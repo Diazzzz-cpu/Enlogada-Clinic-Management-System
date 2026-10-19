@@ -1,5 +1,31 @@
 # Database Migration & Schema History
 
+## [1.135.0] - 2026-10-19 (Every flowchart arrow is its own)
+
+No migration. Documentation only.
+
+Steven: "make their arrows in flowcharts separated so we can know the connection, cause these
+will be bad when we present this". Two places shared a line, so a figure could not say which box
+led where, and on a projector a shared line reads as boxes connected to each other:
+
+- **Into End.** Every column's last step and every branch that finishes ran down to one corridor
+  and entered End as a single arrow (eight columns into one arrowhead on Admin's chart). Each line
+  now has its own entry point along End's top, in left-to-right order, and its own lane to reach
+  it; the lanes nest the way the Level 0 DFD's corridors do (of the lines coming from the left, the
+  furthest out runs lowest and lands furthest left, mirrored on the right), so none cross. End
+  widens with the number of lines. A line already over its entry point drops straight in, and the
+  row of entries slides by up to half a gap so the line nearest one does (the Cashier's middle
+  column jogged 15px otherwise). Each line's end is fixed on the ellipse at the curve's own height
+  (`entryPerimeter=0`): left to draw.io, a straight drop was turned along to End's centre, onto
+  another line's arrowhead, because its router alternates vertical and horizontal segments.
+- **Where a branch rejoins.** The branch's line joined the main path just above the target and
+  shared its arrow, so the decision's "no" and the branch met on one segment. It now lands on the
+  target's top beside the main arrow (a quarter of the way in, or on a diamond's upper-right edge),
+  with its own arrowhead. Still into the TOP, per [1.102.0].
+
+All eight flowchart PNGs changed; nothing else. `checkDiagrams.cjs` is Clean, but it cannot see a
+line lying on a line; every chart was looked at.
+
 ## [1.134.0] - 2026-10-19 (The diagrams checked against the system, and what [1.133.0] still had wrong)
 
 No migration. Documentation only.

@@ -1478,4 +1478,8 @@ Services Catalogue.
   columns fanning out below off one shared bus (on a chained chart the header sits over the first
   column, or its fan crosses the chain's link corridor). **It says a thing once**: the Desk's
   walk-in path was drawn three times, each ending in its own queue ticket. A branch that rejoins
-  merges into the TOP of its target, never the right edge.
+  merges into the TOP of its target, never the right edge. **Every arrow is its own** `[1.135.0]`:
+  a rejoining branch lands beside the main path's arrow with an arrowhead of its own, and every
+  line into End has its own nested lane and its own point on End's outline, so no two lines share
+  a segment or an arrowhead (Steven: a shared line reads as boxes connected to each other when
+  presented). `checkDiagrams.cjs` cannot see a line on a line; look at the PNGs.

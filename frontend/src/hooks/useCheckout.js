@@ -23,6 +23,9 @@ import { toastError } from '../lib/toast';
  * @param {(visitId: number) => boolean} isAlreadyPaid  settled today, so it cannot be charged twice
  * @param {(sale: {payment: object, bill: object, tender: object}) => void} onPaid
  */
+/** The picker's "No discount" item. Radix Select gives an item no empty value, so this stands in. */
+export const NO_DISCOUNT = 'none';
+
 export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [bill, setBill] = useState(null);
@@ -121,6 +124,20 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
     setSelectedVisit(null);
     setBill(null);
     setError('');
+  };
+
+  /**
+   * Choosing in the discount picker. "No discount" [1.137.0] puts it back as it started: no
+   * discount chosen, no ID number, and no complaint about an ID the cashier no longer needs.
+   */
+  const chooseDiscount = (value) => {
+    if (value === NO_DISCOUNT) {
+      setDiscountTypeId('');
+      setDiscountIdNumber('');
+      setDiscountError('');
+      return;
+    }
+    setDiscountTypeId(value);
   };
 
   const applyDiscount = async () => {
@@ -256,7 +273,7 @@ export function useCheckout({ isAlreadyPaid, onPaid } = {}) {
     discountCatalogue, discountTypeId, setDiscountTypeId,
     discountIdNumber, setDiscountIdNumber,
     applyingDiscount, discountError,
-    select, clear, applyDiscount, removeDiscount,
+    select, clear, chooseDiscount, applyDiscount, removeDiscount,
     changeDue, requestConfirmation, cancelConfirmation, confirm,
   };
 }

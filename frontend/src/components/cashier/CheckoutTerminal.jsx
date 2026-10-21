@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatCurrency } from '../../lib/currency';
 // The vocabulary, not a copy of it — mirrors backend constants/paymentMethods.js. [1.33.0]
 import { COUNTER_PAYMENT_METHODS } from '../../lib/paymentMethods';
+import { NO_DISCOUNT } from '../../hooks/useCheckout';
 
 /**
  * The till: one patient, what they owe, and taking the money.
@@ -195,9 +196,11 @@ export default function CheckoutTerminal({ checkout, queue }) {
                     </div>
                   ) : (
                     <div className="flex flex-col sm:flex-row gap-2">
-                      <Select value={checkout.discountTypeId} onValueChange={checkout.setDiscountTypeId}>
+                      <Select value={checkout.discountTypeId} onValueChange={checkout.chooseDiscount}>
                         <SelectTrigger className="text-xs sm:w-44" aria-label="Statutory or other discount"><SelectValue placeholder="No discount" /></SelectTrigger>
                         <SelectContent>
+                          {/* A way back once a discount is picked and not applied. [1.137.0] */}
+                          <SelectItem value={NO_DISCOUNT}>No discount</SelectItem>
                           {checkout.discountCatalogue.map(d => (
                             <SelectItem key={d.id} value={String(d.id)}>
                               {d.name} ({parseFloat(d.percentage)}%)

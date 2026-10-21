@@ -1,5 +1,16 @@
 # Database Migration & Schema History
 
+## [1.137.0] - 2026-10-22 (The till's discount picker has a way back)
+
+No migration. Front end only.
+
+At the till, choosing Senior Citizen or PWD in the discount picker left it there: the list had no
+"No discount" to go back to. Nothing was applied until Apply, and Apply asks for the ID number, so
+no bill was ever wrong; but the picker read as if the discount were on. The list now opens with
+**No discount**, which puts the picker, the ID number and its message back as they began
+(`useCheckout.chooseDiscount`, `NO_DISCOUNT`; Radix Select gives an item no empty value). An
+APPLIED discount is still taken off with Remove, as before. `discount-picker.spec.js`.
+
 ## [1.136.0] - 2026-10-22 (A walk-in patient is invited to the portal; a record can be taken back out)
 
 `node src/scripts/migratePatientInvitations.js` (additive; `--rollback` reverses it). Folded into

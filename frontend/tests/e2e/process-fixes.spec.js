@@ -58,7 +58,7 @@ test.describe('Processes that make sense', () => {
       data: { patientId: patient.id, visitType: 'Walk in', notes: 'process fixes spec', testIds: [labTest.id], ...extra },
     })).json()).data.visit;
     const attached = (await (await ctx.get(`${API}/tests/visit-tests/${visit.id}`, { headers: auth(reception) })).json()).data.visitTests;
-    return { person, patient, visit, visitTestIds: attached.map((v) => v.id) };
+    return { person, patient, visit, birthdate: '1981-03-03', visitTestIds: attached.map((v) => v.id) };
   };
 
   /** A new patient account with one self-pay booking far ahead, unpaid. */
@@ -199,24 +199,33 @@ test.describe('Processes that make sense', () => {
     await expect(page.getByTestId('desk-match').filter({ hasText: person.fullName })).toHaveCount(0);
   });
 
-  test('6. a walk-in record is linked to the account its patient signed up with', async () => {
-    const { patient } = await walkIn();
+  // [1.136.0] The desk's direct link is gone: a record joins an account by invitation, which the
+  // patient accepts with the record's date of birth. portal-invitation.spec.js holds the rest.
+  test('6. a walk-in record joins the account its patient signed up with, by invitation', async () => {
+    const { patient, birthdate } = await walkIn();
     const person = fixturePerson();
     const email = fixtureEmail(person);
     const { token } = await registerClient(ctx, { ...person, email, password: PASSWORD });
 
-    const staffAccount = await ctx.put(`${API}/patients/${patient.id}/link-account`, {
-      headers: auth(reception), data: { email: 'cashier@enlogada.com' },
+    const gone = await ctx.put(`${API}/patients/${patient.id}/link-account`, { headers: auth(reception), data: { email } });
+    expect(gone.status(), 'the direct link is retired').toBe(404);
+
+    const invite = (to) => ctx.post(`${API}/patients/${patient.id}/invitations`, {
+      headers: auth(reception), data: { email: to, relationship: 'self', consentBasis: 'own_address', confirmed: true },
     });
-    expect(staffAccount.status(), 'never a staff account').toBe(404);
+    expect((await invite('cashier@enlogada.com')).status(), 'never a staff account').toBe(409);
+    const sent = await invite(email);
+    expect(sent.status(), await sent.text()).toBe(201);
 
-    const linked = await ctx.put(`${API}/patients/${patient.id}/link-account`, { headers: auth(reception), data: { email } });
-    expect(linked.status(), await linked.text()).toBe(200);
-    const mine = (await (await ctx.get(`${API}/patients/my-profiles`, { headers: auth(token) })).json()).data.patients;
-    expect(mine.map((p) => p.id), 'the record is now in their portal').toContain(patient.id);
+    const mine = (await (await ctx.get(`${API}/patients/invitations/mine`, { headers: auth(token) })).json()).data;
+    const accepted = await ctx.post(`${API}/patients/invitations/${mine.invitations[0].id}/accept`, {
+      headers: auth(token), data: { birthdate },
+    });
+    expect(accepted.status(), await accepted.text()).toBe(200);
+    const profiles = (await (await ctx.get(`${API}/patients/my-profiles`, { headers: auth(token) })).json()).data.patients;
+    expect(profiles.map((p) => p.id), 'the record is now in their portal').toContain(patient.id);
 
-    const again = await ctx.put(`${API}/patients/${patient.id}/link-account`, { headers: auth(reception), data: { email } });
-    expect(again.status(), 'a record is linked once').toBe(409);
+    expect((await invite(email)).status(), 'a record is linked once').toBe(409);
   });
 
   test('7. attaching a Word report says the patient cannot open it online', async ({ page }) => {

@@ -180,7 +180,8 @@ test('the patient can pay on the confirmation itself, without going to Appointme
 
   // The fallback survives, which is the whole reason the Appointments route stays wired: anyone
   // who closes this dialog must still be able to pay.
-  await expect(dialog.getByText(/Appointments/)).toBeVisible();
+  // The portal tab is "Visits" since [1.136.0].
+  await expect(dialog.getByText(/Visits/)).toBeVisible();
 
   expect(errors, `console errors: ${errors.join(' | ')}`).toHaveLength(0);
 });

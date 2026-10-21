@@ -87,6 +87,8 @@ function sessionFor(user) {
       permissions,
       departments: departmentsForUser(user),
       hasAvatar: Boolean(user.avatar_path),
+      // [1.136.0] Whether this account has proven its address, which accepting a record needs.
+      emailVerified: Boolean(user.email_verified_at),
     },
   };
 }
@@ -287,6 +289,8 @@ class AuthService {
           contactNumber: claimed.contact_number,
         });
         await authCodeRepository.consumeOpenForEmail('signup', claimed.email);
+        // The code just proved the address. [1.136.0]
+        await userRepository.markEmailVerified(account.id);
         return account;
       });
     } catch (err) {
@@ -343,6 +347,9 @@ class AuthService {
 
     if (isSignup) {
       assertDelivered(await accountEmailService.sendSignupCode({ to: row.email, firstName: row.first_name, code }));
+    } else if (row.purpose === 'email_verify') {
+      const account = await userRepository.findById(row.user_id);
+      assertDelivered(await accountEmailService.sendEmailCheckCode({ to: row.email, firstName: account?.first_name, code }));
     } else {
       sendResetCodeInBackground({ userId: row.user_id, email: row.email, code });
     }
@@ -478,6 +485,8 @@ class AuthService {
       const updated = await userRepository.updatePasswordHash(claimed.user_id, passwordHash);
       await userRepository.clearLoginFailures(claimed.user_id);
       await authCodeRepository.consumeOpenForUser('password_reset', claimed.user_id);
+      // A code from the inbox proves the address as surely as a sign-up code. [1.136.0]
+      await userRepository.markEmailVerified(claimed.user_id);
       return updated;
     });
 
@@ -496,6 +505,74 @@ class AuthService {
       email: account?.email,
       message: 'Your password has been changed, and every other session has been signed out. Sign in with your new password.',
     };
+  }
+
+  /**
+   * An existing account proves its address, before it may accept a patient record. [1.136.0]
+   *
+   * Accounts made before [1.73.0], or by a seed, never proved theirs, and a patient record holds
+   * results. The same ticket-and-code pair as a sign-up, sent to the account's own address and
+   * bound to the account: finishing needs this account's session as well as the code.
+   */
+  async startEmailCheck(userId) {
+    const account = await userRepository.findById(userId);
+    if (!account) throw new ValidationError('Account not found.');
+    if (account.email_verified_at) return { alreadyVerified: true };
+    const address = canonicalEmail(account.email);
+    if ((await authCodeRepository.countIssuedSince('email_verify', address, 60)) >= MAX_CODES_PER_EMAIL_PER_HOUR) {
+      throw new AppError('Several codes were sent to this address in the last hour. Please wait a while, then try again.', 429);
+    }
+    const ticket = generateTicket();
+    const code = generateCode();
+    const pending = await authCodeRepository.create({
+      purpose: 'email_verify',
+      email: address,
+      userId: account.id,
+      ticketHash: hashTicket(ticket),
+      codeHash: hashCode(code),
+      ttlMinutes: CODE_TTL_MINUTES,
+    });
+    const sent = await accountEmailService.sendEmailCheckCode({ to: address, firstName: account.first_name, code });
+    try {
+      assertDelivered(sent);
+    } catch (err) {
+      await authCodeRepository.deleteById(pending.id);
+      throw err;
+    }
+    return { ticket, email: address, ...CODE_TIMING };
+  }
+
+  async confirmEmailCheck(userId, { ticket, code }) {
+    if (!isWellFormedCode(code)) throw new ValidationError('Enter the 6-digit code from the email.');
+    const account = await userRepository.findById(userId);
+    if (!account) throw new ValidationError('Account not found.');
+    if (account.email_verified_at) return { verified: true };
+
+    const claimed = isWellFormedTicket(ticket)
+      ? await authCodeRepository.claimAttempt(hashTicket(ticket), 'email_verify', MAX_ATTEMPTS)
+      : null;
+    // Bound to this account AND its current address: a code sent before the address changed, or
+    // to somebody else's check, proves nothing here.
+    if (!claimed || String(claimed.user_id) !== String(userId) || claimed.email !== canonicalEmail(account.email)) {
+      throw new ValidationError('That code has expired or is not for this account. Send a new one.');
+    }
+    if (!codeMatches(code, claimed.code_hash)) throw new ValidationError(triesLeft(claimed));
+
+    await db.withTransaction(async () => {
+      if (!(await authCodeRepository.consume(claimed.id))) {
+        throw new ValidationError('That code has already been used.');
+      }
+      await userRepository.markEmailVerified(userId);
+      await authCodeRepository.consumeOpenForUser('email_verify', userId);
+    });
+    await auditService.log({
+      actorId: userId,
+      action: 'auth.email_verified',
+      entityType: 'user',
+      entityId: userId,
+      description: `Confirmed the address ${account.email} with an emailed code`,
+    });
+    return { verified: true };
   }
 
   async updateProfile(userId, { firstName, lastName, contactNumber }) {
@@ -564,7 +641,8 @@ class AuthService {
       roles: cleanRoles,
       permissions: cleanPermissions,
       departments: departmentsForUser(user),
-      hasAvatar: Boolean(user.avatar_path)
+      hasAvatar: Boolean(user.avatar_path),
+      emailVerified: Boolean(user.email_verified_at),
     };
   }
 
@@ -633,6 +711,12 @@ class AuthService {
       const error = new Error('User account is deactivated');
       error.statusCode = 403;
       throw error;
+    }
+
+    // Google verified the address (email_verified above). [1.136.0]
+    if (!user.email_verified_at) {
+      await userRepository.markEmailVerified(user.id);
+      user = await userRepository.findByEmail(address);
     }
 
     return sessionFor(user);

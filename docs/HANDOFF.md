@@ -1,6 +1,6 @@
 # Handoff: open threads
 
-Last updated 2026-10-19, after [1.134.0]. For the next Claude Code agent working in this repo.
+Last updated 2026-10-22, after [1.136.0]. For the next Claude Code agent working in this repo.
 CLAUDE.md and the project memory load on their own; this file holds what they do not.
 
 The diagram update this file used to brief is done: [1.133.0] made it and [1.134.0] checked it
@@ -9,6 +9,17 @@ of [1.132.0]. After the next change to a process, re-run the check [1.134.0] des
 
 ## Open threads
 
+- **[1.136.0] Portal invitations for walk-ins are built** (see `docs/PORTAL_ACCESS_GUIDE.md` for the
+  staff how-to, migrations.md for the design). On another database run
+  `node src/scripts/migratePatientInvitations.js`, then `node src/scripts/setupRbac.js`. Planned with
+  the `.agents` roles and reviewed by them after the build; every finding was fixed. Left as they
+  are, deliberately:
+  - The invitation caps (5 emails an address a day, 50 invitations a staff member a day) apply only
+    under `NODE_ENV=production`, like the rate limiters. A deployment must set it.
+  - Google sign-in cannot be driven by the suite. It marks the address verified (`googleLogin`);
+    check it by hand once: sign in with Google using an invited address, and the record waits.
+  - The family-consent rules were chosen with the user; the clinic's Data Protection Officer
+    should confirm them (RA 10173), especially the phone path.
 - **Joel (cashier@enlogada.com) holds the Receptionist role too**, unless Steven has unticked it on
   Staff Accounts or run `npm run demo` (which resets the demo accounts). While he does, seven E2E
   tests that take that account to be a cashier only fail. Last full run: 521 of 529 passed; the

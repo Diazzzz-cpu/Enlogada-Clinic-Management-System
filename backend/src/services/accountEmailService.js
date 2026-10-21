@@ -95,6 +95,107 @@ class AccountEmailService {
     });
   }
 
+  /** [1.136.0] Proving an existing account's address before it accepts a patient record. */
+  sendEmailCheckCode({ to, firstName, code }) {
+    return sendEmail({
+      to,
+      subject: `Confirm your email for ${clinicName()}`,
+      html: frame(`
+        ${greeting(firstName)}
+        <p style="margin:0;">Enter this code in the patient portal to confirm this is your email address.</p>
+        ${codeBlock(code)}
+        <p style="margin:0;color:#475569;">
+          If you did not ask for this, ignore this email. Nothing changes without the code.
+        </p>`),
+    });
+  }
+
+  /**
+   * An invitation to the portal. [1.136.0]
+   *
+   * No link with a secret in it, no test, no result, no date of a visit: a subject line shows on a
+   * locked phone, and a household reads one inbox. The patient's first name and last initial are
+   * there so a family manager knows whose record it is. The address is proven by the account
+   * that signs in, and the record is accepted with its date of birth.
+   */
+  sendPatientInvitation({ to, patientName, forSelf, relationshipLabel, expiresOn }) {
+    const portal = env.FRONTEND_URL || '';
+    const opening = forSelf
+      ? `The front desk at ${escapeHtml(clinicName())} has invited you to our patient portal.`
+      : `The front desk at ${escapeHtml(clinicName())} has invited you to see <strong>${escapeHtml(patientName)}</strong>'s record in our patient portal${relationshipLabel ? `, as their ${escapeHtml(relationshipLabel.toLowerCase())}` : ''}.`;
+    return sendEmail({
+      to,
+      subject: forSelf
+        ? `Your invitation to the ${clinicName()} patient portal`
+        : `You're invited to see a family member's record at ${clinicName()}`,
+      html: frame(`
+        <p style="margin:0 0 12px;">Hello,</p>
+        <p style="margin:0 0 12px;">${opening}
+          There you can see visits with us, read the reports we release as digital copies, and find receipts.</p>
+        <p style="margin:0 0 12px;">
+          <strong>Create an account, or sign in, with this address: ${escapeHtml(to)}.</strong>
+          Your portal will then show "A record is waiting". Confirm it with
+          ${forSelf ? 'your' : `${escapeHtml(patientName)}'s`} date of birth.
+        </p>
+        ${portal ? `<p style="margin:16px 0;text-align:center;">
+          <a href="${escapeHtml(portal)}" style="display:inline-block;padding:10px 20px;border-radius:10px;background:#477233;color:#ffffff;font-weight:bold;text-decoration:none;">Open the patient portal</a>
+        </p>` : ''}
+        <p style="margin:0 0 12px;color:#475569;">This invitation lasts until ${escapeHtml(expiresOn)}. If it runs out, ask the front desk for a new one.</p>
+        <p style="margin:0;color:#475569;">
+          Not expecting this? You can ignore it. Nothing is shared unless someone signed in with this address confirms the record.
+        </p>`),
+    });
+  }
+
+  /**
+   * To a record's own address, when the invitation went somewhere else. [1.136.0] So a record
+   * cannot be given to a different address without the address on file hearing about it.
+   */
+  sendRecordAccessNotice({ to, accepted }) {
+    const contact = [env.CLINIC_PHONE, env.CLINIC_EMAIL].filter(Boolean).map(escapeHtml).join(' or ');
+    return sendEmail({
+      to,
+      subject: `A portal account and your record at ${clinicName()}`,
+      html: frame(`
+        <p style="margin:0 0 12px;">Hello,</p>
+        <p style="margin:0 0 12px;">
+          ${accepted
+            ? 'A patient portal account has just been given access to a record at our clinic that has this email address on it.'
+            : 'Our front desk has invited a patient portal account to see a record at our clinic that has this email address on it.'}
+          This is usually a family member who manages bookings and results for the patient.
+        </p>
+        <p style="margin:0;color:#475569;">
+          If you were not expecting this, contact the clinic${contact ? ` at ${contact}` : ''}.
+        </p>`),
+    });
+  }
+
+  /** To the account holder, after they accepted a record. Detection for a link nobody expected. */
+  sendRecordLinked({ to, firstName }) {
+    const contact = [env.CLINIC_PHONE, env.CLINIC_EMAIL].filter(Boolean).map(escapeHtml).join(' or ');
+    return sendEmail({
+      to,
+      subject: `A clinic record was added to your ${clinicName()} account`,
+      html: frame(`
+        ${greeting(firstName)}
+        <p style="margin:0 0 12px;">A patient record from our clinic was just added to your portal account. You can see it under Profile.</p>
+        <p style="margin:0;color:#475569;">If this was not you, contact the clinic${contact ? ` at ${contact}` : ''} straight away.</p>`),
+    });
+  }
+
+  /** To the account holder, after an Admin took a record out of it. No name and no reason. */
+  sendRecordUnlinked({ to, firstName }) {
+    const contact = [env.CLINIC_PHONE, env.CLINIC_EMAIL].filter(Boolean).map(escapeHtml).join(' or ');
+    return sendEmail({
+      to,
+      subject: `A patient record was removed from your ${clinicName()} account`,
+      html: frame(`
+        ${greeting(firstName)}
+        <p style="margin:0 0 12px;">The clinic has removed a patient record from your portal account.</p>
+        <p style="margin:0;color:#475569;">If this is unexpected, contact the front desk${contact ? ` at ${contact}` : ''}.</p>`),
+    });
+  }
+
   sendPasswordChanged({ to, firstName }) {
     const contact = [env.CLINIC_PHONE, env.CLINIC_EMAIL].filter(Boolean).map(escapeHtml).join(' or ');
     return sendEmail({

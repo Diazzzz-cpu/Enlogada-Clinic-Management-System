@@ -91,8 +91,45 @@ export const visitWhen = (appt) => `${formatAppointmentDate(appt.scheduled_date)
  * News is not here. A newly released result is on Home's "Latest results", and listing it twice
  * would be the same fact said in two places.
  */
-export function attentionItems({ appointments = [], patientId = null, today, bookingsFailed = false, hasProfile = true, feedback = [] }) {
+export function attentionItems({
+  appointments = [], patientId = null, today, bookingsFailed = false, hasProfile = true, feedback = [],
+  invitations = [], invitesNeedEmailCheck = false, invitesFailed = false,
+}) {
+  // [1.136.0] Records the clinic invited this account to accept. First, and in place of "Add a
+  // patient profile": a person told to add their mother by hand while her clinic record waits for
+  // them makes a second record of her.
+  const waiting = invitesNeedEmailCheck
+    ? [{
+        id: 'record-email-check',
+        tone: 'info',
+        title: 'Confirm your email to see a record waiting',
+        detail: 'The clinic has a record for this account. Confirm your address first.',
+        action: 'Confirm email',
+        acceptInvitation: { emailCheck: true },
+      }]
+    : invitations.map((inv) => ({
+        id: `record-${inv.id}`,
+        tone: 'info',
+        title: `A record is waiting: ${inv.patientName}`,
+        detail: inv.forSelf
+          ? 'Your record from the clinic. Add it to see your visits, reports and receipts here.'
+          : `The clinic invited you to see this record, as their ${String(inv.relationshipLabel || 'family member').toLowerCase()}.`,
+        action: 'Review',
+        acceptInvitation: inv,
+      }));
+  const invitesError = invitesFailed
+    ? [{
+        id: 'invites-failed',
+        tone: 'error',
+        title: "Couldn't check for records waiting for you",
+        detail: 'Refresh to try again.',
+      }]
+    : [];
+
   if (!hasProfile) {
+    // Something waiting, or a check that failed, is the thing to say; "add a profile" would be a
+    // claim nobody could check.
+    if (waiting.length || invitesError.length) return [...waiting, ...invitesError];
     return [{
       id: 'no-profile',
       tone: 'info',
@@ -105,7 +142,7 @@ export function attentionItems({ appointments = [], patientId = null, today, boo
   // Everything below is read from the bookings. When they did not load, that is the one thing
   // to say — "nothing needs you" would be a claim about bookings nobody could read.
   if (bookingsFailed) {
-    return [{
+    return [...waiting, ...invitesError, {
       id: 'bookings-failed',
       tone: 'error',
       title: "Couldn't check your bookings",
@@ -113,14 +150,14 @@ export function attentionItems({ appointments = [], patientId = null, today, boo
     }];
   }
 
-  const items = owing(appointments, { patientId, today }).rows.map((a) => ({
+  const items = [...waiting, ...invitesError, ...owing(appointments, { patientId, today }).rows.map((a) => ({
     id: `pay-${a.id}`,
     tone: 'amber',
     title: `Pay for your visit on ${formatAppointmentDate(a.scheduled_date)}`,
     detail: `${formatCurrency(a.amount_due)}. Your booking pass appears once it is paid.`,
     action: 'Pay',
     tab: 'appointments',
-  }));
+  }))];
 
   const next = nextVisit(appointments, { patientId, today });
   const notes = (next?.preparation_notes || []).filter(Boolean);

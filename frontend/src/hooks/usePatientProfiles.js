@@ -62,8 +62,14 @@ export function usePatientProfiles() {
       const list = response.data.data.patients;
       setProfiles(list);
       // Select the first profile only when nothing is chosen yet, so a reload after an edit
-      // does not yank the view back to the top of the list.
-      setSelectedId((current) => (current || (list.length > 0 ? list[0].id.toString() : null)));
+      // does not yank the view back to the top of the list. [1.136.0] A selection that is no
+      // longer on the account (the clinic took the record back out) falls back the same way,
+      // rather than every tab asking for a record it can no longer read.
+      setSelectedId((current) => {
+        const stillHere = current && list.some((p) => String(p.id) === String(current));
+        if (stillHere) return current;
+        return list.length > 0 ? list[0].id.toString() : null;
+      });
       return list;
     } catch (err) {
       console.error('Failed to fetch patient profiles:', err);

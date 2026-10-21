@@ -11,6 +11,8 @@ import { validatePatientProfile } from '../../validations/patientValidation';
 import { UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { DateField, BIRTHDATE_YEAR_RANGE } from '../ui/date-field';
 import { todayStr } from '../../lib/date';
+import { useAuth } from '../../contexts/AuthContext';
+import PortalAccessDialog from '../patients/PortalAccessDialog';
 
 /**
  * Registering a patient who walked in, and issuing their queue ticket.
@@ -54,6 +56,12 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
   });
   const [visitNotes, setVisitNotes] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState('');
+  // [1.136.0] Who was just registered, so the desk can invite them to the portal while they are
+  // still standing there. Only for whoever may send an invitation.
+  const { hasPermission } = useAuth();
+  const canInvite = hasPermission('patients:invite');
+  const [registered, setRegistered] = useState(null);
+  const [inviting, setInviting] = useState(false);
   const [registrationError, setRegistrationError] = useState('');
   // The alert renders at the top of this form and the Register button is at the bottom of it —
   // further apart than a viewport once tests are ticked. Without this the form refuses and,
@@ -106,6 +114,7 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
   const register = async ({ asRecord = null, confirmNew = false } = {}) => {
     setRegistrationSuccess('');
     setRegistrationError('');
+    setRegistered(null);
     setIsRegistering(true);
     try {
       const vRes = await api.post('/visits', {
@@ -131,6 +140,8 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
       setRegistrationSuccess(
         `Walk-In registered successfully! Physical Queue Ticket: ${visit.queue_number}. ${parts.join(' and ')} attached.`
       );
+      const who = asRecord || newPatient;
+      setRegistered({ patientId: visit.patient_id, name: `${who.first_name ?? who.firstName} ${who.last_name ?? who.lastName}` });
       resetForm();
       onRegistered?.();
     } catch (err) {
@@ -180,8 +191,25 @@ const WalkInRegistration = ({ patientTypes, testCatalog, packages = [], onRegist
                 {registrationSuccess && (
                   <div ref={registrationSuccessRef} role="status" className="mb-4 alert alert-success">
                     <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                    <span>{registrationSuccess}</span>
+                    <span className="flex-1">{registrationSuccess}</span>
                   </div>
+                )}
+                {/* Outside the status region, so a screen reader announces the ticket, not a button. */}
+                {registrationSuccess && canInvite && registered && (
+                  <div className="-mt-2 mb-4 flex justify-end">
+                    <Button type="button" size="sm" variant="outline" data-testid="walkin-invite" onClick={() => setInviting(true)}>
+                      Invite to the portal
+                    </Button>
+                  </div>
+                )}
+                {registered && (
+                  <PortalAccessDialog
+                    open={inviting}
+                    onOpenChange={setInviting}
+                    patientId={registered.patientId}
+                    patientName={registered.name}
+                    canInvite={canInvite}
+                  />
                 )}
 
                 {possibleDuplicate && (

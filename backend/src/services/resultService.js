@@ -803,6 +803,7 @@ class ResultService {
       ...result,
       isAmendment,
       patientEmail: patientInfo?.email || null,
+      hasPortalAccount: Boolean(patientInfo?.has_portal_account),
       verificationCode: released?.verification_code ? formatCode(released.verification_code) : null,
     };
   }
@@ -854,9 +855,12 @@ class ResultService {
     if (releasedOnly) {
       return resultRepository.findReleasedResultsByPatientId(patientId, visibleCategoriesFor(requestingUser));
     }
+    // A patient reads only what was authorised. [1.136.0] Staff keep the current version: the
+    // department is still writing it.
     return await resultRepository.findResultsByPatientId(
       patientId,
-      visibleCategoriesFor(requestingUser)
+      visibleCategoriesFor(requestingUser),
+      { authorisedOnly: (requestingUser?.roles || []).includes('Client') }
     );
   }
 

@@ -25,7 +25,7 @@ HOOKS = [
     'checkout', 'queue', 'history', 'lookup', 'checkIn', 'disposition', 'hmo', 'reference',
     'testAssignment', 'patientHistory', 'refund', 'receipt', 'operations', 'summary',
     'access', 'elevated', 'catalogue', 'hmoAdmin', 'arrivals', 'hours', 'reads', 'grid',
-    'cardPhoto', 'doctorRequest',
+    'cardPhoto', 'doctorRequest', 'invitations', 'visits',
 ]
 bad = re.compile(r'\b(' + '|'.join(HOOKS) + r')\.[a-zA-Z]')
 

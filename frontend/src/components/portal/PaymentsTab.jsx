@@ -9,6 +9,7 @@ import { SkeletonList } from '../ui/skeleton';
 import { StatusBadge } from '../ui/status-badge';
 import Pagination from '../ui/pagination';
 import { formatCurrency } from '../../lib/currency';
+import { visitOrigin } from '../../lib/visitOrigin';
 
 /**
  * What this patient has paid.
@@ -54,7 +55,13 @@ export default function PaymentsTab({ payments }) {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <span className="block text-lead font-bold tabular-nums text-slate-900">{formatCurrency(pay.amount)}</span>
-                        <span className="block text-fine text-slate-500">{pay.patient_first_name} {pay.patient_last_name}</span>
+                        <span className="block text-fine text-slate-500">
+                          {pay.patient_first_name} {pay.patient_last_name}
+                          {/* Paid for a walk-in at the clinic, or for a booking. [1.136.0] */}
+                          {visitOrigin(pay) && (
+                            <span data-testid="visit-origin" data-origin={visitOrigin(pay).key}> · {visitOrigin(pay).label}</span>
+                          )}
+                        </span>
                       </div>
                       <StatusBadge status={pay.payment_status} />
                     </div>

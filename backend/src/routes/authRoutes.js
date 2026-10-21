@@ -18,6 +18,9 @@ router.post('/google', authController.googleLogin);
 router.get('/me', verifyToken, authController.getProfile);
 router.put('/me', verifyToken, authController.updateProfile);
 router.put('/change-password', verifyToken, authController.changePassword);
+// [1.136.0] An existing account proving its address before it accepts a patient record.
+router.post('/email-check', verifyToken, authController.startEmailCheck);
+router.post('/email-check/confirm', verifyToken, authController.confirmEmailCheck);
 router.post('/me/avatar', verifyToken, uploadAvatarMiddleware, authController.uploadAvatar);
 router.delete('/me/avatar', verifyToken, authController.deleteAvatar);
 router.get('/me/avatar', verifyToken, authController.getAvatarFile);

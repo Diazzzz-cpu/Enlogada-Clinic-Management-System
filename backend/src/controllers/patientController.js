@@ -151,19 +151,6 @@ class PatientController {
     }
   }
 
-  async linkAccount(req, res, next) {
-    try {
-      const patient = await patientService.linkAccount(req.params.id, req.body?.email, req.user);
-      return res.status(200).json({
-        status: 'success',
-        message: `${patient.first_name} ${patient.last_name}'s record is now in their portal.`,
-        data: { patient },
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
   async updateProfile(req, res, next) {
     try {
       const { id } = req.params;

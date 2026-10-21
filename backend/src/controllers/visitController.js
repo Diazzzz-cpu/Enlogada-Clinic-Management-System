@@ -164,18 +164,24 @@ class VisitController {
     try {
       const { patientId } = req.params;
 
-      // Security Check: If client, verify patient belongs to them
+      // Security Check: If client, verify patient belongs to them. An unknown id answers the same
+      // 403 as somebody else's [1.136.0], so a patient cannot count which ids are real.
       if (req.user.roles.includes('Client')) {
-        const patient = await patientService.getPatientById(patientId);
-        if (patient.user_id !== req.user.userId) {
-          return res.status(403).json({
-            status: 'error',
-            message: 'Access forbidden. This patient record does not belong to your account.'
-          });
+        const forbidden = {
+          status: 'error',
+          message: 'Access forbidden. This patient record does not belong to your account.'
+        };
+        let patient;
+        try {
+          patient = await patientService.getPatientById(patientId);
+        } catch (err) {
+          if (err?.statusCode === 404) return res.status(403).json(forbidden);
+          throw err;
         }
+        if (patient.user_id !== req.user.userId) return res.status(403).json(forbidden);
       }
 
-      const visits = await visitService.getVisitHistory(patientId);
+      const visits = await visitService.getVisitHistory(patientId, req.user);
       return res.status(200).json({
         status: 'success',
         data: { visits }

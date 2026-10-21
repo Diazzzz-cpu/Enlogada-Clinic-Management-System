@@ -42,6 +42,11 @@ const PERMISSIONS = [
   // implies a modality.
   { name: 'patients:read_all_departments', module: 'Patients', description: 'Search and open patient records outside your own department' },
   { name: 'patients:update', module: 'Patients', description: 'Correct patient information' },
+  // [1.136.0] Giving a record to a portal account is lasting access to someone's results, a
+  // different act from correcting their name, and Client holds patients:update for its own
+  // profiles. So each has its own permission: the desk invites, and only Admin takes one back.
+  { name: 'patients:invite', module: 'Patients', description: "Invite a patient, or the family member who manages their records, to see their record in the portal" },
+  { name: 'patients:unlink', module: 'Patients', description: 'Take a patient record out of a portal account' },
 
   // Visits / queue
   { name: 'visits:create', module: 'Visits', description: 'Register a walk-in and issue a queue ticket' },
@@ -108,6 +113,8 @@ const RECEPTION = [
   'patients:read_all_departments',
   // [1.112.0] The paper feedback form is handed back at the desk, so the desk types it in.
   'feedback:record',
+  // [1.136.0] The patient is standing at the desk when their address is checked with them.
+  'patients:invite',
 ];
 
 // The cashier VERIFIES proofs of payment; they do not file them.
@@ -150,6 +157,7 @@ const ADMIN = [
   'reports:view', 'audit:view', 'staff:manage',
   // [1.112.0] Admin decides what patients are asked, and can type in a paper form too.
   'feedback:manage', 'feedback:record',
+  'patients:invite', 'patients:unlink',
 ];
 
 /**

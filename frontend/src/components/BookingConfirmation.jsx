@@ -125,7 +125,7 @@ const BookingConfirmation = ({
                 <>
                   Pay {formatCurrency(owed)} below and upload your confirmation — a cashier checks
                   it and your scannable pass appears. You can also do this later from{' '}
-                  <strong>Appointments</strong>, or pay at the counter on the day.
+                  <strong>Visits</strong>, or pay at the counter on the day.
                 </>
               )}
             </p>

@@ -84,10 +84,13 @@ const seedUsers = async () => {
         if (roleId) {
           await userRepository.assignRoleToUser(created.id, roleId);
         }
+        // A demo account's address is the clinic's own fixture, so it counts as proven. [1.136.0]
+        await userRepository.markEmailVerified(created.id);
         logger.info(`Seeded user: ${u.email} with role: ${u.role}`);
       } else {
         await renameIfPlaceholder(existing, u);
         await restoreRole(existing, u);
+        await userRepository.markEmailVerified(existing.id);
         logger.info(`User ${u.email} already exists.`);
       }
     }

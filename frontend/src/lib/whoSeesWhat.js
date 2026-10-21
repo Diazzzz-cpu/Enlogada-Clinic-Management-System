@@ -94,6 +94,21 @@ const AREAS = [
     },
   },
   {
+    // [1.136.0] A row of its own: giving a record to a portal account is lasting access to someone's
+    // results, and taking one back is the oversight half of it.
+    key: 'portal', label: 'Portal access', note: 'a patient record in an online account',
+    permissions: [
+      { name: 'patients:invite', label: 'Invite a patient, or the family member who manages their records, to the portal' },
+      { name: 'patients:unlink', label: 'Take a patient record out of a portal account' },
+    ],
+    summarize: (h) => {
+      if (h('patients:invite') && h('patients:unlink')) return 'Invite, and take a record back out';
+      if (h('patients:invite')) return 'Invite to the portal';
+      if (h('patients:unlink')) return 'Take a record back out only';
+      return 'No';
+    },
+  },
+  {
     key: 'queue', label: "Today's queue", note: 'visits and their tests',
     permissions: [
       { name: 'visits:read', label: "See today's queue and visit history" },
@@ -318,6 +333,8 @@ export function describeChanges(original, draft, areas) {
 export const NEEDS = {
   'visits:create': ['tests:assign'],            // a visit is opened with its tests
   'appointments:update': ['appointments:read'], // checking a booking in starts from finding it
+  'patients:invite': ['patients:read'],         // the invitation starts from the patient's record
+  'patients:unlink': ['patients:read'],
 };
 
 /**

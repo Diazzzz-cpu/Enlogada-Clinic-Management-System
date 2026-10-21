@@ -13,6 +13,8 @@ import PayBookingPanel from './PayBookingPanel';
 import { formatAppointmentDate, formatTime12 } from '../../lib/date';
 import AppointmentTime from '../ui/appointment-time';
 import DataBadge from '../ui/data-badge';
+import OriginBadge from './OriginBadge';
+import { formatDate } from '../../lib/date';
 
 /**
  * Bookings this patient has, and the pass they present.
@@ -20,15 +22,19 @@ import DataBadge from '../ui/data-badge';
  * Lifted out of ClientDashboard, which rendered the profile switcher, two profile dialogs,
  * a hero and four tab panels from one 1,044-line file. The props are the hooks it reads.
  */
-export default function AppointmentsTab({ bookings }) {
+export default function AppointmentsTab({ bookings, visits = null }) {
   // Open bookings first and soonest-first within them; everything finished falls below, newest
   // first. A patient opening this tab is almost always asking "what do I still have to attend".
-  const isOpenBooking = (a) => a.status !== 'Cancelled' && a.status !== 'Completed';
-  const sorted = [...bookings.appointments].sort((a, b) => {
+  //
+  // [1.136.0] Walk-in visits join the finished part. A walk-in has no booking, so a record the
+  // clinic linked by invitation had results and receipts and no visit they came from; and it must
+  // never be drawn as a booking card, which would say the patient booked it online.
+  const walkIns = (visits?.walkIns || []).map((v) => ({ ...v, kind: 'walk-in' }));
+  const isOpenBooking = (a) => a.kind !== 'walk-in' && a.status !== 'Cancelled' && a.status !== 'Completed';
+  const when = (a) => new Date(a.kind === 'walk-in' ? a.created_at : a.scheduled_date).getTime();
+  const sorted = [...bookings.appointments, ...walkIns].sort((a, b) => {
     if (isOpenBooking(a) !== isOpenBooking(b)) return isOpenBooking(a) ? -1 : 1;
-    const da = new Date(a.scheduled_date).getTime();
-    const db = new Date(b.scheduled_date).getTime();
-    return isOpenBooking(a) ? da - db : db - da;
+    return isOpenBooking(a) ? when(a) - when(b) : when(b) - when(a);
   });
 
   // Client-side, because the whole list arrives in one request — a page size over an array
@@ -51,6 +57,35 @@ export default function AppointmentsTab({ bookings }) {
   // the same space as the booking that still needs paying.
   const active = paged.filter(isOpenBooking);
   const earlier = paged.filter((a) => !isOpenBooking(a));
+
+  // A walk-in visit: when, the ticket, what it was for, and that it was at the clinic. No pass, no
+  // reference, no reschedule: there is nothing to present or move.
+  const renderWalkIn = (v) => (
+    <div
+      key={`walk-in-${v.id}`}
+      data-testid="walk-in-visit"
+      data-visit-id={v.id}
+      className="space-y-2 rounded-xl border border-line bg-surface p-3"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="block text-xs font-extrabold text-slate-900">{formatDate(v.created_at)}</span>
+          <span className="block text-fine text-slate-500">{v.first_name} {v.last_name}</span>
+        </div>
+        {v.queue_number && <DataBadge variant="queue" label="Queue ticket">{v.queue_number}</DataBadge>}
+      </div>
+      <OriginBadge row={v} />
+      {v.tests?.length > 0 && (
+        <p className="m-0 text-fine text-slate-600">{v.tests.map((t) => t.name).join(', ')}</p>
+      )}
+      <p className="m-0 text-meta text-slate-500">
+        {v.is_paid
+          ? `Paid at the clinic${v.receipt_number ? ` · ${v.receipt_number}` : ''}`
+          : 'Not paid'}
+      </p>
+    </div>
+  );
+  const renderItem = (item) => (item.kind === 'walk-in' ? renderWalkIn(item) : renderCard(item));
 
   const renderCard = (appt) => {
     const isOpen = appt.status !== 'Cancelled' && appt.status !== 'Completed';
@@ -117,6 +152,8 @@ export default function AppointmentsTab({ bookings }) {
           </div>
           <StatusBadge status={appt.status} />
         </div>
+        {/* Booked online by the patient, or booked by the clinic. [1.136.0] */}
+        <OriginBadge row={appt} />
 
         {showPass ? (
           <BookingPass
@@ -288,23 +325,33 @@ export default function AppointmentsTab({ bookings }) {
                 <EmptyState
                   tone="error"
                   compact
-                  title="Couldn't load your appointments"
+                  title="Couldn't load your visits"
                   description={bookings.error}
                   action={<Button variant="outline" size="sm" onClick={bookings.reload}>Try again</Button>}
                 />
-              ) : bookings.loading ? (
+              ) : bookings.loading || (visits?.loading && sorted.length === 0) ? (
                 <SkeletonList rows={2} />
-              ) : bookings.appointments.length === 0 ? (
+              ) : sorted.length === 0 && visits?.error ? (
+                // Nothing listed and the walk-ins did not load: that is the thing to say, never
+                // "no visits yet" over a read that failed.
+                <EmptyState
+                  tone="error"
+                  compact
+                  title="Couldn't load your visits"
+                  description={visits.error}
+                  action={<Button variant="outline" size="sm" onClick={visits.reload}>Try again</Button>}
+                />
+              ) : sorted.length === 0 ? (
                 <EmptyState
                   compact
                   icon={CalendarClock}
-                  title="No appointments booked yet"
-                  description="Book a visit above. It appears here, and your booking pass with it once it is paid."
+                  title="No visits yet"
+                  description="Book a visit above. It appears here, and your booking pass with it once it is paid. Visits you make at the clinic appear here too."
                 />
               ) : (
                 <>
                   {active.length > 0 && (
-                    <div data-testid="active-bookings" className="space-y-3">{active.map(renderCard)}</div>
+                    <div data-testid="active-bookings" className="space-y-3">{active.map(renderItem)}</div>
                   )}
 
                   {/* Still on this tab, as asked — a cancellation is part of a patient's booking
@@ -314,23 +361,30 @@ export default function AppointmentsTab({ bookings }) {
                   {earlier.length > 0 && (
                     <div data-testid="earlier-bookings" className={active.length > 0 ? 'mt-5' : ''}>
                       <p className="m-0 mb-2.5 flex items-center gap-2 text-micro font-bold uppercase tracking-wider text-ink-muted">
-                        <span>Earlier bookings</span>
+                        <span>Earlier visits</span>
                         <span className="h-px flex-1 bg-line" aria-hidden="true" />
                       </p>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {earlier.map(renderCard)}
+                        {earlier.map(renderItem)}
                       </div>
                     </div>
                   )}
                 </>
               )}
             </PanelBody>
-            {!bookings.error && bookings.appointments.length > 0 && (
+            {visits?.error && !bookings.error && sorted.length > 0 && (
+              <div role="alert" className="alert alert-error mx-4 mb-4">
+                <XCircle className="h-4 w-4 flex-shrink-0" />
+                <span className="flex-1">{visits.error} Your bookings above are complete.</span>
+                <Button variant="outline" size="sm" onClick={visits.reload}>Try again</Button>
+              </div>
+            )}
+            {!bookings.error && sorted.length > 0 && (
               <Pagination
                 page={safePage}
                 totalPages={totalPages}
                 onPageChange={bookings.setPage}
-                total={bookings.appointments.length}
+                total={sorted.length}
                 pageSize={LIST_PAGE_SIZE}
               />
             )}

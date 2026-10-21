@@ -9,6 +9,9 @@ import { useMyResultHistory } from '../../hooks/useMyResultHistory';
 import { useMyAppointments } from '../../hooks/useMyAppointments';
 import { useMyPayments } from '../../hooks/useMyPayments';
 import { useMyPendingFeedback } from '../../hooks/useMyPendingFeedback';
+import { useMyInvitations } from '../../hooks/useMyInvitations';
+import { useMyVisits } from '../../hooks/useMyVisits';
+import AcceptRecordDialog from '../../components/portal/AcceptRecordDialog';
 import FeedbackDialog from '../../components/portal/FeedbackDialog';
 import { useClinicReferenceData } from '../../hooks/useClinicReferenceData';
 import PortalLayout from '../../components/portal/PortalLayout';
@@ -43,6 +46,11 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
   // [1.112.0] Finished visits to rate, and the one being rated.
   const feedback = useMyPendingFeedback();
   const [rating, setRating] = useState(null);
+  // [1.136.0] Records the clinic invited this account to accept, the one being accepted, and the
+  // walk-in visits of every profile on the account.
+  const invitations = useMyInvitations();
+  const [accepting, setAccepting] = useState(null);
+  const visits = useMyVisits(profiles.profiles);
 
   // Returning from the provider's hosted page. The URL flag is presentational only — it says
   // "the browser came back", not "the money arrived", and is deliberately not trusted to mark
@@ -78,6 +86,17 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
     bookings.reload?.();
     payments.reload?.();
     feedback.reload?.();
+    invitations.reload?.();
+    visits.reload?.();
+  };
+  // A record just accepted: it is a profile now, so everything is read again and it is shown.
+  const onRecordAccepted = async (patientId) => {
+    await profiles.reload();
+    profiles.setSelectedId(String(patientId));
+    invitations.reload();
+    bookings.reload();
+    payments.reload();
+    feedback.reload();
   };
   const onBooked = () => {
     results.reload();
@@ -131,6 +150,8 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
           bookButton={bookButton}
           feedback={feedback.visits}
           onRate={setRating}
+          invitations={invitations}
+          onAcceptInvitation={setAccepting}
         />
         <FeedbackDialog
           visit={rating}
@@ -142,11 +163,11 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
       <TabsContent value="appointments" className="m-0">
         {screen(
           <PortalBand
-            title="Appointments"
-            subtitle="Your bookings, the pass you show at the front desk, and paying ahead."
+            title="Visits"
+            subtitle="Your bookings and walk-in visits, the pass you show at the front desk, and paying ahead."
             actions={bookButton}
           />,
-          <AppointmentsTab bookings={bookings} />
+          <AppointmentsTab bookings={bookings} visits={visits} />
         )}
       </TabsContent>
 
@@ -169,11 +190,18 @@ const ClientDashboard = ({ onNavigate, tab = 'home', onTabChange }) => {
         {screen(
           <PortalBand title="Profile" subtitle="The patient's details, and the family on this account." />,
           <div className="max-w-2xl">
-            <ProfileTab profiles={profiles} reference={reference} />
+            <ProfileTab profiles={profiles} reference={reference} invitations={invitations} onAcceptInvitation={setAccepting} />
           </div>,
           { withRefresh: false }
         )}
       </TabsContent>
+
+      <AcceptRecordDialog
+        invitation={accepting}
+        onOpenChange={(open) => { if (!open) setAccepting(null); }}
+        onAccepted={onRecordAccepted}
+        onChanged={invitations.reload}
+      />
 
       <RescheduleDialog
         open={Boolean(bookings.rescheduling)}

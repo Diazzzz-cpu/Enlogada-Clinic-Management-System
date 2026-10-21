@@ -501,7 +501,9 @@ class AppointmentService {
           queueNumber: null,
           createdBy,
           ...normaliseReferral(referral || {}),
-          doctorRequest: doctorRequestFile
+          doctorRequest: doctorRequestFile,
+          // [1.136.0] Stored now, so the patient's "Booked online" never changes afterwards.
+          bookedOnline: !isStaffUser(requestingUser),
         });
 
         // 5. Create the appointment record linked to the visit

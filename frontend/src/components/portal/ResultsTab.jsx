@@ -20,6 +20,7 @@ import { StatusBadge } from '../ui/status-badge';
 import ResultReport from '../ResultReport';
 import Pagination from '../ui/pagination';
 import { categoryLabel, issuesReports } from '../../lib/categories';
+import { visitOrigin } from '../../lib/visitOrigin';
 
 const LIST_PAGE_SIZE = 8;
 
@@ -135,6 +136,12 @@ export default function ResultsTab({ profiles, results, onPreviewDocument }) {
                               <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                               {new Date(item.visit_date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}
                             </span>
+                            {/* How the visit came about, once, in the date line. [1.136.0] */}
+                            {visitOrigin(item) && (
+                              <span data-testid="visit-origin" data-origin={visitOrigin(item).key}>
+                                {visitOrigin(item).label}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

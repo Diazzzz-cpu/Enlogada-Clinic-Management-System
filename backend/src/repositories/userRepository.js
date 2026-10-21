@@ -107,7 +107,7 @@ class UserRepository {
   async findById(id) {
     const queryText = `
       SELECT u.id, u.first_name, u.last_name, u.email, u.contact_number, u.status, u.created_at,
-             u.avatar_path, u.password_changed_at,
+             u.avatar_path, u.password_changed_at, u.email_verified_at,
              ${ACTIVE_ROLE_NAMES},
              ${EFFECTIVE_PERMISSIONS},
              ${GRANTED_DEPARTMENTS}
@@ -226,12 +226,25 @@ class UserRepository {
   async updateStaffDetails(userId, { firstName, lastName, email, contactNumber }) {
     const queryText = `
       UPDATE users
-      SET first_name = $1, last_name = $2, email = $3, contact_number = $4, updated_at = CURRENT_TIMESTAMP
+      SET first_name = $1, last_name = $2, email = $3, contact_number = $4, updated_at = CURRENT_TIMESTAMP,
+          -- A new address has proven nothing yet. [1.136.0]
+          email_verified_at = CASE WHEN LOWER(email) = LOWER($3) THEN email_verified_at END
       WHERE id = $5
       RETURNING id, first_name, last_name, email, contact_number, status, created_at
     `;
     const result = await db.query(queryText, [firstName, lastName, email, contactNumber, userId]);
     return result.rows[0];
+  }
+
+  /**
+   * The account has just proven it receives mail at its address: an emailed code, or Google.
+   * [1.136.0] Kept from the first time, so it says when the address was first proven.
+   */
+  async markEmailVerified(userId) {
+    await db.query(
+      'UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP) WHERE id = $1',
+      [userId]
+    );
   }
 
   async findPasswordHashById(userId) {

@@ -160,6 +160,9 @@ const codeLimiter = rateLimit({
 app.post('/api/auth/register', codeLimiter);
 app.post('/api/auth/codes/resend', codeLimiter);
 app.post('/api/auth/forgot-password', codeLimiter);
+// [1.136.0] An existing account proving its address: it sends a code, and it takes guesses.
+app.post('/api/auth/email-check', codeLimiter);
+app.post('/api/auth/email-check/confirm', authLimiter);
 
 // A fourth, for the public report check. [1.126.0]
 //

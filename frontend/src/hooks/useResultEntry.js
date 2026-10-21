@@ -243,6 +243,8 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
       // Releasing does not email. [1.113.0] The panel that replaces the form says so and offers
       // the email, which is why there is no toast here: it would say the same thing twice.
       const patientEmail = releaseRes.data.data.result?.patientEmail || null;
+      // [1.136.0] A walk-in has no portal: the panel must not say the report is in one.
+      const hasPortal = Boolean(releaseRes.data.data.result?.hasPortalAccount);
       setEmailState({ status: 'idle', message: '' });
 
       setConfirmingRelease(false);
@@ -261,9 +263,10 @@ export function useResultEntry({ user, onOpened, onRecorded, onReleased } = {}) 
         // Non-fatal: the release succeeded either way, and the panel falls back to what is in hand.
       }
 
-      setJustReleased(stored ? { ...activeTest, ...stored, patient_email: patientEmail } : {
+      setJustReleased(stored ? { ...activeTest, ...stored, patient_email: patientEmail, has_portal_account: hasPortal } : {
         ...activeTest,
         patient_email: patientEmail,
+        has_portal_account: hasPortal,
         released_at: new Date().toISOString(),
         released_by_first_name: user?.firstName,
         released_by_last_name: user?.lastName,

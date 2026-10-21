@@ -136,7 +136,7 @@ for (const { email, screen, mustSay, mustNotSay } of LANDING_SCREENS) {
 // holding a paid booking for tomorrow "No appointments booked yet." — the one sentence that sends
 // them to book the slot they already have. Only this request is broken, so the rest of the portal
 // loads and the failure has nowhere to hide.
-test("a patient's Appointments say they could not load, not that none are booked", async ({ page }) => {
+test("a patient's Visits say they could not load, not that none are booked", async ({ page }) => {
   await signIn(page, 'client@enlogada.com');
   await page.route('**/api/appointments/my-bookings**', (route) => route.fulfill({
     status: 500,
@@ -146,9 +146,9 @@ test("a patient's Appointments say they could not load, not that none are booked
   await page.reload();
   await openPortalTab(page, 'appointments');
 
-  await expect(page.getByText(/couldn.t load your appointments/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/couldn.t load your visits/i)).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
-  await expect(page.getByText(/no appointments booked/i)).toHaveCount(0);
+  await expect(page.getByText(/no visits yet/i)).toHaveCount(0);
 });
 
 // Today, where every member of staff lands since [1.77.0]. Its figures start empty and each of its

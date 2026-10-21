@@ -381,7 +381,7 @@ export default function PayBookingPanel({ visitId, amountDue, tests = [], onSett
         </p>
         <p className="m-0 mt-1 text-fine leading-relaxed text-emerald-800">
           Nothing further to send. Your booking pass is on this booking in{' '}
-          <strong>Appointments</strong>.
+          <strong>Visits</strong>.
         </p>
       </div>
     );

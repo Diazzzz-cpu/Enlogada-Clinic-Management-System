@@ -1,5 +1,93 @@
 # Database Migration & Schema History
 
+## [1.136.0] - 2026-10-22 (A walk-in patient is invited to the portal; a record can be taken back out)
+
+`node src/scripts/migratePatientInvitations.js` (additive; `--rollback` reverses it). Folded into
+`schema.sql`. Then `node src/scripts/setupRbac.js` for the two new permissions.
+
+A walk-in patient with no account wanted their results online. Most patients here are walk-ins
+(83 active records the day this was written), and [1.123.0]'s "Link to a portal account" worked
+only after the patient had signed up on their own, and joined the record on the desk's word
+alone: the account holder was never asked, the address never proven, and nothing could undo it.
+It is replaced, route and dialog, by an invitation the patient (or the family member who manages
+their records) accepts.
+
+**The invitation carries no secret.** [1.73.0] removed emailed links because a link with a token
+in it lands in history, chats and screenshots, so this does not bring one back. The desk sends an
+invitation to an address it has read back to the patient (`patient_invitations`, 14 days); the
+email says "create an account, or sign in, with this address" and nothing clinical. Whoever holds
+the inbox proves it the ways the app already has (the sign-up code, Google, a password reset, or
+a new "confirm your email" code for an older account: `users.email_verified_at`,
+`auth_codes.purpose = 'email_verify'`), sees "A record is waiting" in the portal, and accepts it
+with the record's date of birth. Three wrong dates end the invitation. Until the address is proven
+the portal names nobody, only that something is waiting.
+
+**Who agrees follows the patient's age, never the helper's** (Steven, after the family-account
+question: one tech-savvy relative routinely manages profiles for a parent or a baby):
+
+| Patient | Address | Who agreed (`consent_basis`) |
+|---|---|---|
+| 18 or over | their own | nothing more (`own_address`), no visit needed |
+| 18 or over | a family member's | the patient, here (`patient_in_person`) or by phone (`patient_by_phone`); or the family member is responsible for a patient who cannot decide (`responsible_for_patient`) |
+| under 18 | their own, or a parent's or guardian's | the parent or guardian (`guardian_of_minor`) |
+
+Nothing records a helper's or manager's age, and nothing asks. The age is checked again when the
+record is accepted, so a child who turns 18 inside the 14 days agrees for themselves.
+
+**Unlink** (Admin only, `patients:unlink`) takes a record out of the account holding it. Nothing
+is deleted; access ends on the account's next request (every patient read checks
+`patients.user_id`); the account is emailed with no name and no reason. Urgent reasons
+(linked in error, account compromised, the patient no longer agrees) go through with work still
+open, which is listed for the desk; planned ones (another family member taking over, the patient
+wants their own account) wait until it is finished. When the record's own email is that account's
+address, the Admin clears or keeps it, and an urgent mistake may not keep it.
+
+**Two-person rule.** For 30 days after an unlink, whoever unlinked may not send that record's next
+invitation (`patients.account_unlinked_at/_by`). No role is exempt: an Admin can unlink, set an
+email, invite and read the birthdate, which is everything a quiet move to their own inbox needs.
+
+**Each visit says how it came about.** `patient_visits.booked_online` is stored when a booking is
+made; `CAME_IN_AS` (`constants/visits.js`) reads it as walk_in / online / clinic and rides on
+my-bookings, my-payments, the results history and the portal's visit list. It is stored, not
+derived from `created_by = p.user_id`, because that flips the moment a record is unlinked or
+moved. The portal tab "Appointments" is now "Visits" and lists walk-ins as their own rows
+(`walk-in-visit`), never as booking cards.
+
+**Fixed on the way: the portal was sent draft findings.** `findResultsByPatientId` joined
+`is_current`, so a patient received the findings and file of a report nobody had released; only
+the screen hid them. A patient now reads each test's latest AUTHORISED version. Staff unchanged.
+
+Other rules held in the service:
+- A staff account never receives a record, and only a patient-only, active account accepts one.
+- A record's own address, when the invitation went elsewhere, is told (no PHI) at invite and at
+  accept, and the audit line says so: a record cannot be given to another inbox unheard.
+- Caps in production: 5 invitation emails an address a day, 50 invitations a staff member a day
+  (`INVITE_DAILY_CAP`). Off elsewhere, where the suite invites on every run.
+- An account that already has a same-name, same-birthdate profile is warned, and may keep both.
+- Archiving a record withdraws its invitation; a changed account email is unverified again.
+- The release panel no longer tells staff a walk-in's report is "in their portal".
+
+Permissions: `patients:invite` (Receptionist, Admin) and `patients:unlink` (Admin); a "Portal
+access" row on "Who sees what". Audit: `patient.invite_sent`, `invite_resent`, `invite_withdrawn`,
+`invite_declined`, `invite_locked`, `invite_accepted`, `account_linked`, `account_unlinked`,
+`auth.email_verified`. Routes: `GET /patients/:id/portal-access`, `POST /patients/:id/invitations`
+(and `/check`, `/resend`), `DELETE /patients/:id/invitations/open`,
+`DELETE /patients/:id/account-link`, `GET /patients/invitations/mine`,
+`POST /patients/invitations/:id/accept|decline`, `POST /auth/email-check(/confirm)`.
+`PUT /patients/:id/link-account` is gone.
+
+Tests: `portalInvitation.test.js` (14), `visitOrigin.test.js` (3) and additions to
+`portalSummary.test.js` and `whoSeesWhat.test.js`; `portal-invitation.spec.js`,
+`portal-family.spec.js`, `patient-unlink.spec.js` (21); `e2eInvitation.js` moves an invitation or
+an account to a state a run cannot wait for. Reviewed after the build by the `.agents` roles, and
+every finding fixed: department scope on `portal-access`, a decline as strict as an accept, a right
+date of birth never spending a try, a failed send undoing itself (the superseded invitation reopens,
+no address is written to the record), resend re-checking the age rule and the address cap, the
+read-back said to whoever actually agrees, and loading and failure states on the Visits tab and
+Home. Full suite: 548 of 550; the two failures (`sidebar` reading "99+", `department-scoping`
+finding no non-laboratory patient on the roster's first page) come from a day of runs left on the
+dev database, and pass after the purge. Staff instructions: `docs/PORTAL_ACCESS_GUIDE.md`.
+
 ## [1.135.0] - 2026-10-19 (Every flowchart arrow is its own)
 
 No migration. Documentation only.

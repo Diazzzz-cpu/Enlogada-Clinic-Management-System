@@ -61,6 +61,29 @@ class AuthController {
     }
   }
 
+  /** [1.136.0] Email this account a code that proves its address. */
+  async startEmailCheck(req, res, next) {
+    try {
+      const data = await authService.startEmailCheck(req.user.userId);
+      return res.status(200).json({ status: 'success', data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async confirmEmailCheck(req, res, next) {
+    try {
+      const { ticket, code } = req.body || {};
+      const data = await authService.confirmEmailCheck(req.user.userId, {
+        ticket: String(ticket ?? ''),
+        code: String(code ?? '').trim(),
+      });
+      return res.status(200).json({ status: 'success', message: 'Your email address is confirmed.', data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   /** Sends a fresh code for a sign-up or a reset already under way. */
   async resendCode(req, res, next) {
     try {

@@ -150,7 +150,7 @@ test.describe('Appointment list priority', () => {
 
     if (earlier.length) {
       await expect(
-        page.getByText('Earlier bookings'),
+        page.getByText('Earlier visits'),
         'the boundary between "act on this" and "this already happened" has to be named',
       ).toBeVisible();
     }

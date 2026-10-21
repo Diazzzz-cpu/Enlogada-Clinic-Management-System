@@ -207,6 +207,13 @@ async function main() {
     await purgeOrphanedUploads(since, true);
     process.exit(0);
   }
+  // Portal invitations the run sent [1.136.0], before anything they point at. By address and by
+  // window, and ahead of the early return below: an invitation is often all a spec leaves.
+  await db.query(
+    'DELETE FROM patient_invitations WHERE email LIKE $1 OR created_at >= $2::timestamptz',
+    [E2E_EMAIL_PATTERN, since]
+  );
+
   if (visitIds.length === 0 && userIds.length === 0) {
     // Still sweep the uploads. A file can be stranded with no row to match on: multer writes the
     // card before the booking transaction opens, so a booking the run deliberately made fail
@@ -249,6 +256,13 @@ async function main() {
 
   if (userIds.length) {
     const u = [userIds];
+    // A record a throwaway account accepted by invitation [1.136.0] may hold visits from before
+    // the run. It goes back to being a walk-in rather than taking those visits with it.
+    await db.query(
+      `UPDATE patients SET user_id = NULL, account_relationship = NULL
+        WHERE user_id = ANY($1) AND EXISTS (SELECT 1 FROM patient_visits pv WHERE pv.patient_id = patients.id)`,
+      u
+    );
     await db.query('DELETE FROM patients WHERE user_id = ANY($1)', u);
     await db.query('DELETE FROM notification_reads WHERE user_id = ANY($1)', u);
     await db.query('DELETE FROM auth_codes WHERE user_id = ANY($1)', u);

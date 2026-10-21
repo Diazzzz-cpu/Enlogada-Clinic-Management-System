@@ -50,8 +50,9 @@ export default function ResultEntryDialog({ entry, patientHistory }) {
               <div className="rounded-xl border border-line bg-slate-50/70 p-3">
                 <p className="m-0 text-fine text-slate-600">
                   <span className="font-semibold text-slate-700">{entry.justReleased.file_original_name || 'The attached report'}</span>{' '}
-                  is on this patient&apos;s record and in their portal, where it can be read and
-                  printed. It has not been emailed.
+                  {entry.justReleased.has_portal_account
+                    ? <> is on this patient&apos;s record and in their portal, where it can be read. It has not been emailed.</>
+                    : <> is on this patient&apos;s record. It has not been emailed. They have no portal account{entry.justReleased.patient_email ? ': email it below, or' : ', so'} the desk can invite them to the portal from Patient Records.</>}
                 </p>
               </div>
 

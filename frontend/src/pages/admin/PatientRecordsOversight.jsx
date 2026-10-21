@@ -14,10 +14,12 @@ import api from '../../config/api';
 import ResultDocument from '../../components/ResultDocument';
 import PatientEditDialog from '../../components/patients/PatientEditDialog';
 import PatientFile from '../../components/patients/PatientFile';
+import PortalAccessDialog from '../../components/patients/PortalAccessDialog';
+import UnlinkDialog from '../../components/patients/UnlinkDialog';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Users, AlertCircle, Printer, FolderSearch, FileX2, Eye, Building2, Pencil, Archive,
-  ArchiveRestore, ChevronRight, FileText,
+  ArchiveRestore, ChevronRight, FileText, MailPlus, Unlink,
 } from 'lucide-react';
 import { DateField, RANGE_PRESETS } from '../../components/ui/date-field';
 import { formatDate } from '../../lib/date';
@@ -73,6 +75,14 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
   const { hasPermission } = useAuth();
   const canReadResults = hasPermission('results:read');
   const canEditPatients = hasPermission('patients:update');
+  // [1.136.0] Portal access: the desk and Admin invite; only Admin takes a record back out.
+  const canInvite = hasPermission('patients:invite');
+  const canUnlink = hasPermission('patients:unlink');
+  // The patient stays set while a dialog closes, so its words do not empty mid-animation.
+  const [portalFor, setPortalFor] = useState(null);
+  const [portalOpen, setPortalOpen] = useState(false);
+  const [unlinkFor, setUnlinkFor] = useState(null);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
   const canStartVisit = hasPermission('visits:create') && hasPermission('tests:assign') && Boolean(onSelectNav);
   const [editingPatient, setEditingPatient] = useState(null);
   const [patientTypes, setPatientTypes] = useState([]);
@@ -410,6 +420,35 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
                                   <span>Correct</span>
                                 </Button>
                               )}
+                              {/* [1.136.0] Each gated on the permission its own endpoint demands. */}
+                              {canInvite && !patient.archived_at && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="xs"
+                                  data-testid="patient-row-invite"
+                                  onClick={() => { setPortalFor(patient); setPortalOpen(true); }}
+                                  title={patient.user_id
+                                    ? 'Whose portal account holds this record'
+                                    : 'Invite the patient, or the family member who manages their records, to the portal'}
+                                >
+                                  <MailPlus className="h-3 w-3" />
+                                  <span>Portal access</span>
+                                </Button>
+                              )}
+                              {canUnlink && patient.user_id && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="xs"
+                                  data-testid="patient-row-unlink"
+                                  onClick={() => { setUnlinkFor(patient); setUnlinkOpen(true); }}
+                                  title="Take this record out of the portal account holding it"
+                                >
+                                  <Unlink className="h-3 w-3" />
+                                  <span>Unlink</span>
+                                </Button>
+                              )}
                               {/* Archive is not delete: the record leaves the roster, nothing is removed. */}
                               {canArchive && (
                                 <Button
@@ -452,7 +491,6 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
                                   // The Desk's own lookup, with the name typed in for them: it lists
                                   // the record with Start visit, or the queue row if already here.
                                   onStartVisit={() => onSelectNav('reception-queue', { find: fullName(patient) })}
-                                  canLinkAccount={canEditPatients}
                                   onRetry={() => loadRecords(patient.id)}
                                 />
                               )}
@@ -488,6 +526,31 @@ const PatientRecordsOversight = ({ onSelectNav }) => {
         fileName={doc?.row.file_original_name}
         authorisedOnly
         autoPrint={Boolean(doc?.autoPrint)}
+      />
+
+      <PortalAccessDialog
+        open={portalOpen && Boolean(portalFor)}
+        onOpenChange={setPortalOpen}
+        patientId={portalFor?.id}
+        patientName={portalFor ? fullName(portalFor) : ''}
+        canInvite={canInvite}
+        // An invitation can give a record with no address of its own this one.
+        onChanged={(fresh) => {
+          if (fresh?.patient) applyEdit({ id: fresh.patient.id, email: fresh.patient.email });
+        }}
+      />
+
+      <UnlinkDialog
+        open={unlinkOpen && Boolean(unlinkFor)}
+        onOpenChange={setUnlinkOpen}
+        patientId={unlinkFor?.id}
+        patientName={unlinkFor ? fullName(unlinkFor) : ''}
+        onUnlinked={(updated) => {
+          applyEdit(updated);
+          // The file, if open, now describes a walk-in record again.
+          setRecords((prev) => { const next = { ...prev }; delete next[updated.id]; return next; });
+          if (expandedId === updated.id) loadRecords(updated.id);
+        }}
       />
 
       <PatientEditDialog

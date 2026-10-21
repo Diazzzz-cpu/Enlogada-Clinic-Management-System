@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, ShieldCheck, UserPlus, UserRound, Users } from 'lucide-react';
+import { Inbox, Pencil, ShieldCheck, UserPlus, UserRound, Users } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Panel, PanelHeader, PanelBody } from '../ui/panel';
@@ -16,7 +16,7 @@ const listFormat = new Intl.ListFormat('en', { style: 'long', type: 'conjunction
  * Plain panels, the Flat colouring's one container. [1.82.0] It was three cards, one of them on
  * the rail colour: a second dark block under the band, which is meant to be the only one.
  */
-export default function ProfileTab({ profiles, reference }) {
+export default function ProfileTab({ profiles, reference, invitations = null, onAcceptInvitation }) {
   // The providers the clinic is accredited with, from the list the booking dialog offers. This
   // card used to name "1CoopHealth" in a sentence typed into this file, and would have gone on
   // naming it whatever the clinic's accreditations became. [1.80.0]
@@ -32,8 +32,34 @@ export default function ProfileTab({ profiles, reference }) {
       ]
     : [];
 
+  // [1.136.0] Records the clinic invited this account to accept, beside the family they join.
+  const waiting = invitations?.needsEmailCheck
+    ? [{ key: 'email-check', title: 'Confirm your email to see a record waiting', action: 'Confirm email', invitation: { emailCheck: true } }]
+    : (invitations?.invitations || []).map((inv) => ({
+        key: inv.id, title: `A record is waiting: ${inv.patientName}`, action: 'Review', invitation: inv,
+      }));
+
   return (
         <div className="space-y-4">
+          {waiting.map((w) => (
+            <Panel key={w.key} data-testid="waiting-record" className="overflow-hidden">
+              <PanelBody className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <span className="flex items-center gap-2.5">
+                  <Inbox className="h-4 w-4 flex-shrink-0 text-azure-600" aria-hidden="true" />
+                  <span className="text-note font-semibold text-ink">{w.title}</span>
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={w.invitation.patientName ? `Review ${w.invitation.patientName}'s record` : undefined}
+                  onClick={() => onAcceptInvitation?.(w.invitation)}
+                >
+                  {w.action}
+                </Button>
+              </PanelBody>
+            </Panel>
+          ))}
+
           {patient && (
             <Panel className="overflow-hidden">
               <PanelHeader
@@ -94,7 +120,11 @@ export default function ProfileTab({ profiles, reference }) {
                     <li key={p.id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <span className="min-w-0">
                         <span className="block truncate text-note font-semibold text-ink">{p.first_name} {p.last_name}</span>
-                        <span className="block text-fine text-ink-muted">{p.patient_type_name || 'Patient'}</span>
+                        <span className="block text-fine text-ink-muted">
+                          {p.patient_type_name || 'Patient'}
+                          {/* Put here by the clinic, by invitation, rather than added by hand. [1.136.0] */}
+                          {p.from_clinic && <span data-testid="family-from-clinic"> · From the clinic</span>}
+                        </span>
                       </span>
                       {String(p.id) === String(profiles.selectedId) && (
                         <span className="flex-shrink-0 text-fine font-semibold text-brand-700">Viewing</span>

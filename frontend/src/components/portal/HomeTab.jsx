@@ -51,7 +51,10 @@ function SummaryTile({ tile, label, icon: Icon, value, caption, onClick }) {
  *
  * `bookButton` is the dashboard's one booking dialog, so Home and Appointments offer the same one.
  */
-export default function HomeTab({ profiles, results, bookings, payments, onOpenTab, refresh, bookButton, feedback = [], onRate }) {
+export default function HomeTab({
+  profiles, results, bookings, payments, onOpenTab, refresh, bookButton, feedback = [], onRate,
+  invitations = null, onAcceptInvitation,
+}) {
   const { user } = useAuth();
   const now = new Date();
   const today = todayStr();
@@ -61,6 +64,10 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
   const next = nextVisit(bookings.appointments, { patientId, today });
   const needs = attentionItems({
     appointments: bookings.appointments, patientId, today, hasProfile, bookingsFailed: Boolean(bookings.error), feedback,
+    // [1.136.0] Records waiting for this account, first.
+    invitations: invitations?.invitations || [],
+    invitesNeedEmailCheck: Boolean(invitations?.needsEmailCheck),
+    invitesFailed: Boolean(invitations?.error),
   });
   const latest = latestResults(results.history, 3);
   const receipts = payments.payments.length;
@@ -126,7 +133,7 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
         <Panel data-testid="portal-attention" className="overflow-hidden">
           <PanelHeader title="Needs your attention" icon={AlertTriangle} />
           <PanelBody flush>
-            {bookings.loading && !bookings.error ? (
+            {(bookings.loading && !bookings.error) || invitations?.loading ? (
               <div className="p-4"><SkeletonList rows={2} /></div>
             ) : needs.length === 0 ? (
               <EmptyState
@@ -156,8 +163,13 @@ export default function HomeTab({ profiles, results, bookings, payments, onOpenT
                       {need.action && (
                         <Button
                           size="sm"
+                          aria-label={need.acceptInvitation?.patientName ? `Review ${need.acceptInvitation.patientName}'s record` : undefined}
                           variant={need.id.startsWith('pay-') ? 'default' : 'outline'}
-                          onClick={() => (need.feedbackVisit ? onRate?.(need.feedbackVisit) : onOpenTab(need.tab))}
+                          onClick={() => {
+                            if (need.acceptInvitation) onAcceptInvitation?.(need.acceptInvitation);
+                            else if (need.feedbackVisit) onRate?.(need.feedbackVisit);
+                            else onOpenTab(need.tab);
+                          }}
                         >
                           {need.action}
                         </Button>

@@ -13,7 +13,8 @@ import { DOCTOR_REQUEST_PNG } from './booking.js';
  */
 export const PORTAL_TABS = {
   home: 'Home',
-  appointments: 'Appointments',
+  // [1.136.0] It lists walk-in visits too, so it is called Visits. The key is unchanged.
+  appointments: 'Visits',
   results: 'Results',
   payments: 'Payments',
   profile: 'Profile',

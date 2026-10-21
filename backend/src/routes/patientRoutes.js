@@ -1,5 +1,6 @@
 const express = require('express');
 const patientController = require('../controllers/patientController');
+const patientInvitationController = require('../controllers/patientInvitationController');
 const { verifyToken, authorizeStaff, authorizePermissions, authorizeRoles } = require('../middlewares/auth');
 
 const router = express.Router();
@@ -41,14 +42,29 @@ const router = express.Router();
 
 router.post('/', verifyToken, authorizePermissions('patients:create'), patientController.addProfile);
 router.get('/my-profiles', verifyToken, patientController.getMyProfiles);
+
+// ── Portal invitations [1.136.0] ──────────────────────────────────────────────────────────────
+// The patient's side: the records waiting for this account, and accepting or declining one.
+// Client by role and no permission, because every patient may; the service also refuses an
+// account that holds any staff role, so a combined account cannot take a record to itself.
+router.get('/invitations/mine', verifyToken, authorizeRoles('Client'), patientInvitationController.listMine);
+router.post('/invitations/:invitationId/accept', verifyToken, authorizeRoles('Client'), patientInvitationController.accept);
+router.post('/invitations/:invitationId/decline', verifyToken, authorizeRoles('Client'), patientInvitationController.decline);
 router.get('/types', verifyToken, patientController.getTypes);
 // Staff lookup of existing patient records by name — must be registered before /:id so
 // Express doesn't match "search" itself as an :id param.
 router.get('/search', verifyToken, authorizeStaff, authorizePermissions('patients:read'), patientController.search);
 router.get('/:id', verifyToken, authorizePermissions('patients:read'), patientController.getProfileById);
 router.put('/:id', verifyToken, authorizePermissions('patients:update'), patientController.updateProfile);
-// [1.123.0] Connect a walk-in record to the patient's portal account. Staff only.
-router.put('/:id/link-account', verifyToken, authorizeStaff, authorizePermissions('patients:update'), patientController.linkAccount);
+// The staff side. [1.136.0] It replaced [1.123.0]'s PUT /:id/link-account, which joined a record
+// to an account on the desk's word alone. Inviting has its own permission (the desk and Admin);
+// taking a record back out has another, Admin's alone.
+router.get('/:id/portal-access', verifyToken, authorizeStaff, authorizePermissions('patients:read'), patientInvitationController.getPortalAccess);
+router.post('/:id/invitations/check', verifyToken, authorizeStaff, authorizePermissions('patients:invite'), patientInvitationController.checkAddress);
+router.post('/:id/invitations', verifyToken, authorizeStaff, authorizePermissions('patients:invite'), patientInvitationController.invite);
+router.post('/:id/invitations/resend', verifyToken, authorizeStaff, authorizePermissions('patients:invite'), patientInvitationController.resend);
+router.delete('/:id/invitations/open', verifyToken, authorizeStaff, authorizePermissions('patients:invite'), patientInvitationController.withdraw);
+router.delete('/:id/account-link', verifyToken, authorizeStaff, authorizePermissions('patients:unlink'), patientInvitationController.unlink);
 
 // Archiving a record. [1.56.0] Admin and SuperAdmin only, by ROLE rather than by permission, and
 // deliberately so: `patients:update` is held by Reception too, and correcting a misspelled surname

@@ -108,6 +108,7 @@ node src/scripts/migrateReportVerification.js   # [1.126.0] a verification code 
 node src/scripts/migrateExamPerformed.js        # [1.129.0] visit_tests.performed_at/_by: an X-ray exam marked done (--rollback reverses it)
 node src/scripts/migrateUnpaidIsTemporary.js    # [1.131.0] removes never-paid Cancelled / No Show visits (Activity Log line each), drops [1.130.0]'s closed_reason/_at, retires appointments:cancel
 node src/scripts/migrateHmoApprovalFirst.js      # [1.132.0] HMO bookings wait for their claim until their start; a refused one gets the payment window (data only; --rollback reverses it)
+node src/scripts/migratePatientInvitations.js    # [1.136.0] portal invitations, unlink, users.email_verified_at, visits.booked_online (--rollback reverses it); then setupRbac.js
 
 # Clear accumulated E2E/fixture traffic, keeping reference data and seeded accounts.
 # Dry-run by default; --confirm actually deletes. Refuses to run under NODE_ENV=production.
@@ -177,9 +178,9 @@ The worst of it is `notification_reads`, which is a **fan-out** table: `notifyRo
 **There are now two test tiers, and they answer different questions.** `[1.63.0]`
 
 ```bash
-cd backend  && npm test        # 140 unit tests, node:test, ZERO dependencies, ~0.7s
-cd frontend && npm run test:unit # 137 unit tests, vitest, ~1.5s
-cd frontend && npm test        # 529 Playwright E2E, ~14m, needs both dev servers
+cd backend  && npm test        # 154 unit tests, node:test, ZERO dependencies, ~0.7s
+cd frontend && npm run test:unit # 145 unit tests, vitest, ~1.5s
+cd frontend && npm test        # 550 Playwright E2E, ~12m, needs both dev servers
 ```
 
 The unit tier covers the pure, deterministic rules where the *arithmetic* is the thing at risk:
@@ -198,7 +199,7 @@ each other's files.
 it is a function you could call from a REPL, it is a unit test — and it belongs there, because a
 7-minute suite is not where you want to discover that a rounding rule changed.
 
-There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 88 Playwright specs (529 tests, ~14m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
+There **is** an automated end-to-end suite: `frontend/tests/e2e/` holds 91 Playwright specs (550 tests, ~12m) run with `npm test` (or `npm run test:ui`) from `frontend/`. It assumes **both dev servers are already running** and hits the real database — see `frontend/tests/e2e/README.md`. See the tiers above.
 
 The suite is a deliberately small demo-and-regression net, not exhaustive coverage: smoke, security boundaries (`api-authorization.spec.js` — Admin-vs-SuperAdmin separation of duties, combined-role access, and the cross-role PHI boundaries), ticket-release gating, payments, laboratory results, statutory discounts (`discounts.spec.js`), result amendment history (`result-versioning.spec.js`), password-change session revocation (`session-revocation.spec.js`), account lockout and PHI read auditing (`login-protection.spec.js`), permission-matrix enforcement (`rbac-enforcement.spec.js`), department-scoped patient records (`department-scoping.spec.js`), the per-department operations report (`operations-report.spec.js`), atomic online booking with its HMO card evidence rule (`booking-atomicity.spec.js`), the two dialogs that feature added (`hmo-card-review.spec.js` — because a card that uploads correctly and then renders as a broken image on the approval screen is a working feature failing at its job), moving a booking rather than cancelling it (`appointment-reschedule.spec.js`, plus `reschedule-ui.spec.js` for the dialog), when a visit must name the doctor who requested the test (`referring-physician.spec.js`), correcting a patient record (`patient-edit.spec.js` / `patient-edit-ui.spec.js`), what the patient is told about their own booking (`booking-communication.spec.js`), that the ETag revalidation cache never hides a change (`revalidation.spec.js`), that each role can see what it needs on the screen where it acts (`workflow-context.spec.js`), registering a walk-in in one pass (`walkin-registration.spec.js`), the patient journey at phone width (`mobile-patient.spec.js`), what an HMO decision has to record before it counts as one (`hmo-decision-trail.spec.js` — a refusal that names no reason leaves the cashier explaining a charge nobody wrote down), the three-step claim workflow itself (`hmo-claim-handoff.spec.js` — reception raises it, an Admin decides it, and the cashier has to be TOLD), and that a failed request never renders as an empty one (`failure-states.spec.js` — six screens shipped without an error branch, so a 500 fell through to the empty state and the app stated "Today's Revenue ₱0.00" over a day that took ₱8,344; `[1.74.0]` added the screens each role lands on, whose counters start at zero and stayed there on a failure), that Transaction History's takings answer for the dates its receipt list shows (`takings-range.spec.js`), that the front desk finds a booking, a record or nobody from one box and never offers a second visit to someone already in the queue (`front-desk.spec.js`), that each sidebar count is the number its screen shows and an action is on screen once (`sidebar.spec.js`), that every member of staff lands on Today, where each item has the button that deals with it and a button that opens another screen arrives already doing it (`today.spec.js`), that SuperAdmin assigns access on the "Who sees what" grid, where every switch says in words what it will change and nothing is saved until Save (`access-grid.spec.js`), that every screen's heading and breadcrumb are its sidebar name (`screen-names.spec.js`), that the patient portal's Home says what is owed and what it could not check, and its phone tab bar covers nothing (`portal-home.spec.js`), and that there are no refunds: no route, no permission, no button, and a paid visit points to a new visit (`refunds-removed.spec.js`, `[1.121.0]`), and that what a final receipt rules out stays ruled out: a payment over a pending HMO decision or an unchecked online proof, a paid no-show, an unpaid booking holding its slot past its payment window (`process-fixes.spec.js`, `[1.123.0]`), and that the server refuses what the screens refuse, whoever skips the screen (`process-rules.spec.js`, `[1.124.0]`), and that the reader's chosen text size scales the whole interface without inverting its own type ramp (`text-scale.spec.js` — a pixel-pinned font size looks perfect at the default and misbehaves only for the people who changed it), and that a patient can pay into the clinic's own account and only a cashier can turn that into money (`manual-payment.spec.js` — publishing an account number is SuperAdmin alone, and the amount a patient CLAIMS never becomes the amount they are charged), and that a package deal bills its own fixed price rather than the sum of its parts, with every component reaching its own department (`packages.spec.js` — a bundle that costs more than buying the parts separately is a surcharge wearing the word "package"), and that updating a service does not delete the fields the caller did not mention (`catalogue-partial-update.spec.js` — the status toggle used to wipe a test's patient preparation, which is the sentence the day-before reminder carries). It was cut down from ~200 tests once the module-by-module build-out finished; the rest asserted UI copy that legitimately keeps changing. Prefer adding a focused spec over reviving deleted ones from git history.
 
@@ -535,6 +536,39 @@ registers a new patient. Checking `visits:create` alone let an account given onl
 on the grid register patients and attach tests; the Desk gates Start visit and Register Walk-In
 the same way (`can.startVisit`, `can.registerPatient`).
 
+**A walk-in is invited to the portal; the email carries no secret.** `[1.136.0]` Patient Records'
+"Portal access" (or the Desk's "Invite to the portal" after registering) sends an invitation
+(`patient_invitations`, 14 days) to an address the desk read back to the patient, recording whose
+address it is (`relationship`) and who agreed (`consent_basis`). No token or link: [1.73.0] retired
+emailed links. Whoever holds the inbox signs up or signs in with it, proves it (`users.
+email_verified_at`: the sign-up code, Google, a reset, or `POST /auth/email-check`, purpose
+`email_verify`), sees "A record is waiting" (`record-<id>` need, or `record-email-check` before the
+address is proven, when nobody is named), and accepts with the record's date of birth (3 tries,
+spent before comparing, outside the transaction). Rules in `utils/portalInvitation.js` (pure,
+unit-tested), enforced in `patientInvitationService`:
+- **Who agrees follows the PATIENT's age, never the helper's.** Under 18: a parent or guardian
+  (`guardian_of_minor`), at the patient's or the guardian's address; re-checked at accept. 18 and
+  over: their own address needs nothing more (`own_address`, no visit); a family member's address
+  needs the patient's own yes, in person or by phone, or a family member responsible for a patient
+  who cannot decide. A family manager's account holding a parent and a baby is the normal case.
+- **Unlink** (`DELETE /patients/:id/account-link`, `patients:unlink`, Admin): nothing deleted,
+  access ends on the next request, the account is emailed (no name, no reason). Urgent reasons go
+  through with open work and return it; planned ones wait (409). A record emailing that account must
+  be cleared or kept, and an urgent mistake may not keep it.
+- **Two-person rule:** for 30 days whoever unlinked a record may not send its next invitation
+  (`patients.account_unlinked_by`). No role exempt, SuperAdmin included.
+- A staff account never receives a record; a record's own different address is told (no PHI); an
+  account with a same-name, same-birthdate profile is warned and may keep both.
+- Production caps: 5 invitation emails an address a day, `INVITE_DAILY_CAP` (50) per staff member.
+
+**A visit says how it came about.** `[1.136.0]` `patient_visits.booked_online`, stored when a booking
+is made, read by `CAME_IN_AS` (`constants/visits.js`) as `walk_in` / `online` / `clinic` on
+my-bookings, my-payments, the results history and the portal's visit list (`lib/visitOrigin.js`
+names them). Never derive it from `created_by = p.user_id`: that flips when a record is unlinked.
+The portal tab is called "Visits" (value still `appointments`) and lists walk-ins as `walk-in-visit`
+rows, never `appointment-card`. A patient's results history reads each test's latest AUTHORISED
+version: it used to send a draft's findings and file, hidden only by the screen.
+
 **Unpaid is temporary; paid is final. Nothing is "Cancelled" or a "No Show".** `[1.131.0]`
 Steven's rule: a booking is paid first, a walk-in pays for its tests to go ahead, and once paid
 there are no takebacks; what is never paid was only ever temporary. So there is NO cancel and NO
@@ -618,10 +652,9 @@ the patient ticks "These are the tests I want" (bookings carry `booked_tests`).
 - **Archiving waits for open work** (`patientRepository.findOpenWork`): refused while the patient
   has a visit in progress, an unpaid walk-in today, or a booking from today on. Archived records
   leave the Desk's search, which hid patients from the people about to look for them.
-- **A walk-in record joins the account its patient signs up with.** `PUT /patients/:id/link-account`
-  (staff, `patients:update`, from the patient's file) by the sign-up email, after checking it with
-  the patient; refused for a staff account or an already linked record, audited. It does not merge
-  two records that already exist.
+- **A walk-in record joins a portal account by invitation.** `[1.136.0]` It replaced [1.123.0]'s
+  `PUT /patients/:id/link-account` (gone, 404), which linked on the desk's word alone. See "A walk-in
+  is invited to the portal" under Database. It does not merge two records that already exist.
 - **A Word or Excel report says, at upload, that the patient cannot get it online**: a digital
   copy must be marked, and an Office file cannot be.
 
@@ -1244,7 +1277,7 @@ with a link to the printable document.
     "Needs your attention", which holds only things to do.
   - **Test contracts:** the tab names in `helpers/portal.js` and `portalTabs.js`; `portal-tile` with
     `data-tile`; `portal-need` with `data-need` (`pay-<id>`, `prepare-<id>`, `bookings-failed`,
-    `no-profile`); `portal-tab-bar`; the "Account menu" button and `account-menu`; the chip's name
+    `no-profile`, and `[1.136.0]` `record-<id>`, `record-email-check`, `invites-failed`); `portal-tab-bar`; the "Account menu" button and `account-menu`; the chip's name
     "Active patient profile"; "Back to the portal".
 - **A portal spec names a tab by what it is.** `[1.80.0]` `tests/e2e/helpers/portal.js` holds the
   patient portal's tab names (`PORTAL_TABS`), `openPortalTab(page, 'appointments')` and

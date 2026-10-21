@@ -98,6 +98,33 @@ describe('latestResults and isNewResult', () => {
 });
 
 describe('attentionItems', () => {
+  // [1.136.0] A record the clinic invited this account to accept.
+  const waiting = { id: 4, patientName: 'Maria D.', forSelf: false, relationshipLabel: 'Son or daughter' };
+
+  it('a waiting record comes first, and stands in for "add a profile"', () => {
+    const items = attentionItems({ appointments: [], patientId: null, today: TODAY, hasProfile: false, invitations: [waiting] });
+    expect(items.map((i) => i.id)).toEqual(['record-4']);
+    expect(items[0]).toMatchObject({ title: 'A record is waiting: Maria D.', action: 'Review' });
+    expect(items[0].acceptInvitation).toBe(waiting);
+  });
+
+  it('an unproven address is asked to confirm before anyone is named', () => {
+    const items = attentionItems({ appointments: [], today: TODAY, hasProfile: false, invitesNeedEmailCheck: true, invitations: [waiting] });
+    expect(items.map((i) => i.id)).toEqual(['record-email-check']);
+    expect(items[0].acceptInvitation).toEqual({ emailCheck: true });
+  });
+
+  it('a failed check is said, never turned into "add a profile"', () => {
+    const items = attentionItems({ appointments: [], today: TODAY, hasProfile: false, invitesFailed: true });
+    expect(items.map((i) => i.id)).toEqual(['invites-failed']);
+    expect(attentionItems({ appointments: [], today: TODAY, hasProfile: false }).map((i) => i.id)).toEqual(['no-profile']);
+  });
+
+  it('a waiting record sits above what to pay', () => {
+    const items = attentionItems({ appointments: [booking()], patientId: 7, today: TODAY, invitations: [waiting] });
+    expect(items.map((i) => i.id)).toEqual(['record-4', 'pay-1']);
+  });
+
   it('asks for payment once per unpaid visit, naming the amount', () => {
     const items = attentionItems({ appointments: [booking()], patientId: 7, today: TODAY });
     expect(items).toHaveLength(1);

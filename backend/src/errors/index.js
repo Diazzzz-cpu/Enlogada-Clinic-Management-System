@@ -208,6 +208,18 @@ const CONSTRAINT_MESSAGES = {
   chk_discount_percentage: 'A discount must be between 0 and 100 percent.',
   uq_test_results_verification_code: 'That verification code is already in use. Release the report again.',
   chk_results_verification_code: 'Only a released report carries a verification code.',
+  // [1.136.0] Portal invitations.
+  uq_patient_invitations_open: 'This patient already has an invitation waiting. Send it again, or withdraw it first.',
+  chk_patient_invitations_email: 'The invitation address must be in lower case.',
+  chk_patient_invitations_relationship: 'Choose whose address this is.',
+  chk_patient_invitations_consent: 'Choose who agreed to this.',
+  chk_patient_invitations_consent_shape: "Who agreed doesn't fit whose address this is.",
+  chk_patient_invitations_recipient: "Give the name of the person whose address this is.",
+  chk_patient_invitations_closed: 'This invitation has already ended.',
+  chk_patient_invitations_revoked: 'An ended invitation needs a reason.',
+  chk_patient_invitations_reason: 'That is not a reason an invitation can end for.',
+  chk_patients_account_relationship: 'Choose what the account holder is to this patient.',
+  chk_visits_booked_online: 'Only a booking can be marked as booked online.',
 };
 
 /**

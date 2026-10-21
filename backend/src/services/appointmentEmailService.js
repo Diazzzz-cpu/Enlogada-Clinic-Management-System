@@ -207,7 +207,7 @@ class AppointmentEmailService {
           : `The clinic's hours on <strong>${esc(readableDate(date))}</strong> have changed.`}
            Your appointment at <strong>${esc(readableTime(time))}</strong> (reference ${esc(reference)})
            needs a new time.</p>
-        <p>Please choose another date in your patient portal under <strong>Appointments</strong>, or
+        <p>Please choose another date in your patient portal under <strong>Visits</strong>, or
            contact the clinic and we will move it for you. Your booking, and any payment on it,
            stays as it is.</p>
       `),

@@ -464,7 +464,11 @@ class VisitService {
    * @param {number} patientId  A patient profile, not an account — an account may own several.
    * @returns {Promise<Array>}
    */
-  async getVisitHistory(patientId) {
+  async getVisitHistory(patientId, requestingUser = null) {
+    // [1.136.0] A patient reading their own visits gets the portal's projection, never `pv.*`.
+    if ((requestingUser?.roles || []).includes('Client')) {
+      return await visitRepository.findPortalVisitsByPatientId(patientId);
+    }
     return await visitRepository.findVisitsByPatientId(patientId);
   }
 

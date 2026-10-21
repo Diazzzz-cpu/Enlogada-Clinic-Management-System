@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 
 /**
  * What a patient's record holds that is FINAL: tests with an authorised report. [1.108.0] And
@@ -101,7 +102,13 @@ class PatientRepository {
 
   async findPatientsByUserId(userId) {
     const queryText = `
-      SELECT p.*, pt.name as patient_type_name
+      SELECT p.*, pt.name as patient_type_name,
+             -- A record the clinic put in this account by invitation, rather than a profile the
+             -- account added itself. [1.136.0] Keyed on who accepted, so a record unlinked and
+             -- accepted by another account is "from the clinic" only for the one holding it now.
+             EXISTS (SELECT 1 FROM patient_invitations i
+                      WHERE i.patient_id = p.id AND i.accepted_at IS NOT NULL
+                        AND i.accepted_by = p.user_id) AS from_clinic
       FROM patients p
       JOIN patient_types pt ON p.patient_type_id = pt.id
       WHERE p.user_id = $1
@@ -143,21 +150,106 @@ class PatientRepository {
             FROM appointments a JOIN patient_visits pv ON pv.id = a.patient_visit_id
            WHERE pv.patient_id = $1 AND a.status IN ('Pending', 'Confirmed')
              AND a.scheduled_date >= CURRENT_DATE
-             AND (a.held_until IS NULL OR a.held_until > CURRENT_TIMESTAMP)) AS next_booking`,
+             AND (a.held_until IS NULL OR a.held_until > CURRENT_TIMESTAMP)) AS next_booking,
+         -- [1.136.0] Unlinking also asks after money and claims the account holder is part of:
+         -- a proof of payment they sent that nobody has checked, and an HMO decision still owed.
+         EXISTS (SELECT 1 FROM payment_submissions ps JOIN patient_visits pv ON pv.id = ps.patient_visit_id
+                  WHERE pv.patient_id = $1 AND ps.status = 'Pending') AS pending_proof,
+         EXISTS (SELECT 1 FROM hmo_request_tests hrt
+                   JOIN visit_tests vt ON vt.id = hrt.visit_test_id
+                   JOIN patient_visits pv ON pv.id = vt.patient_visit_id
+                   JOIN hmo_requests hr ON hr.id = hrt.hmo_request_id
+                  WHERE pv.patient_id = $1 AND ${hmoEffectiveStatus('hr', 'hrt')} = 'Pending') AS pending_hmo`,
       [patientId]
     );
     return rows[0];
   }
 
-  /** Connect a walk-in record to a patient's portal account. Only a record not yet connected. [1.123.0] */
-  async linkToUser(patientId, userId) {
+  /**
+   * Connect a record to a patient's portal account. Only a record not yet connected. [1.123.0]
+   * [1.136.0] With what the account holder is to the patient, from the accepted invitation.
+   */
+  async linkToUser(patientId, userId, relationship = null) {
     const { rows } = await db.query(
-      `UPDATE patients SET user_id = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND user_id IS NULL
+      `UPDATE patients SET user_id = $2, account_relationship = $3, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND user_id IS NULL AND archived_at IS NULL
         RETURNING *`,
-      [patientId, userId]
+      [patientId, userId, relationship]
     );
     return rows[0];
+  }
+
+  /**
+   * Take a record out of the account holding it. [1.136.0] Only from the account the caller saw,
+   * so an unlink can never undo a link made in the meantime. Stamps who and when, for the
+   * two-person rule; `clearEmail` also removes the record's own address.
+   */
+  async unlinkFromUser(patientId, expectedUserId, { actorId, clearEmail = false }) {
+    const { rows } = await db.query(
+      `UPDATE patients
+          SET user_id = NULL, account_relationship = NULL,
+              account_unlinked_at = CURRENT_TIMESTAMP, account_unlinked_by = $3,
+              email = CASE WHEN $4::boolean THEN NULL ELSE email END,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND user_id = $2
+        RETURNING *`,
+      [patientId, expectedUserId, actorId, clearEmail]
+    );
+    return rows[0];
+  }
+
+  /**
+   * One patient record as the portal-access screen needs it: the birthdate as a calendar date
+   * (never a UTC instant), and the account holding it, if any. [1.136.0]
+   */
+  async findForPortalAccess(patientId) {
+    const { rows } = await db.query(
+      `SELECT p.id, p.first_name, p.last_name, p.birthdate::text AS birthdate, p.email, p.user_id,
+              p.archived_at, p.account_relationship, p.account_unlinked_at, p.account_unlinked_by,
+              u.email AS account_email, u.first_name AS account_first_name, u.last_name AS account_last_name
+         FROM patients p
+         LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.id = $1`,
+      [patientId]
+    );
+    return rows[0] || null;
+  }
+
+  /** Profiles an account already holds with this name and birthdate. Same normalising as below. */
+  async findSameNameAndBirthdateForUser(userId, firstName, lastName, birthdate) {
+    const { rows } = await db.query(
+      `SELECT p.id, p.first_name, p.last_name, p.birthdate::text AS birthdate
+         FROM patients p
+        WHERE p.user_id = $1
+          AND lower(regexp_replace(trim(p.first_name), '\\s+', ' ', 'g')) = lower(regexp_replace(trim($2), '\\s+', ' ', 'g'))
+          AND lower(regexp_replace(trim(p.last_name), '\\s+', ' ', 'g')) = lower(regexp_replace(trim($3), '\\s+', ' ', 'g'))
+          AND p.birthdate = $4::date
+        ORDER BY p.id
+        LIMIT 1`,
+      [userId, firstName, lastName, birthdate]
+    );
+    return rows[0] || null;
+  }
+
+  /** Give a record with no address of its own this one. Never overwrites one already on file. */
+  async setEmailIfEmpty(patientId, email) {
+    const { rowCount } = await db.query(
+      `UPDATE patients SET email = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND (email IS NULL OR email = '')`,
+      [patientId, email]
+    );
+    return rowCount === 1;
+  }
+
+  /** How many profiles the account at this address holds, for the desk's "is it really theirs?". */
+  async countProfilesForAccountEmail(email) {
+    const { rows } = await db.query(
+      `SELECT COUNT(p.id)::int AS n
+         FROM users u JOIN patients p ON p.user_id = u.id
+        WHERE LOWER(u.email) = LOWER($1)`,
+      [email]
+    );
+    return rows[0].n;
   }
 
   async updatePatient(id, { patientTypeId, firstName, lastName, birthdate, sex, address, contactNumber, emergencyContact, email = null }) {

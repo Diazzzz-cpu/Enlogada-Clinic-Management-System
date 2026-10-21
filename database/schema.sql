@@ -48,6 +48,10 @@ CREATE TABLE users (
     -- what makes "reset the password" actually end a stolen session — there is no server-side
     -- logout and the token lives in localStorage. See migrations.md [1.16.0].
     password_changed_at TIMESTAMP,
+    -- When this account proved it receives mail at its address: an emailed code at sign-up, a
+    -- password reset or an email check, or a Google sign-in. Accepting a patient record needs it.
+    -- NULL for accounts that never proved it, and again after a change of address. [1.136.0]
+    email_verified_at TIMESTAMP,
     -- Consecutive failed sign-ins, and when the resulting lock expires. The policy is
     -- deliberately forgiving (10 failures, 15 minutes, self-expiring) because a tight lockout is
     -- itself a denial of service against the clinic: anyone who can guess a staff address could
@@ -157,9 +161,10 @@ CREATE TABLE auth_codes (
     consumed_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_auth_codes_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT chk_auth_codes_purpose CHECK (purpose IN ('signup', 'password_reset')),
+    -- 'email_verify' [1.136.0]: an existing account proving its address before it accepts a record.
+    CONSTRAINT chk_auth_codes_purpose CHECK (purpose IN ('signup', 'password_reset', 'email_verify')),
     CONSTRAINT chk_auth_codes_shape CHECK (
-      (purpose = 'password_reset' AND user_id IS NOT NULL AND password_hash IS NULL)
+      (purpose IN ('password_reset', 'email_verify') AND user_id IS NOT NULL AND password_hash IS NULL)
       OR (purpose = 'signup' AND user_id IS NULL AND password_hash IS NOT NULL
           AND first_name IS NOT NULL AND last_name IS NOT NULL)
     )
@@ -205,11 +210,78 @@ CREATE TABLE patients (
     archived_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- What the account holder is to this patient, once linked by invitation. [1.136.0] NULL when
+    -- not stated, which is every profile a patient added themselves.
+    account_relationship VARCHAR(20),
+    -- The last time an Admin took this record out of an account, and who. The two-person rule
+    -- reads it: for 30 days, whoever unlinked may not send the record's next invitation.
+    account_unlinked_at TIMESTAMP,
+    account_unlinked_by INT,
     CONSTRAINT fk_patients_user FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_patients_type FOREIGN KEY (patient_type_id) REFERENCES patient_types(id),
     CONSTRAINT fk_patients_archived_by FOREIGN KEY (archived_by) REFERENCES users(id),
-    CONSTRAINT chk_patients_sex CHECK (sex IN ('Male', 'Female'))
+    CONSTRAINT chk_patients_sex CHECK (sex IN ('Male', 'Female')),
+    CONSTRAINT chk_patients_account_relationship CHECK (account_relationship IN
+      ('self', 'parent_guardian', 'child', 'grandchild', 'spouse', 'sibling', 'other_family', 'caregiver')),
+    CONSTRAINT fk_patients_account_unlinked_by FOREIGN KEY (account_unlinked_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- An invitation to the patient portal, for a record the clinic holds. [1.136.0]
+--
+-- The email carries no secret: the address is proven by the account that accepts (an emailed code
+-- or Google), and the record is accepted with its birthdate. `relationship` is what the address's
+-- owner is to the patient; `consent_basis` is who agreed to it, as the desk recorded it. An
+-- invitation ends exactly one way: accepted, or revoked with a reason. See migrations.md.
+CREATE TABLE patient_invitations (
+    id SERIAL PRIMARY KEY,
+    patient_id INT NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    relationship VARCHAR(20) NOT NULL,
+    recipient_name VARCHAR(150),
+    consent_basis VARCHAR(30) NOT NULL,
+    invited_by INT,
+    sends SMALLINT NOT NULL DEFAULT 1,
+    last_sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    birthdate_attempts SMALLINT NOT NULL DEFAULT 0,
+    -- The record had a different address of its own when this was sent; that address was told.
+    address_differs_from_record BOOLEAN NOT NULL DEFAULT FALSE,
+    accepted_at TIMESTAMP,
+    accepted_by INT,
+    revoked_at TIMESTAMP,
+    revoked_by INT,
+    revoked_reason VARCHAR(20),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_patient_invitations_patient FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+    CONSTRAINT fk_patient_invitations_invited_by FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_patient_invitations_accepted_by FOREIGN KEY (accepted_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_patient_invitations_revoked_by FOREIGN KEY (revoked_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT chk_patient_invitations_email CHECK (email = LOWER(email)),
+    CONSTRAINT chk_patient_invitations_relationship CHECK (relationship IN
+      ('self', 'parent_guardian', 'child', 'grandchild', 'spouse', 'sibling', 'other_family', 'caregiver')),
+    CONSTRAINT chk_patient_invitations_consent CHECK (consent_basis IN
+      ('own_address', 'patient_in_person', 'patient_by_phone', 'guardian_of_minor', 'responsible_for_patient')),
+    CONSTRAINT chk_patient_invitations_consent_shape CHECK (
+      (consent_basis <> 'own_address' OR relationship = 'self')
+      AND (consent_basis NOT IN ('patient_in_person', 'patient_by_phone', 'responsible_for_patient')
+           OR relationship <> 'self')
+    ),
+    CONSTRAINT chk_patient_invitations_recipient CHECK (relationship = 'self' OR recipient_name IS NOT NULL),
+    CONSTRAINT chk_patient_invitations_closed CHECK (accepted_at IS NULL OR revoked_at IS NULL),
+    CONSTRAINT chk_patient_invitations_revoked CHECK ((revoked_at IS NULL) = (revoked_reason IS NULL)),
+    CONSTRAINT chk_patient_invitations_reason CHECK (revoked_reason IN
+      ('withdrawn', 'superseded', 'linked', 'archived', 'declined', 'birthdate_locked', 'unlinked', 'not_delivered'))
+);
+-- One open invitation per patient. An expired one still counts, so a new one supersedes it.
+CREATE UNIQUE INDEX uq_patient_invitations_open
+    ON patient_invitations (patient_id) WHERE accepted_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX idx_patient_invitations_open_email
+    ON patient_invitations (email) WHERE accepted_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX idx_patient_invitations_patient ON patient_invitations (patient_id, created_at DESC);
+CREATE INDEX idx_patient_invitations_invited_by ON patient_invitations (invited_by);
+CREATE INDEX idx_patient_invitations_accepted_by ON patient_invitations (accepted_by);
+CREATE INDEX idx_patient_invitations_revoked_by ON patient_invitations (revoked_by);
+CREATE INDEX idx_patients_account_unlinked_by ON patients (account_unlinked_by);
 
 -- Discount catalogue. Senior Citizen and PWD are mandated by RA 9994 / RA 10754 (20% off
 -- medical and diagnostic services); the same shape covers commercial discounts at no extra cost.
@@ -268,6 +340,10 @@ CREATE TABLE patient_visits (
     feedback_language VARCHAR(3),          -- the language they answered in
     feedback_recorded_by INT,              -- who typed in a paper form
     feedback_name_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Booked by the patient (or their family) in the portal, rather than by staff. [1.136.0] Stored
+    -- when the booking is made, so the label the patient reads never changes afterwards.
+    booked_online BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT chk_visits_booked_online CHECK (NOT booked_online OR visit_type = 'Appointment'),
     CONSTRAINT fk_visits_patient FOREIGN KEY (patient_id) REFERENCES patients(id),
     CONSTRAINT fk_visits_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_visits_discount_type FOREIGN KEY (discount_type_id) REFERENCES discount_types(id),

@@ -82,6 +82,17 @@ async function main() {
       CREATE TEMP TABLE _e2e_users ON COMMIT DROP AS
         SELECT id FROM users WHERE email ILIKE ${E2E_EMAIL}
     `);
+    // [1.136.0] A record a test account ACCEPTED by invitation is the clinic's, not the test's:
+    // it goes back to being a walk-in before the fixture set is drawn, so its visits survive.
+    // A record the test account added itself has no accepted invitation, and is still a fixture.
+    const unlinked = await client.query(`
+      UPDATE patients p SET user_id = NULL, account_relationship = NULL
+       WHERE p.user_id IN (SELECT id FROM _e2e_users)
+         AND EXISTS (SELECT 1 FROM patient_invitations i
+                      WHERE i.patient_id = p.id AND i.accepted_by = p.user_id)
+         AND NOT (${WALKIN_FIXTURE})
+    `);
+    if (unlinked.rowCount) report.push({ step: 'UNLINK accepted records from test accounts', rows: unlinked.rowCount });
     await client.query(`
       CREATE TEMP TABLE _fx_patients ON COMMIT DROP AS
         SELECT p.id FROM patients p
@@ -149,6 +160,9 @@ async function main() {
       ['appointments', `DELETE FROM appointments WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
       ['visit_tests', `DELETE FROM visit_tests WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
       ['patient_visits', `DELETE FROM patient_visits WHERE id IN (SELECT id FROM _fx_visits)`],
+      // Portal invitations [1.136.0]: to test addresses, or for a fixture patient, before either goes.
+      ['patient_invitations', `DELETE FROM patient_invitations WHERE email LIKE '%@enlogada-e2e.test'
+         OR patient_id IN (SELECT id FROM _fx_patients)`],
       ['patients', `DELETE FROM patients WHERE id IN (SELECT id FROM _fx_patients)`],
       ['audit_log', `DELETE FROM audit_log WHERE actor_id IN (SELECT id FROM _e2e_users)`],
       ['notification_reads', `DELETE FROM notification_reads WHERE user_id IN (SELECT id FROM _e2e_users)`],

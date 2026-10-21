@@ -1,5 +1,6 @@
+const db = require('../config/database');
 const patientRepository = require('../repositories/patientRepository');
-const userRepository = require('../repositories/userRepository');
+const patientInvitationRepository = require('../repositories/patientInvitationRepository');
 const auditService = require('./auditService');
 const { normalisePatientFields } = require('../validations/patientFields');
 
@@ -273,57 +274,6 @@ class PatientService {
    * front desk searches. Audited, because hiding somebody's medical record is an editorial act
    * and "who did this" is the first question asked when a record cannot be found.
    */
-  /**
-   * Connect a walk-in record to the patient's own portal account. [1.123.0]
-   *
-   * A walk-in registered at the Desk has no account. When they later sign up, nothing joined the
-   * two: they added themselves as a new profile, never saw their earlier results online, and
-   * Patient Records showed them twice. The Desk links the record instead, by the email the
-   * patient signed up with, after confirming with the patient in person. Audited, because the
-   * account then reads every result on the record; refused for an account that is not a
-   * patient's, and for a record already connected to one.
-   */
-  async linkAccount(patientId, email, requestingUser) {
-    const address = String(email || '').trim().toLowerCase();
-    if (!address) {
-      const error = new Error("Give the email the patient signed up with.");
-      error.statusCode = 400;
-      throw error;
-    }
-    const patient = await patientRepository.findPatientById(patientId);
-    if (!patient) {
-      const error = new Error('Patient not found');
-      error.statusCode = 404;
-      throw error;
-    }
-    if (patient.user_id) {
-      const error = new Error('This record is already connected to a portal account.');
-      error.statusCode = 409;
-      throw error;
-    }
-    const account = await userRepository.findByEmail(address);
-    const roles = account?.roles || [];
-    if (!account || !roles.includes('Client') || roles.some((r) => r !== 'Client')) {
-      const error = new Error("No patient account uses that address. Ask the patient to sign up first, then link it.");
-      error.statusCode = 404;
-      throw error;
-    }
-    const linked = await patientRepository.linkToUser(patientId, account.id);
-    if (!linked) {
-      const error = new Error('This record is already connected to a portal account.');
-      error.statusCode = 409;
-      throw error;
-    }
-    await auditService.log({
-      actorId: requestingUser?.userId,
-      action: 'patient.account_linked',
-      entityType: 'patients',
-      entityId: Number(patientId),
-      description: `${patient.first_name} ${patient.last_name} (PT-${patientId}) linked to the portal account ${account.email}`,
-    });
-    return linked;
-  }
-
   async setArchived(patientId, archived, requestingUser) {
     const before = await patientRepository.findPatientById(patientId);
     if (!before) {
@@ -359,9 +309,18 @@ class PatientService {
       }
     }
 
-    const updated = await patientRepository.setPatientArchived(patientId, {
-      archived: Boolean(archived),
-      actorId: requestingUser?.userId ?? null,
+    const updated = await db.withTransaction(async () => {
+      const row = await patientRepository.setPatientArchived(patientId, {
+        archived: Boolean(archived),
+        actorId: requestingUser?.userId ?? null,
+      });
+      // An archived record is offered to nobody. [1.136.0]
+      if (archived) {
+        await patientInvitationRepository.revokeOpenForPatient(patientId, {
+          actorId: requestingUser?.userId ?? null, reason: 'archived',
+        });
+      }
+      return row;
     });
 
     await auditService.log({

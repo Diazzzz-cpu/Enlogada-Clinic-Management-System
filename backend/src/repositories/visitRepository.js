@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { inTodaysQueue } = require('../constants/queueMembership');
 const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
+const { CAME_IN_AS } = require('../constants/visits');
 
 class VisitRepository {
   // `doctorRequest` is the multer file of the doctor's signed request [1.106.0], or null. Only
@@ -9,6 +10,7 @@ class VisitRepository {
     {
       patientId, visitType, notes, queueNumber, createdBy,
       referringPhysician = null, referringPhysicianPrc = null, doctorRequest = null,
+      bookedOnline = false,
     },
     client = db
   ) {
@@ -17,9 +19,9 @@ class VisitRepository {
         patient_id, visit_type, notes, queue_number, created_by,
         referring_physician, referring_physician_prc,
         doctor_request_file_path, doctor_request_original_name, doctor_request_mime_type,
-        doctor_request_size_bytes, doctor_request_uploaded_at
+        doctor_request_size_bytes, doctor_request_uploaded_at, booked_online
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
     const result = await client.query(queryText, [
@@ -31,6 +33,7 @@ class VisitRepository {
       doctorRequest?.size ?? null,
       // Stamped like the HMO card's card_uploaded_at, which hmoRepository also sets from here.
       doctorRequest ? new Date() : null,
+      Boolean(bookedOnline) && visitType === 'Appointment',
     ]);
     return result.rows[0];
   }
@@ -477,6 +480,37 @@ class VisitRepository {
   // [1.130.0] And where each test stands, so the desk can answer "is my result ready?" without
   // reading it: its status, when its report was first released, or when its X-ray was marked
   // done. Dates and states only; what a report SAYS stays with whoever holds results:read.
+  /**
+   * A patient's visits as the patient sees them in the portal. [1.136.0] Only what they need: when,
+   * the ticket, how it came about, what it was for and whether it was paid. Not `pv.*`, which
+   * carries staff notes, discount details and stored file paths.
+   */
+  async findPortalVisitsByPatientId(patientId) {
+    const { rows } = await db.query(
+      `SELECT pv.id, pv.patient_id, pv.created_at, pv.visit_type, pv.status, pv.queue_number,
+              ${CAME_IN_AS('pv')} AS came_in_as,
+              COALESCE((
+                SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                         'id', vt.id, 'name', t.name, 'category', tc.name, 'status', vt.status
+                       ) ORDER BY vt.id)
+                  FROM visit_tests vt
+                  JOIN tests t            ON t.id = vt.test_id
+                  JOIN test_categories tc ON tc.id = t.category_id
+                 WHERE vt.patient_visit_id = pv.id
+              ), '[]') AS tests,
+              EXISTS (SELECT 1 FROM payments pay
+                       WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid') AS is_paid,
+              (SELECT pay.receipt_number FROM payments pay
+                WHERE pay.patient_visit_id = pv.id AND pay.payment_status = 'Paid' AND pay.receipt_number IS NOT NULL
+                ORDER BY pay.paid_at DESC LIMIT 1) AS receipt_number
+         FROM patient_visits pv
+        WHERE pv.patient_id = $1
+        ORDER BY pv.created_at DESC`,
+      [patientId]
+    );
+    return rows;
+  }
+
   async findVisitsByPatientId(patientId) {
     const queryText = `
       SELECT pv.*, p.first_name, p.last_name,

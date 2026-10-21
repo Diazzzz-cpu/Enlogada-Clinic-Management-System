@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { OCCUPIES_SLOT, HOLD_EXPIRY_SQL, PAY_WINDOW_EXPIRY_SQL, HMO_HOLD_SQL } = require('../constants/slotHold');
 const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
 const { inTodaysQueue } = require('../constants/queueMembership');
+const { CAME_IN_AS } = require('../constants/visits');
 const db = require('../config/database');
 
 class AppointmentRepository {
@@ -251,6 +252,8 @@ class AppointmentRepository {
   async findByPatientUserId(userId) {
     const queryText = `
       SELECT a.*, pv.patient_id, pv.visit_type, pv.status as visit_status, pv.queue_number,
+             -- [1.136.0] Booked online by the patient, or booked by the clinic.
+             ${CAME_IN_AS('pv')} AS came_in_as,
              p.first_name, p.last_name,
              EXISTS (
                SELECT 1 FROM payments pay

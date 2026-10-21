@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
+const { CAME_IN_AS } = require('../constants/visits');
 
 class ResultRepository {
   // The modality worklist gate. This query previously filtered on vt.status alone and never
@@ -490,7 +491,13 @@ class ResultRepository {
    *   Applied in SQL so results the caller may not see are never read, rather than fetched and
    *   filtered afterwards.
    */
-  async findResultsByPatientId(patientId, allowedCategories = null) {
+  /**
+   * `authorisedOnly` [1.136.0] is the patient's own portal. It reads each test's latest AUTHORISED
+   * version instead of the current one: `is_current` alone handed a patient the findings and file
+   * of a draft nobody had released yet, and only the screen hid them. A test still being worked on
+   * keeps its row and its status, with no report on it.
+   */
+  async findResultsByPatientId(patientId, allowedCategories = null, { authorisedOnly = false } = {}) {
     const params = [patientId];
     let categoryFilter = '';
     if (allowedCategories) {
@@ -500,10 +507,20 @@ class ResultRepository {
       categoryFilter = `AND tc.name = ANY($${params.length}::text[])`;
     }
 
+    const resultJoin = authorisedOnly
+      ? `LEFT JOIN LATERAL (
+              SELECT * FROM test_results r
+               WHERE r.visit_test_id = vt.id AND r.authorised_at IS NOT NULL
+               ORDER BY r.version DESC
+               LIMIT 1
+         ) tr ON TRUE`
+      : 'LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current';
+
     const queryText = `
       SELECT vt.id as visit_test_id, vt.price_at_time, vt.status as test_status,
              t.name as test_name, tc.name as category_name,
-             pv.created_at as visit_date, pv.queue_number,
+             pv.id as visit_id, pv.created_at as visit_date, pv.queue_number,
+             ${CAME_IN_AS('pv')} AS came_in_as,
              -- The report names the doctor who asked for the test, because it is a document
              -- addressed to them as much as to the patient. [1.23.0]
              pv.referring_physician, pv.referring_physician_prc,
@@ -521,9 +538,9 @@ class ResultRepository {
       JOIN patient_visits pv ON vt.patient_visit_id = pv.id
       JOIN patients p ON p.id = pv.patient_id
       LEFT JOIN patient_types ptp ON ptp.id = p.patient_type_id
-      -- is_current: a test can now carry several versions, and joining them all would repeat
-      -- the row once per amendment and show superseded findings alongside the live ones.
-      LEFT JOIN test_results tr ON tr.visit_test_id = vt.id AND tr.is_current
+      -- One version per test: the current one for staff (joining them all would repeat the row
+      -- once per amendment), the latest authorised one for the patient.
+      ${resultJoin}
       LEFT JOIN users u ON tr.released_by = u.id
       WHERE pv.patient_id = $1
       ${categoryFilter}
@@ -557,6 +574,8 @@ class ResultRepository {
       -- one patient's record is a deliberate statement about THAT patient and wins over an
       -- inherited one.
       SELECT COALESCE(NULLIF(p.email, ''), u.email) AS email,
+             -- Whether the patient can read it in the portal at all [1.136.0]: a walk-in cannot.
+             (p.user_id IS NOT NULL) AS has_portal_account,
              p.first_name, p.last_name, p.contact_number, p.birthdate, p.sex,
              t.name as test_name, tc.name as category_name,
              pv.created_at as visit_date, pv.queue_number,

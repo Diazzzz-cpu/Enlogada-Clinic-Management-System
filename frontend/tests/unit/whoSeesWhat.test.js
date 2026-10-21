@@ -10,6 +10,7 @@ const RECEPTION = [
   'appointments:read', 'appointments:update', 'appointments:reschedule',
   'tests:assign', 'tests:read_assigned', 'hmo:read', 'hmo:request',
   'billing:submit_proof', 'billing:discount', 'patients:read_all_departments',
+  'patients:invite',
 ];
 const CASHIER = [
   'patients:read', 'patients:read_all_departments', 'visits:read', 'visits:update',
@@ -26,6 +27,7 @@ const ADMIN = [
   'tests:manage', 'tests:assign', 'tests:read_assigned', 'results:read',
   'billing:read', 'billing:discount', 'billing:submit_proof',
   'hmo:read', 'hmo:request', 'hmo:approve', 'reports:view', 'audit:view', 'staff:manage',
+  'patients:invite', 'patients:unlink',
 ];
 const TEMPLATES = {
   Receptionist: RECEPTION, Cashier: CASHIER, Admin: ADMIN,
@@ -40,6 +42,13 @@ const [DESK, TILL, ROOMS, ADMIN_COL] = COLUMNS;
 const fresh = () => draftFrom(TEMPLATES);
 
 describe('a cell reads like the picture', () => {
+  it('portal access: the desk invites, and only Admin takes a record back out [1.136.0]', () => {
+    const d = fresh();
+    expect(areaCell(area('portal'), d, DESK)).toEqual({ mark: 'part', text: 'Invite to the portal' });
+    expect(areaCell(area('portal'), d, TILL).text).toBe('No');
+    expect(areaCell(area('portal'), d, ADMIN_COL)).toEqual({ mark: 'yes', text: 'Invite, and take a record back out' });
+  });
+
   it('front desk: patient records, the queue, bookings and money', () => {
     const d = fresh();
     expect(areaCell(area('patients'), d, DESK)).toEqual({ mark: 'yes', text: 'Find, register and edit, every department' });

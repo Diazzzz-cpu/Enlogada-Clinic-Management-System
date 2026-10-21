@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { AlertCircle, ArrowRight, CalendarClock } from 'lucide-react';
 import { Button } from '../ui/button';
 import EmptyState from '../ui/empty-state';
@@ -7,7 +7,6 @@ import { StatusBadge } from '../ui/status-badge';
 import { SkeletonList } from '../ui/skeleton';
 import { formatDate } from '../../lib/date';
 import { testProgress } from '../../lib/testProgress';
-import LinkAccountDialog from './LinkAccountDialog';
 
 const VISITS_SHOWN = 8;
 
@@ -35,8 +34,18 @@ const TONE = {
  * here, because the Desk is where a visit is started safely: it will not offer a second visit to
  * someone already in today's queue. Someone already in it gets "Find at the Desk" instead.
  */
-export default function PatientFile({ id, entry, patientName, archived, canStartVisit, onStartVisit, canLinkAccount, onRetry }) {
-  const [linking, setLinking] = useState(false);
+// What the account holder is to the patient, once a record is accepted by invitation. [1.136.0]
+const MANAGED_BY = {
+  parent_guardian: 'a parent or guardian',
+  child: 'their son or daughter',
+  grandchild: 'a grandchild',
+  spouse: 'their husband or wife',
+  sibling: 'a brother or sister',
+  other_family: 'a family member',
+  caregiver: 'their caregiver',
+};
+
+export default function PatientFile({ id, entry, patientName, archived, canStartVisit, onStartVisit, onRetry }) {
   if (!entry || entry.status === 'loading') {
     return <div id={id} className="p-4"><SkeletonList rows={3} /></div>;
   }
@@ -64,7 +73,11 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
     ['Address', patient.address],
     ['Email', patient.email],
     ['Emergency contact', patient.emergency_contact],
-    ['Portal account', patient.user_id ? 'Yes, they book and read results online' : 'No, a walk-in record'],
+    ['Portal account', !patient.user_id
+      ? 'No, a walk-in record'
+      : MANAGED_BY[patient.account_relationship]
+        ? `Yes, managed by ${MANAGED_BY[patient.account_relationship]}`
+        : 'Yes, they book and read results online'],
   ];
 
   return (
@@ -82,19 +95,8 @@ export default function PatientFile({ id, entry, patientName, archived, canStart
           ))}
         </dl>
 
-        {/* A walk-in who has since signed up: put this record in their portal. [1.123.0] */}
-        {canLinkAccount && !patient.user_id && !archived && (
-          <Button size="sm" variant="outline" onClick={() => setLinking(true)} data-testid="patient-file-link">
-            Link to a portal account
-          </Button>
-        )}
-        <LinkAccountDialog
-          open={linking}
-          onOpenChange={setLinking}
-          patientId={patient.id}
-          patientName={patientName}
-          onLinked={onRetry}
-        />
+        {/* Giving the record portal access is the row's "Portal access" action. [1.136.0] It was a
+            "Link to a portal account" button here, which joined a record on the desk's word alone. */}
 
         {canStartVisit && !archived && (
           <div className="space-y-1.5 pt-1">

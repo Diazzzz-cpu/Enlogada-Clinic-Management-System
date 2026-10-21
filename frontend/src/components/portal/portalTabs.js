@@ -9,7 +9,9 @@ import { CalendarClock, FileText, Home as HomeIcon, Receipt, Users } from 'lucid
  */
 export const PORTAL_TABS = [
   { value: 'home', label: 'Home', icon: HomeIcon },
-  { value: 'appointments', label: 'Appointments', icon: CalendarClock },
+  // "Visits", not "Appointments" [1.136.0]: it lists walk-in visits too, and a walk-in filed
+  // under Appointments reads as something the patient booked online. The value is unchanged.
+  { value: 'appointments', label: 'Visits', icon: CalendarClock },
   { value: 'results', label: 'Results', icon: FileText },
   { value: 'payments', label: 'Payments', icon: Receipt },
   { value: 'profile', label: 'Profile', icon: Users },

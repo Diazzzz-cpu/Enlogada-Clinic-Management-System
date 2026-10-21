@@ -60,6 +60,8 @@ const TRANSACTIONAL_TABLES = [
   // test exercises it — running it IS the check.
   'payment_submissions',
   'payments',
+  // Portal invitations [1.136.0]. Every patient they point at goes in this reset.
+  'patient_invitations',
   'visit_tests',
   'appointments',
   'patient_visits',

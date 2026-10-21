@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { hmoEffectiveStatus } = require('../constants/hmoEffectiveStatus');
+const { CAME_IN_AS } = require('../constants/visits');
 const {
   ISSUED_IN_RANGE, REVERSED_IN_RANGE, ISSUED_RECEIPT_CLAUSE
 } = require('../constants/moneyRange');
@@ -394,7 +395,9 @@ class PaymentRepository {
   async findPaymentsByPatientUserId(userId) {
     const queryText = `
       SELECT pay.*, p.first_name as patient_first_name, p.last_name as patient_last_name,
-             pv.queue_number, pv.visit_type
+             pv.queue_number, pv.visit_type, pv.created_at AS visit_date, pv.patient_id,
+             -- [1.136.0] Walk-in, booked online, or booked by the clinic: said on the receipt row.
+             ${CAME_IN_AS('pv')} AS came_in_as
       FROM payments pay
       JOIN patient_visits pv ON pay.patient_visit_id = pv.id
       JOIN patients p ON pv.patient_id = p.id

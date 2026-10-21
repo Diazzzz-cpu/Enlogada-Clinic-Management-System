@@ -206,6 +206,32 @@ test.describe('Payment first, for every booking', () => {
     expect(entry?.description).toMatch(/HMO had not approved it/);
   });
 
+  test('a paid booking says so plainly, and tells the patient to come at their time', async ({ page }) => {
+    // [1.138.0] Booked and paid at the desk for the patient's own profile.
+    const { date, time } = await nextSlot();
+    const paid = await ctx.post(`${API}/appointments`, {
+      headers: auth(desk),
+      data: {
+        patientId: client.patient.id, scheduledDate: date, scheduledTime: time, testIds: [labTest.id],
+        payment: { paymentMethod: 'Cash', amount: Number(labTest.price) },
+      },
+    });
+    expect(paid.status(), await paid.text()).toBe(201);
+    const appt = (await paid.json()).data.appointment;
+
+    await signIn(page, client.email, PASSWORD);
+    await openPortalTab(page, 'appointments');
+    const card = page.locator(`[data-testid="appointment-card"][data-reference="${appt.appointment_reference}"]`);
+    for (let i = 0; i < 6 && !(await card.isVisible()); i++) {
+      const next = page.getByRole('button', { name: /next/i });
+      if (!(await next.isVisible()) || !(await next.isEnabled())) break;
+      await next.click();
+    }
+    const state = card.getByTestId('pass-paid');
+    await expect(state.getByText('Paid', { exact: true })).toBeVisible();
+    await expect(state).toContainText('Please visit the clinic on the allotted appointment time.');
+  });
+
   test('the portal says a booking is waiting for the HMO, not that it must be paid', async ({ page }) => {
     const { appt } = await hmoBooking();
     await signIn(page, client.email, PASSWORD);

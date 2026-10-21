@@ -1,5 +1,15 @@
 # Database Migration & Schema History
 
+## [1.138.0] - 2026-10-22 (A paid pass says so plainly)
+
+No migration. Front end only.
+
+On the patient's booking pass, "Paid" was the smallest type on the card, the size of the receipt
+caption. It is now larger and bold, and until the patient has checked in it says what being paid
+means they do next: **"Please visit the clinic on the allotted appointment time."** Once they have a
+queue number they are at the clinic, so the line goes. `BookingPass.jsx` (`pass-paid`);
+`payment-first.spec.js` books and pays at the desk, and reads both on the patient's card.
+
 ## [1.137.0] - 2026-10-22 (The till's discount picker has a way back)
 
 No migration. Front end only.

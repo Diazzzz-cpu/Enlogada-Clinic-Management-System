@@ -177,9 +177,19 @@ const BookingPass = ({
             Payment due at the counter
           </span>
         )}
+        {/* [1.138.0] The thing a patient checks first, so it reads at a glance; and, until they
+            have checked in, what being paid means they do next. Once they have a queue number
+            they are already at the clinic. */}
         {isPaid === true && (
-          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-micro font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200">
-            Paid
+          <span className="flex flex-col items-center gap-1 sm:items-start" data-testid="pass-paid">
+            <span className="rounded-md bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-800 ring-1 ring-inset ring-emerald-200">
+              Paid
+            </span>
+            {!queueNumber && (
+              <span className="max-w-[16rem] text-center text-fine font-semibold text-ink sm:text-left">
+                Please visit the clinic on the allotted appointment time.
+              </span>
+            )}
           </span>
         )}
         {hmoApproved && isPaid !== true && (

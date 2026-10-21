@@ -1447,6 +1447,38 @@ body.printing-report {
    * the printed slip theme-dependent, which is exactly the blank-receipt bug the `@media screen`
    * wrapper further up exists to prevent. */
 
+  /* ── Paper keeps its ink [1.139.0] ────────────────────────────────────────────────────────
+   *
+   * The paper stayed white, but the INK on it did not: `text-slate-900` follows the remapped
+   * ramp, so in dark mode the receipt's patient, receipt number, services and amount were near-
+   * white on white, and only the few hues left unremapped could be read. A document is paper in
+   * both themes, so inside `.paper` the ramps it draws with go back to their light values. The
+   * inverse of the rail rule (a surface dark in both themes must not carry themeable ink).
+   * Put `.paper` on the white element of any document shown on screen: Receipt, ResultReport. */
+  html[data-theme="dark"] .paper {
+    color-scheme: light;
+    --color-slate-50: #f8fafc;  --color-gray-50: #f8fafc;
+    --color-slate-100: #f1f5f9; --color-gray-100: #f1f5f9;
+    --color-slate-200: #e2e8f0; --color-gray-200: #e2e8f0;
+    --color-slate-300: #cbd5e1; --color-gray-300: #cbd5e1;
+    --color-slate-400: #94a3b8; --color-gray-400: #94a3b8;
+    --color-slate-500: #64748b; --color-gray-500: #64748b;
+    --color-slate-600: #475569; --color-gray-600: #475569;
+    --color-slate-700: #334155; --color-gray-700: #334155;
+    --color-slate-800: #1e293b; --color-gray-800: #1e293b;
+    --color-slate-900: #0f172a; --color-gray-900: #0f172a;
+    --color-rose-50: #fff1f2;   --color-rose-100: #ffe4e6;  --color-rose-200: #fecdd3;
+    --color-rose-400: #fb7185;  --color-rose-600: #e11d48;  --color-rose-700: #be123c;
+    --color-rose-800: #9f1239;
+    --color-emerald-50: #ecfdf5; --color-emerald-200: #a7f3d0; --color-emerald-600: #059669;
+    --color-emerald-700: #047857; --color-emerald-800: #065f46;
+    --color-brand-50: #f5f8f3;  --color-brand-100: #e7eee4; --color-brand-200: #cfddc8;
+    --color-brand-500: #53843b; --color-brand-600: #477233; --color-brand-700: #3a5c29;
+    --color-ink: #0f172a;       --color-ink-soft: #475569;  --color-ink-muted: #5b6b80;
+    --color-line: #dbe3ec;
+    color: #0f172a;
+  }
+
   /* ── Status colour, remapped as pairs ────────────────────────────────────────────────────
    *
    * These are used with real discipline across the app — `bg-{hue}-50` as the tint, `text-{hue}-

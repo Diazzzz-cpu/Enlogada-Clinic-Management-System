@@ -458,8 +458,12 @@ export default function PayBookingPanel({ visitId, amountDue, tests = [], onSett
                     key={m.id}
                     type="button"
                     onClick={() => pay.setMethodId(String(m.id))}
+                    aria-pressed={on}
+                    // [1.139.0] Themed both ways. The unchosen ones were `bg-white/60` (a literal, so
+                    // still white in dark mode) under `text-slate-600` (themed, so light grey there):
+                    // "BPI SAVINGS" and "CHINABANK" read as pale text on a pale chip.
                     className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-fine font-semibold transition-colors ${
-                      on ? 'border-azure-400 bg-surface text-azure-800' : 'border-line bg-white/60 text-slate-600 hover:bg-surface'
+                      on ? 'border-azure-400 bg-surface text-azure-800' : 'border-line bg-sunken text-ink-soft hover:bg-surface hover:text-ink'
                     }`}
                   >
                     {m.label}

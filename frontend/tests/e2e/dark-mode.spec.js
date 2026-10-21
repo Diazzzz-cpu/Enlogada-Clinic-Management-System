@@ -42,6 +42,32 @@ async function setTheme(page, want) {
   throw new Error(`theme control never reached '${want}'`);
 }
 
+// [1.139.0] On SCREEN too. A receipt and a report are paper, white in both themes, so their ink
+// must stay dark: the ramp it draws with was remapped light, and the receipt's patient, number,
+// services and amount read as near-white on white. `.paper` puts the light ramp back.
+test('paper on screen keeps dark ink in dark mode; the rest of the page does not', async ({ page }) => {
+  await page.goto('/');
+  await setTheme(page, 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const colours = await page.evaluate(() => {
+    const paper = document.createElement('div');
+    paper.className = 'paper bg-white';
+    paper.innerHTML = '<p class="text-slate-900" id="on-paper">RCT-1</p><p class="text-slate-500" id="on-paper-muted">Cashier</p>';
+    const off = document.createElement('p');
+    off.className = 'text-slate-900';
+    off.id = 'off-paper';
+    document.body.append(paper, off);
+    const lum = (id) => {
+      const [r, g, b] = getComputedStyle(document.getElementById(id)).color.match(/\d+(\.\d+)?/g).map(Number);
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    };
+    return { onPaper: lum('on-paper'), muted: lum('on-paper-muted'), offPaper: lum('off-paper') };
+  });
+  expect(colours.onPaper, 'the receipt text is dark on its white paper').toBeLessThan(0.2);
+  expect(colours.muted, 'and its muted captions are still mid-grey, not near-white').toBeLessThan(0.55);
+  expect(colours.offPaper, 'off paper, the same class is light, as dark mode should be').toBeGreaterThan(0.8);
+});
+
 test('a receipt printed in dark mode is still black on white', async ({ page }) => {
   await page.goto('/');
   await setTheme(page, 'dark');

@@ -79,7 +79,7 @@ export default function ResultReport({
   // render as what they were. [1.53.0]
   const isUltrasound = result.category_name === 'Ultrasound' || result.category_name === '2D Echo';
   return (
-    <div className="print-area print-active space-y-3 bg-white p-1">
+    <div className="paper print-area print-active space-y-3 bg-white p-1">
       <Letterhead
         clinic={CLINIC}
         title={isUltrasound ? 'Ultrasound Report' : 'Diagnostic Examination Report'}

@@ -1,5 +1,23 @@
 # Database Migration & Schema History
 
+## [1.139.0] - 2026-10-22 (Dark mode: paper keeps its ink; the payment accounts read)
+
+No migration. Front end only.
+
+- **The receipt in dark mode.** A receipt is paper and stays white in both themes, deliberately
+  (see the PAPER note in `index.css`), but its ink came from the neutral ramp, which dark mode
+  remaps light: the receipt number, patient, services and amount were near-white on white. A new
+  `.paper` scope puts the light ramps (slate/gray, rose, emerald, brand, ink, line) back inside a
+  document, and only on screen in dark mode. On `Receipt.jsx` and `ResultReport.jsx`, the
+  letterhead around a patient's report, which had the same flaw. The inverse of the rail rule: a
+  surface light in both themes must not carry themeable ink.
+- **The payment accounts on the portal's pay panel.** The accounts not chosen were `bg-white/60` (a
+  literal, still white in dark mode) under `text-slate-600` (themed, light grey there): "BPI
+  SAVINGS" and "CHINABANK" were pale on pale. They are `bg-sunken text-ink-soft` now, a pair
+  `checkContrast.js` holds at AA in both themes, and carry `aria-pressed`.
+
+`dark-mode.spec.js` puts a paper document on the page in dark mode and reads its computed ink.
+
 ## [1.138.0] - 2026-10-22 (A paid pass says so plainly)
 
 No migration. Front end only.

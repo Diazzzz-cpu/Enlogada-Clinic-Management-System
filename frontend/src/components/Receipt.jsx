@@ -84,7 +84,7 @@ const Receipt = ({ payment, bill, cashier, tendered, change, reprint = false }) 
   const sampleIdentity = isSampleIdentity(CLINIC);
 
   return (
-    <div className="print-area mx-auto w-full max-w-[20rem] bg-white p-4 font-sans text-slate-900">
+    <div className="paper print-area mx-auto w-full max-w-[20rem] bg-white p-4 font-sans text-slate-900">
       {/* Sample configuration, said before anything else and impossible to miss.
           The sample block exists so the layout can be reviewed with every field populated, which
           means at some point a real receipt will be printed from a machine still carrying it. The

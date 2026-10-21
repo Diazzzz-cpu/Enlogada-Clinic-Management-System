@@ -143,6 +143,8 @@ async function main() {
       ['hmo_requests', `DELETE FROM hmo_requests WHERE id IN (SELECT id FROM _fx_hmo_requests)
          AND id NOT IN (SELECT hmo_request_id FROM hmo_request_tests)`],
       ['test_results', `DELETE FROM test_results WHERE visit_test_id IN (SELECT id FROM _fx_visit_tests)`],
+      // A proof of payment points at both the visit and the payment it became. [1.48.0]
+      ['payment_submissions', `DELETE FROM payment_submissions WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
       ['payments', `DELETE FROM payments WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
       ['appointments', `DELETE FROM appointments WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
       ['visit_tests', `DELETE FROM visit_tests WHERE patient_visit_id IN (SELECT id FROM _fx_visits)`],
